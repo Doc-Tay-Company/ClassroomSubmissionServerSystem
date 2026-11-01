@@ -1,0 +1,37 @@
+[
+  {
+    "id": "76b0181cbe10a104",
+    "student_id": null,
+    "message": "lo tap the trong 30p toi",
+    "created_at": "2026-10-31T04:48:07+00:00",
+    "created_by": "quyenchinhan"
+  },
+  {
+    "id": "c84276ab2ea3fd0a",
+    "student_id": "2301040137",
+    "message": "lo tap the trong 30p toi",
+    "created_at": "2026-10-31T04:48:20+00:00",
+    "created_by": "quyenchinhan"
+  },
+  {
+    "id": "f34031f11e69dc10",
+    "student_id": null,
+    "message": "lkjljlik",
+    "created_at": "2026-10-31T04:49:08+00:00",
+    "created_by": "quyenchinhan"
+  },
+  {
+    "id": "be5932765ad16999",
+    "student_id": null,
+    "message": "lhkj",
+    "created_at": "2026-10-31T04:49:22+00:00",
+    "created_by": "quyenchinhan"
+  },
+  {
+    "id": "2ceccc33495f067d",
+    "student_id": null,
+    "message": "nop bai de",
+    "created_at": "2026-10-31T04:51:15+00:00",
+    "created_by": "quyenchinhan"
+  }
+]

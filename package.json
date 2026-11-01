@@ -1,0 +1,11 @@
+{
+  "name": "classroom-submission-server-ui",
+  "private": true,
+  "scripts": {
+    "build:css": "tailwindcss -i ./assets/tailwind.input.css -o ./static/css/tailwind.css --minify",
+    "build": "npm run build:css"
+  },
+  "devDependencies": {
+    "tailwindcss": "3.4.17"
+  }
+}

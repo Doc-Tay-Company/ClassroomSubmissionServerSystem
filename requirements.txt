@@ -1,0 +1,3 @@
+# One small, pure-Python runtime dependency for rendering the existing HTML templates.
+# No FastAPI, Pydantic, Uvicorn, Starlette, python-multipart, or PyYAML.
+Jinja2>=3.1,<4

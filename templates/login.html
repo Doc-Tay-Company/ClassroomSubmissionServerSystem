@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}Đăng nhập · Classroom Submission Server{% endblock %}
+{% block body %}
+<main class="login-shell ui-page min-h-screen flex items-center justify-center p-6 bg-slate-50">
+  <section class="login-card ui-card w-full max-w-md rounded-2xl bg-white p-8 shadow-xl">
+    <div class="brand-mark"><i class="fa fa-laptop"></i></div>
+    <p class="eyebrow">CLASSROOM LAN</p><h1>Classroom Submission Server</h1>
+    <p class="muted">Đăng nhập bằng MSSV hoặc tài khoản Admin.</p>
+    {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+    <form action="/login" method="post" class="stack-form ui-form">
+      <label for="username">MSSV / Tài khoản Admin</label>
+      <input id="username" name="username" autocomplete="username" maxlength="80" required autofocus>
+      <label for="password">Mật khẩu</label>
+      <input id="password" type="password" name="password" autocomplete="current-password" required>
+      <button class="btn btn-primary btn-wide ui-action" type="submit"><i class="fa fa-sign-in"></i> Đăng nhập</button>
+    </form>
+    <p class="fine-print">Hệ thống nội bộ · Không chia sẻ thông tin đăng nhập.</p>
+  </section>
+</main>
+{% endblock %}

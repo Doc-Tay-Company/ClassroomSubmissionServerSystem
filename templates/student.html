@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Khu vực sinh viên · Classroom Submission Server{% endblock %}
+{% block body %}
+<header class="topbar ui-header"><div class="brand"><i class="fa fa-laptop"></i> Classroom Submission Server</div><form action="/logout" method="post"><button class="btn btn-ghost ui-action" type="submit"><i class="fa fa-sign-out"></i> Đăng xuất</button></form></header>
+<main class="page-wrap narrow ui-page mx-auto max-w-4xl px-6 py-8">
+  <section class="welcome-panel"><div><p class="eyebrow">KHU VỰC SINH VIÊN</p><h1>Xin chào, {{ student.full_name }}</h1><p class="muted">MSSV: <strong>{{ session.user_id }}</strong></p></div><span class="status-pill status-blue">Đã đăng nhập</span></section>
+  <section class="panel bg-white rounded-2xl border p-6 mb-5" id="student-panel" data-exam-password="{{ 'true' if settings.exam_password_enabled else 'false' }}">
+    <div id="student-notifications" class="hidden"></div><div class="panel-heading"><div><h2><i class="fa fa-file-text-o"></i> Bài thi của bạn</h2><p class="muted">Đề thi chỉ được mở sau khi bạn nhấn bắt đầu làm bài.</p></div></div>
+    {% if settings.exam_state == 'idle' or settings.exam_state == 'ended' %}
+      <div class="empty-state"><i class="fa fa-clock-o"></i><h3>Chưa phát đề</h3><p>Vui lòng chờ giảng viên bắt đầu kỳ thi.</p></div>
+    {% elif settings.exam_state == 'distributed' %}
+      <div class="empty-state"><i class="fa fa-hourglass-half"></i><h3>Đã được phân phối đề</h3><p>Giảng viên chưa bắt đầu kỳ thi. Vui lòng chờ thông báo.</p></div>
+    {% elif not assignment %}
+      <div class="empty-state"><i class="fa fa-question-circle"></i><h3>Chưa được phân phối đề</h3><p>Liên hệ giảng viên nếu bạn cho rằng đây là nhầm lẫn.</p></div>
+    {% elif not assignment.started_at %}
+      <div class="alert alert-warning">Đề thi đã được phân phối cho tài khoản của bạn. Nội dung đề chưa được hiển thị.</div>
+      {% if settings.exam_password_enabled %}<div class="exam-password-card"><div class="exam-password-icon"><i class="fa fa-lock"></i></div><div class="exam-password-content"><label for="exam-password">Mật khẩu đề thi</label><p class="muted">Nhập mật khẩu do giảng viên cung cấp để bắt đầu tính giờ.</p><input id="exam-password" type="password" autocomplete="off" placeholder="Mật khẩu đề thi"></div></div>{% endif %}
+      <button id="start-exam" class="btn btn-primary ui-action"><i class="fa fa-play"></i> Bắt đầu làm bài</button>
+      <p class="fine-print">Thời gian bắt đầu được ghi nhận trên server. Không thể kéo dài giờ thi bằng cách thay đổi đồng hồ máy tính.</p>
+    {% else %}
+      <div class="exam-status-grid"><div><span class="muted">Trạng thái</span><strong>{{ assignment.status }}</strong></div><div><span class="muted">Đề được giao</span><strong>{{ assignment.exam_file }}</strong></div><div><span class="muted">Bắt đầu</span><strong>{{ assignment.started_at }}</strong></div><div><span class="muted">Kết thúc</span><strong>{{ assignment.ends_at }}</strong></div><div><span class="muted">Thời gian còn lại</span><strong id="countdown" data-remaining="{{ remaining or 0 }}">--:--</strong></div></div>
+      <a class="btn btn-primary ui-action" href="/api/student/exam" target="_blank" rel="noopener"><i class="fa fa-file-pdf-o"></i> Mở đề thi</a>
+      <hr class="rule">
+      <h3>Nộp bài</h3><p class="muted">Được phép: {{ settings.accepted_submission_extensions|join(', ') }}. Tối đa 50 MiB. {% if settings.submission_policy == 'once' %}Bạn chỉ được nộp một lần.{% else %}Bạn được nộp tối đa {{ settings.max_submissions }} lần.{% endif %} Tên file lưu trên server sẽ bắt đầu bằng MSSV <strong>{{ session.user_id }}</strong>.</p>
+      <form id="submission-form" class="stack-form ui-form"><label for="submission-file">File bài làm</label><input id="submission-file" name="file" type="file" accept="{{ settings.accepted_submission_extensions|join(',') }}" required><button class="btn btn-primary ui-action" type="submit"><i class="fa fa-cloud-upload"></i> Nộp bài</button></form>
+      <div id="submission-result" class="notice hidden"></div>
+    {% endif %}
+  </section>
+</main>
+<script defer src="/static/js/student.js"></script>
+{% endblock %}

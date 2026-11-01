@@ -1,0 +1,482 @@
+{% extends "base.html" %}
+{% block title %}Admin Dashboard · Classroom Submission Server{% endblock %}
+{% block body %}
+<div class="admin-shell" data-admin-section="{{ section|default('dashboard') }}">
+    <aside class="main-sidebar" aria-label="Điều hướng quản trị">
+        <a class="sidebar-brand" href="/admin?section=dashboard"><span class="brand-mark"><i
+                class="fa fa-shield"></i></span><span>Classroom<br><small>Submission Server</small></span></a>
+        <div class="sidebar-user"><span class="sidebar-avatar"><i class="fa fa-user"></i></span>
+            <div><strong>{{ session.user_id }}</strong><small>Quản trị viên</small></div>
+        </div>
+        <nav class="sidebar-nav">
+            <p class="sidebar-label">TỔNG QUAN</p>
+            <a class="{{ 'active' if section == 'dashboard' else '' }}" href="/admin?section=dashboard"><i
+                    class="fa fa-dashboard"></i><span>Dashboard</span></a>
+            <p class="sidebar-label">QUẢN LÝ</p>
+            <a class="{{ 'active' if section == 'monitor' else '' }}" href="/admin?section=monitor"><i
+                    class="fa fa-desktop"></i><span>Giám sát</span></a>
+            <a class="{{ 'active' if section == 'notifications' else '' }}" href="/admin?section=notifications"><i
+                    class="fa fa-bullhorn"></i><span>Thông báo</span><span class="sidebar-badge">Mới</span></a>
+            <p class="sidebar-label">KỲ THI</p>
+            <a class="{{ 'active' if section == 'exam' else '' }}" href="/admin?section=exam"><i
+                    class="fa fa-sliders"></i><span>Cấu hình kỳ thi</span></a>
+            <p class="sidebar-label">QUẢN TRỊ</p>
+            <a class="{{ 'active' if section == 'accounts' else '' }}" href="/admin?section=accounts"><i
+                    class="fa fa-users"></i><span>Tài khoản sinh viên</span></a>
+            <a class="{{ 'active' if section == 'submissions' else '' }}" href="/admin?section=submissions"><i
+                    class="fa fa-cloud-download"></i><span>Bài nộp</span></a>
+            <a class="{{ 'active' if section == 'server' else '' }}" href="/admin?section=server"><i
+                    class="fa fa-sitemap"></i><span>Địa chỉ LAN</span></a>
+            <a class="{{ 'active' if section == 'admins' else '' }}" href="/admin?section=admins"><i
+                    class="fa fa-user-secret"></i><span>Tài khoản Admin</span></a>
+        </nav>
+        <div class="sidebar-footer"><i class="fa fa-circle text-success"></i> Server đang hoạt động</div>
+    </aside>
+    <div class="admin-content" id="top">
+        <header class="topbar ui-header">
+            <button class="sidebar-toggle" type="button" aria-label="Mở menu"><i class="fa fa-bars"></i></button>
+            <div class="brand"><i class="fa fa-shield"></i> Classroom Submission Server <span
+                    class="admin-tag">ADMIN</span></div>
+            <div class="topbar-actions"><span class="muted">Đăng nhập: {{ session.user_id }}</span>
+                <form action="/logout" method="post">
+                    <button class="btn btn-ghost ui-action" type="submit"><i class="fa fa-sign-out"></i> Đăng xuất
+                    </button>
+                </form>
+            </div>
+        </header>
+        <main class="page-wrap mx-auto max-w-7xl px-6 py-8">
+            <section class="page-title">
+                <div><p class="eyebrow">QUẢN TRỊ KỲ THI LAN</p>
+                    <h1>{% if section == 'dashboard' %}Dashboard{% elif section == 'monitor' %}Giám sát sinh viên{% elif
+                        section == 'notifications' %}Trung tâm thông báo{% elif section == 'exam' %}Cấu hình kỳ thi{%
+                        elif section == 'accounts' %}Tài khoản sinh viên{% elif section == 'submissions' %}Quản lý bài
+                        nộp{% elif section == 'server' %}Địa chỉ LAN{% else %}Tài khoản Admin{% endif %}</h1>
+                    <p class="muted">Quản lý tài khoản, phân phối đề, thời gian thi và bài nộp.</p></div>
+                <div class="server-chip"><span class="live-dot"></span> Server hoạt động <span id="live-status">Đang kết nối...</span>
+                </div>
+            </section>
+            {% if section == 'dashboard' %}
+            <section class="stats-grid grid grid-cols-1 md:grid-cols-4 gap-4">
+                <article class="stat-card"><span class="stat-icon blue"><i class="fa fa-users"></i></span>
+                    <div><p>Tổng sinh viên</p><strong id="stat-total">—</strong></div>
+                </article>
+                <article class="stat-card"><span class="stat-icon green"><i class="fa fa-wifi"></i></span>
+                    <div><p>Đang đăng nhập</p><strong id="stat-online">—</strong></div>
+                </article>
+                <article class="stat-card"><span class="stat-icon amber"><i class="fa fa-check-square-o"></i></span>
+                    <div><p>Đã nộp bài</p><strong id="stat-submitted">—</strong></div>
+                </article>
+                <article class="stat-card stat-alert"><span class="stat-icon red"><i
+                        class="fa fa-exclamation-triangle"></i></span>
+                    <div><p>Cảnh báo bất thường</p><strong id="stat-abnormal">—</strong></div>
+                </article>
+                <article class="stat-card"><span class="stat-icon violet"><i class="fa fa-file-text-o"></i></span>
+                    <div><p>File đề thi</p><strong>{{ exam_files|length }}</strong></div>
+                </article>
+            </section>
+            <section class="panel dashboard-management">
+                <div class="panel-heading">
+                    <div><h2><i class="fa fa-th-large"></i> Trung tâm quản lý</h2>
+                        <p class="muted">Chọn một mục trong Main Sidebar để mở đầy đủ chức năng quản trị.</p></div>
+                </div>
+                <div class="management-cards">
+                    <a class="management-card" href="/admin?section=monitor"><i class="fa fa-desktop"></i><strong>Giám
+                        sát</strong><span>Theo dõi máy, trạng thái, cảnh báo và điều khiển sinh viên.</span></a>
+                    <a class="management-card" href="/admin?section=notifications"><i
+                            class="fa fa-bullhorn"></i><strong>Thông báo</strong><span>Gửi thông báo cho toàn bộ lớp hoặc từng sinh viên.</span></a>
+                    <a class="management-card" href="/admin?section=exam"><i class="fa fa-sliders"></i><strong>Cấu hình
+                        kỳ thi</strong><span>Cấu hình, phân phối đề, bắt đầu và kết thúc kỳ thi.</span></a>
+                    <a class="management-card" href="/admin?section=accounts"><i class="fa fa-users"></i><strong>Tài
+                        khoản sinh viên</strong><span>Tạo nhanh và tra cứu tài khoản sinh viên.</span></a>
+                    <a class="management-card" href="/admin?section=submissions"><i
+                            class="fa fa-cloud-download"></i><strong>Bài nộp</strong><span>Tra cứu và tải bài làm đã nộp.</span></a>
+                    <a class="management-card" href="/admin?section=server"><i class="fa fa-sitemap"></i><strong>Địa chỉ
+                        LAN</strong><span>Xem URL để các máy trong mạng truy cập.</span></a>
+                    <a class="management-card" href="/admin?section=admins"><i class="fa fa-user-secret"></i><strong>Tài
+                        khoản Admin</strong><span>Quản lý tài khoản quản trị hệ thống.</span></a>
+                </div>
+            </section>
+            {% endif %}
+            {% if section == 'monitor' %}
+            <section class="panel bg-white rounded-2xl border p-6 mb-5" id="monitor">
+                <div class="panel-heading">
+                    <div><h2><i class="fa fa-desktop"></i> Máy và trạng thái sinh viên</h2>
+                        <p class="muted">IP là địa chỉ kết nối mà server quan sát được; User-Agent chỉ mô tả trình
+                            duyệt, không xác định chắc chắn tên máy.</p></div>
+                    <button class="btn btn-secondary" id="refresh-monitor"><i class="fa fa-refresh"></i> Làm mới
+                    </button>
+                </div>
+                <div class="table-toolbar"><input id="monitor-search" placeholder="Tìm MSSV, họ tên hoặc IP..."><span
+                        class="muted" id="monitor-updated">Chưa cập nhật</span></div>
+                <div class="monitor-legend"><span><i class="fa fa-eye-slash"></i> Tab bị ẩn/mất focus</span><span><i
+                        class="fa fa-clone"></i> Mở nhiều tab</span><span><i class="fa fa-info-circle"></i> Chỉ giám sát tab thi hiện tại</span>
+                </div>
+                <div class="table-scroll">
+                    <table>
+                        <thead>
+                        <tr>
+                            <th>MSSV / Họ tên</th>
+                            <th>IP</th>
+                            <th>Trạng thái</th>
+                            <th>Đề</th>
+                            <th>Thời gian</th>
+                            <th>Nộp bài</th>
+                            <th>Trình duyệt</th>
+                            <th>Cảnh báo</th>
+                            <th>Điều khiển</th>
+                        </tr>
+                        </thead>
+                        <tbody id="monitor-body">
+                        <tr>
+                            <td colspan="9" class="empty-cell">Đang tải dữ liệu…</td>
+                        </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+            {% endif %}
+            {% if section == 'notifications' %}
+            <section class="panel notification-panel bg-white rounded-2xl border p-6 mb-5" id="notifications">
+                <div class="panel-heading">
+                    <div><h2><i class="fa fa-bullhorn"></i> Trung tâm thông báo</h2>
+                        <p class="muted">Gửi hướng dẫn, nhắc nhở hoặc thông tin khẩn đến sinh viên trong kỳ thi.</p>
+                    </div>
+                    <span class="section-badge"><i class="fa fa-paper-plane"></i> Gửi theo thời gian thực</span></div>
+                <div class="notification-layout">
+                    <div class="notification-intro">
+                        <div class="notification-icon"><i class="fa fa-comments"></i></div>
+                        <h3>Soạn thông báo</h3>
+                        <p class="muted">Thông báo sẽ xuất hiện trong giao diện sinh viên ở lần đồng bộ kế tiếp.</p>
+                        <div class="notification-tips"><p><i class="fa fa-check"></i> Có thể gửi cho toàn bộ lớp</p>
+                            <p><i class="fa fa-check"></i> Hoặc gửi riêng theo MSSV</p></div>
+                    </div>
+                    <form id="notification-form" class="notification-form">
+                        <label>Đối tượng nhận</label>
+                        <div class="notification-targets"><label class="radio-row"><input type="radio"
+                                                                                          name="notification_scope"
+                                                                                          value="all" checked> Tất cả
+                            sinh viên</label><label class="radio-row"><input type="radio" name="notification_scope"
+                                                                             value="selected"> Chọn sinh viên</label>
+                        </div>
+                        <div id="notification-picker" class="notification-picker hidden"><input id="notification-search"
+                                                                                                placeholder="Tìm nhanh theo MSSV hoặc họ tên..."
+                                                                                                aria-label="Tìm sinh viên">
+                            <div id="notification-students" class="notification-students"><span class="muted">Đang tải danh sách sinh viên…</span>
+                            </div>
+                            <div class="picker-footer">
+                                <button type="button" class="btn btn-ghost btn-small" id="select-visible-students">Chọn
+                                    kết quả
+                                </button>
+                                <button type="button" class="btn btn-ghost btn-small" id="clear-selected-students">Bỏ
+                                    chọn
+                                </button>
+                                <span class="muted" id="selected-students-count">0 sinh viên được chọn</span></div>
+                        </div>
+                        <label for="notification-message">Nội dung thông báo</label><textarea id="notification-message"
+                                                                                              name="message" rows="5"
+                                                                                              required maxlength="1000"
+                                                                                              placeholder="Nhập nội dung cần thông báo..."></textarea>
+                        <div class="notification-form-footer"><span class="muted"><i class="fa fa-info-circle"></i> Tối đa 1.000 ký tự</span>
+                            <button class="btn btn-primary" type="submit"><i class="fa fa-paper-plane"></i> Gửi thông
+                                báo
+                            </button>
+                        </div>
+                    </form>
+                </div>
+                <div id="notification-result" class="notice hidden"></div>
+            </section>
+            {% endif %}
+            {% if section == 'exam' %}
+            <section class="panel exam-distribution-panel bg-white rounded-2xl border p-6 mb-5" id="distribution">
+                <div class="panel-heading">
+                    <div><h2><i class="fa fa-random"></i> Quy trình kỳ thi</h2>
+                        <p class="muted">Thực hiện lần lượt: phân phối đề, bắt đầu kỳ thi, kết thúc kỳ thi.</p></div>
+                    <div class="exam-control"><span
+                            class="status-pill {{ 'status-green' if settings.exam_state == 'started' else 'status-amber' if settings.exam_state == 'distributed' else 'status-gray' }}">{{ 'Đang diễn ra' if settings.exam_state == 'started' else 'Đã phân phối - chờ bắt đầu' if settings.exam_state == 'distributed' else 'Chưa bắt đầu' }}</span>
+                        <button id="start-exam-admin" class="btn btn-primary" type="button" {% if settings.exam_state
+                                !='distributed' %}disabled{% endif %}><i class="fa fa-play"></i> Bắt đầu kỳ thi
+                        </button>
+                        <button id="end-exam" class="btn btn-danger" type="button" {% if settings.exam_state !='started'
+                                %}disabled{% endif %}><i class="fa fa-stop"></i> Kết thúc kỳ thi
+                        </button>
+                    </div>
+                </div>
+                {% if not exam_files %}
+                <div class="alert alert-warning">Chưa có file đề hợp lệ trong thư mục de-thi/.</div>
+                {% endif %}
+                <form id="distribution-form" class="stack-form"><label for="distribution-mode">Chế độ phân
+                    phối</label><select id="distribution-mode" name="mode">
+                    <option value="selected">Phân phối từ các đề được chọn</option>
+                    <option value="random">Ngẫu nhiên trong các đề được chọn</option>
+                    <option value="parity">Chẵn/lẻ theo chữ số cuối MSSV</option>
+                    <option value="custom">Quy tắc tùy chỉnh theo chữ số cuối MSSV</option>
+                </select>
+                    <fieldset>
+                        <legend>Đề dùng để phân phối (chọn một hoặc nhiều)</legend>
+                        <div class="form-actions">
+                            <button type="button" class="btn btn-ghost btn-small" id="select-all-exams">Chọn tất cả
+                            </button>
+                            <button type="button" class="btn btn-ghost btn-small" id="clear-all-exams">Bỏ chọn tất cả
+                            </button>
+                        </div>
+                        <div class="two-cols">{% for exam in exam_files %}<label class="checkbox-row"><input
+                                type="checkbox" name="exam-choice" value="{{ exam.name }}" checked> {{ exam.name
+                            }}</label>{% endfor %}
+                        </div>
+                    </fieldset>
+                    <div id="parity-fields" class="two-cols hidden">
+                        <div><label for="even-exam">Đề cho MSSV chẵn</label><select id="even-exam" name="even_exam">{%
+                            for exam in exam_files %}
+                            <option value="{{ exam.name }}">{{ exam.name }}</option>
+                            {% endfor %}</select></div>
+                        <div><label for="odd-exam">Đề cho MSSV lẻ</label><select id="odd-exam" name="odd_exam">{% for
+                            exam in exam_files %}
+                            <option value="{{ exam.name }}">{{ exam.name }}</option>
+                            {% endfor %}</select></div>
+                    </div>
+                    <div id="custom-fields" class="custom-rule-fields hidden"><label>Chia chữ số cuối MSSV cho <strong
+                            id="custom-modulus-label">0</strong></label><input id="custom-modulus" name="custom_modulus"
+                                                                               type="hidden" value="0">
+                        <p class="fine-print">Số chia tự động bằng số đề đã chọn ở mục “Đề dùng để phân phối”. Hãy chọn
+                            đúng số đề trước khi gán số dư.</p>
+                        <fieldset>
+                            <legend>Chọn đề cho từng số dư</legend>
+                            <div id="remainder-rules" class="remainder-rules"></div>
+                        </fieldset>
+                        <textarea id="last-digit-map" name="last_digit_map" class="hidden"
+                                  aria-hidden="true"></textarea></div>
+                    <div class="alert alert-warning">Phát đề là thao tác không thể hoàn tác trong lượt thi. Hãy kiểm tra
+                        tài khoản và file đề trước khi xác nhận.
+                    </div>
+                    <button class="btn btn-primary" type="submit" {% if settings.exam_released or not exam_files
+                            %}disabled{% endif %}><i class="fa fa-paper-plane"></i> Phát đề ngay
+                    </button>
+                </form>
+                <div id="distribution-result" class="notice hidden"></div>
+            </section>
+            {% endif %}
+            {% if section == 'accounts' %}
+            <section class="panel" id="accounts">
+                <div class="panel-heading">
+                    <div><h2><i class="fa fa-users"></i> Tài khoản sinh viên</h2>
+                        <p class="muted">Tạo, tìm kiếm, khóa/mở khóa và đặt lại mật khẩu tài khoản.</p></div>
+                    <a class="btn btn-secondary" href="/admin/accounts-template.txt"><i class="fa fa-download"></i> Mẫu
+                        danh sách</a></div>
+                <form id="import-form" class="stack-form"><label for="pasted-text">Danh sách tài khoản (MSSV | Ngày sinh
+                    | Họ tên)</label><textarea id="pasted-text" name="pasted_text" rows="4"
+                                               placeholder="MSSV|01/02/2003|Nguyen Van A"></textarea>
+                    <div class="form-actions">
+                        <button class="btn btn-primary" type="submit"><i class="fa fa-user-plus"></i> Tạo tài khoản
+                        </button>
+                    </div>
+                </form>
+                <div id="import-result" class="notice hidden"></div>
+                <div class="table-toolbar"><input id="account-search" placeholder="Tìm MSSV hoặc họ tên..."></div>
+                <div class="table-scroll">
+                    <table>
+                        <thead>
+                        <tr>
+                            <th>MSSV</th>
+                            <th>Họ tên</th>
+                            <th>Trạng thái</th>
+                            <th>IP</th>
+                            <th>Thao tác</th>
+                        </tr>
+                        </thead>
+                        <tbody id="accounts-body">
+                        <tr>
+                            <td colspan="5" class="empty-cell">Đang tải…</td>
+                        </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+            {% elif section == 'submissions' %}
+            <section class="panel" id="submissions">
+                <div class="panel-heading">
+                    <div><h2><i class="fa fa-cloud-download"></i> Quản lý bài nộp</h2>
+                        <p class="muted">Theo dõi và tải các bài nộp của sinh viên.</p></div>
+                </div>
+                <div class="table-toolbar"><input id="submission-search"
+                                                  placeholder="Tìm MSSV, họ tên hoặc file..."><span
+                        id="submission-count" class="muted">—</span></div>
+                <div class="table-scroll">
+                    <table>
+                        <thead>
+                        <tr>
+                            <th>MSSV / Họ tên</th>
+                            <th>Lần nộp</th>
+                            <th>File</th>
+                            <th>Thời điểm</th>
+                            <th>Trạng thái</th>
+                        </tr>
+                        </thead>
+                        <tbody id="submissions-body">
+                        <tr>
+                            <td colspan="5" class="empty-cell">Đang tải…</td>
+                        </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+            {% elif section == 'server' %}
+            <section class="panel" id="server-info">
+                <div class="panel-heading">
+                    <div><h2><i class="fa fa-sitemap"></i> Địa chỉ truy cập LAN</h2>
+                        <p class="muted">Địa chỉ để sinh viên truy cập trong cùng mạng.</p></div>
+                    <button class="btn btn-secondary" id="refresh-server-info"><i class="fa fa-refresh"></i> Làm mới
+                    </button>
+                </div>
+                <div id="server-addresses" class="address-list"><span class="muted">Đang xác định…</span></div>
+            </section>
+            {% elif section == 'admins' %}
+            <section class="panel" id="admin-accounts">
+                <div class="panel-heading">
+                    <div><h2><i class="fa fa-user-secret"></i> Tài khoản Admin</h2>
+                        <p class="muted">Tạo và quản lý tài khoản quản trị.</p></div>
+                </div>
+                <form id="create-admin-form" class="stack-form">
+                    <div class="two-cols"><input name="username" placeholder="Tên tài khoản" required><input
+                            name="password" type="password" placeholder="Mật khẩu tối thiểu 10 ký tự" minlength="10"
+                            required></div>
+                    <button class="btn btn-primary" type="submit"><i class="fa fa-user-plus"></i> Tạo Admin</button>
+                </form>
+                <div id="admin-create-result" class="notice hidden"></div>
+                <div class="table-scroll">
+                    <table>
+                        <thead>
+                        <tr>
+                            <th>Tài khoản</th>
+                            <th>Ngày tạo</th>
+                            <th>Trạng thái</th>
+                        </tr>
+                        </thead>
+                        <tbody id="admins-body">
+                        <tr>
+                            <td colspan="3" class="empty-cell">Đang tải…</td>
+                        </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+            {% endif %}
+            {% if section == 'exam' %}
+            <section class="panel exam-participants-panel bg-white rounded-2xl border p-6 mb-5" id="exam-participants">
+                <div class="panel-heading">
+                    <div><h2><i class="fa fa-user-check"></i> Đối tượng được vào thi</h2>
+                        <p class="muted">Chỉ sinh viên trong danh sách này mới được phân phối đề và làm bài. MSSV chưa
+                            có tài khoản sẽ được tạo tự động với mật khẩu ban đầu là MSSV.</p></div>
+                    <span class="section-badge" id="participant-count">0 sinh viên</span></div>
+                <div class="two-cols">
+                    <div>
+                        <label for="participant-search">
+                            <i class="fa fa-users"></i> Chọn từ danh sách tài khoản
+                        </label>
+
+                        <input
+                                id="participant-search"
+                                type="search"
+                                placeholder="Tìm MSSV hoặc họ tên..."
+                                autocomplete="off"
+                        >
+
+                        <div id="participant-list" class="participant-list">
+            <span class="muted">
+                <i class="fa fa-spinner fa-spin"></i> Đang tải danh sách…
+            </span>
+                        </div>
+
+                        <div class="flex flex-wrap items-center gap-2 mt-3">
+                            <button
+                                    type="button"
+                                    class="btn btn-ghost btn-small"
+                                    id="select-all-participants"
+                            >
+                                <i class="fa fa-check-square-o"></i> Chọn tất cả kết quả
+                            </button>
+
+                            <button
+                                    type="button"
+                                    class="btn btn-ghost btn-small"
+                                    id="clear-all-participants"
+                            >
+                                <i class="fa fa-times"></i> Bỏ chọn
+                            </button>
+                        </div>
+                    </div>
+
+                    <div>
+                        <label for="participant-paste">
+                            <i class="fa fa-list-alt"></i> Hoặc dán danh sách MSSV
+                        </label>
+
+                        <textarea
+                                id="participant-paste"
+                                rows="8"
+                                placeholder="Nhập mỗi dòng một MSSV hoặc phân cách bằng dấu phẩy"
+                        ></textarea>
+
+                        <p class="fine-print">
+                            <i class="fa fa-info-circle"></i>
+                            MSSV chưa tồn tại sẽ được tự động tạo tài khoản với họ tên mặc định
+                            “Chưa cập nhật” và mật khẩu ban đầu là MSSV.
+                        </p>
+                    </div>
+                </div>
+                <button type="button" class="btn btn-primary" id="save-participants"><i class="fa fa-save"></i> Lưu danh
+                    sách dự thi
+                </button>
+                <div id="participant-result" class="notice hidden"></div>
+            </section>
+            <section class="panel exam-settings-panel bg-white rounded-2xl border p-6 mb-5" id="settings">
+                <div class="panel-heading">
+                    <div><h2><i class="fa fa-sliders"></i> Cấu hình kỳ thi</h2>
+                        <p class="muted">Thời gian được tính bằng đồng hồ server.</p></div>
+                </div>
+                <form id="settings-form" class="stack-form">
+                    <div class="two-cols">
+                        <div><label for="duration">Thời lượng (phút)</label><input id="duration"
+                                                                                   name="exam_duration_minutes"
+                                                                                   type="number" min="1" max="1440"
+                                                                                   value="{{ settings.exam_duration_minutes }}"
+                                                                                   required></div>
+                        <div><label for="submission-policy">Chính sách nộp bài</label><select id="submission-policy"
+                                                                                              name="submission_policy">
+                            <option value="once" {{
+                            'selected' if settings.submission_policy == 'once' else '' }}>Một lần duy nhất</option>
+                            <option value="configurable" {{
+                            'selected' if settings.submission_policy == 'configurable' else '' }}>Theo số lần Admin cấu
+                            hình</option></select></div>
+                        <div><label for="max-submissions">Số lần nộp tối đa</label><input id="max-submissions"
+                                                                                          name="max_submissions"
+                                                                                          type="number" min="1" max="20"
+                                                                                          value="{{ settings.max_submissions }}">
+                        </div>
+                        <div><label for="overwrite">Khi nộp lại</label><select id="overwrite" name="overwrite_previous">
+                            <option value="true" {{
+                            'selected' if settings.overwrite_previous else '' }}>Ghi đè file trước</option>
+                            <option value="false" {{
+                            'selected' if not settings.overwrite_previous else '' }}>Giữ các file trước</option>
+                        </select></div>
+                    </div>
+                    <label class="checkbox-row"><input id="password-enabled" name="exam_password_enabled"
+                                                       type="checkbox" {{ 'checked' if settings.exam_password_enabled
+                        else '' }}> Yêu cầu mật khẩu đề thi</label><label for="exam-password-admin">Mật khẩu đề thi mới
+                    (để trống nếu giữ mật khẩu hiện tại)</label><input id="exam-password-admin" name="exam_password"
+                                                                       type="password" autocomplete="new-password"
+                                                                       placeholder="Chỉ cần nhập khi đổi/bật mật khẩu"><label
+                        for="accepted-extensions">Loại file được chấp nhận (cách nhau bằng dấu cách hoặc dấu
+                    phẩy)</label><input id="accepted-extensions" name="accepted_submission_extensions"
+                                        value="{{ settings.accepted_submission_extensions|join(' ') }}"
+                                        placeholder=".zip .pdf .docx">
+                    <button class="btn btn-primary" type="submit"><i class="fa fa-save"></i> Lưu cấu hình</button>
+                </form>
+                <div id="settings-result" class="notice hidden"></div>
+            </section>
+            {% endif %}
+        </main>
+        <footer class="page-footer">Classroom Submission Server · Local LAN · JSON/JSONL storage</footer>
+    </div>
+</div>
+<script defer src="/static/js/admin.js"></script>
+{% endblock %}

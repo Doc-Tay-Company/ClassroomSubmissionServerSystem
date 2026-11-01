@@ -1,0 +1,4 @@
+# Format: MSSV|NgaySinh|HoTen
+# Moi dong la mot tai khoan. Khoang trang quanh cac truong se duoc trim.
+21010001|01/02/2003|Nguyen Van A
+21010002|15/08/2003|Tran Thi B
