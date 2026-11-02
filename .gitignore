@@ -8,3 +8,5 @@ logs/*.jsonl
 submissions/*
 !submissions/.gitkeep
 data/*.bak
+.DS_Store
+._*
