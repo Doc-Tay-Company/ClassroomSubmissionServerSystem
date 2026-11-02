@@ -675,3 +675,5 @@ Thứ tự làm, không làm ngược:
    vọng trong mục 6 đều là kỳ vọng từ thiết kế, chưa phải kết quả chạy
    thật. Trainer chạy thử xong và tick hết checklist mục 6 thì Phase 1
    mới được coi là xong bước khung.
+
+   
