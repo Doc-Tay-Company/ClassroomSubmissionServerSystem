@@ -14,6 +14,16 @@ from app.windows_job import JobLimits, JobObjectError, create_job_process
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
+class JobLimitsValidationTests(unittest.TestCase):
+    def test_limits_require_positive_integers(self):
+        for value in (True, 1.5, 0, -1):
+            with self.subTest(value=value):
+                with self.assertRaises(ValueError):
+                    JobLimits(active_process_limit=value)
+                with self.assertRaises(ValueError):
+                    JobLimits(process_memory_limit_bytes=value)
+
+
 @unittest.skipUnless(os.name == "nt", "Windows Job Objects are only available on Windows")
 class WindowsJobIntegrationTests(unittest.TestCase):
     def create_process(self, command, cwd, limits=None):
@@ -40,6 +50,22 @@ class WindowsJobIntegrationTests(unittest.TestCase):
             try:
                 self.assertEqual(process.wait(timeout=5), 0)
                 self.assertEqual(process.stdout.read(), b"job-ok\r\n")
+            finally:
+                process.close()
+
+    def test_process_can_read_bounded_protocol_input_from_pipe(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            process = create_job_process(
+                [sys.executable, "-c", "import sys; sys.stdout.buffer.write(sys.stdin.buffer.read())"],
+                cwd=temp_dir,
+                env=minimal_environment(),
+                stdin_pipe=True,
+            )
+            try:
+                process.stdin.write(b'{"checks":[]}')
+                process.stdin.close()
+                self.assertEqual(process.wait(timeout=5), 0)
+                self.assertEqual(process.stdout.read(), b'{"checks":[]}')
             finally:
                 process.close()
 
@@ -95,6 +121,9 @@ class WindowsJobIntegrationTests(unittest.TestCase):
                 process.wait(timeout=3)
             finally:
                 process.close()
+            self.assertTrue(process._job_empty_on_close)
+            self.assertTrue(process._closed and process._job_handle is None)
+            self.assertIsNotNone(process.poll())
             time.sleep(1.2)
             self.assertFalse(marker.exists())
 
@@ -117,6 +146,9 @@ class WindowsJobIntegrationTests(unittest.TestCase):
             )
             self.wait_for_file(ready)
             process.close()
+            self.assertTrue(process._job_empty_on_close)
+            self.assertTrue(process._closed and process._job_handle is None)
+            self.assertIsNotNone(process.poll())
             time.sleep(1.2)
             self.assertFalse(marker.exists())
 

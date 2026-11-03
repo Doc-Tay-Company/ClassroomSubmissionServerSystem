@@ -33,17 +33,31 @@ from .storage import initialize, read_json, write_json, audit, utc_now
 from .security import hash_password, verify_password, new_session, get_session, require_user, client_ip, login_allowed, record_login_failure, clear_login_failures, logout_session, SecurityError
 from .exams import list_exam_files, distribute_exams, start_exam, start_exam_session, remaining_seconds
 from .submissions import accept_submission
+from .questions import QuestionError, create_question, list_questions
+from .code_exams import (
+    CodeExamError,
+    create_code_exam,
+    get_student_code_exam,
+    get_student_submission,
+    get_admin_code_results,
+    list_code_exams,
+    publish_question,
+    run_pretest,
+    submit_code,
+    transition_code_exam,
+)
 
 initialize()
 TEMPLATES = Environment(loader=FileSystemLoader(str(TEMPLATE_DIR)), autoescape=select_autoescape(["html", "xml"]))
 
 class RequestData:
-    def __init__(self, handler, form=None, files=None):
+    def __init__(self, handler, form=None, files=None, json_body=None):
         self.headers = handler.headers
         self.cookies = handler.cookies
         self.client = SimpleNamespace(host=handler.client_address[0])
         self.form = form or {}
         self.files = files or {}
+        self.json_body = json_body
         self.path = urllib.parse.urlsplit(handler.path).path
         self.query = urllib.parse.parse_qs(urllib.parse.urlsplit(handler.path).query)
         self.method = handler.command
@@ -132,7 +146,7 @@ class Handler(BaseHTTPRequestHandler):
         if length > MAX_REQUEST_SIZE: raise ClientError(413, "Request vượt giới hạn 50 MiB.")
         body=self.rfile.read(length) if length else b""
         ctype=self.headers.get("Content-Type", "")
-        form={}; files={}
+        form={}; files={}; json_body=None
         if ctype.startswith("application/x-www-form-urlencoded"):
             parsed=urllib.parse.parse_qs(body.decode("utf-8", "replace"), keep_blank_values=True)
             form={k:v[-1] for k,v in parsed.items()}
@@ -146,9 +160,22 @@ class Handler(BaseHTTPRequestHandler):
                     filename=part.get_filename()
                     if filename is not None: files[name]={"filename":filename,"data":payload,"content_type":part.get_content_type()}
                     else: form[name]=payload.decode(part.get_content_charset() or "utf-8", "replace")
-        return body, RequestData(self,form,files)
+        elif ctype.lower().startswith("application/json"):
+            try:
+                json_body=json.loads(body.decode("utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                raise ClientError(400,"Body JSON không hợp lệ hoặc không phải UTF-8.") from exc
+            if not isinstance(json_body, dict):
+                raise ClientError(400,"Body JSON phải là một object.")
+        return body, RequestData(self,form,files,json_body)
 
     def _request(self, form=None, files=None): return RequestData(self,form,files)
+
+    @staticmethod
+    def _json_body(req):
+        if req.json_body is None:
+            raise ClientError(415,"Endpoint này yêu cầu Content-Type application/json.")
+        return req.json_body
 
     def _auth(self, req, role=None):
         try: return require_user(req, role)
@@ -210,6 +237,16 @@ class Handler(BaseHTTPRequestHandler):
                 result.sort(key=lambda x:x.get("submitted_at",""),reverse=True); return self._json({"submissions":result})
             if path=="/api/admin/admins":
                 self._auth(req,"admin"); return self._json({"admins":[{"username":n,"active":d.get("active",True),"created_at":d.get("created_at"),"created_by":d.get("created_by")} for n,d in read_json("admins.json").items()]})
+            if path=="/api/admin/questions":
+                self._auth(req,"admin"); return self._json({"questions":list_questions()})
+            if path=="/api/admin/code-exams":
+                self._auth(req,"admin"); return self._json({"code_exams":list_code_exams()})
+            if path=="/api/admin/code-results":
+                self._auth(req,"admin")
+                exam_ids=req.query.get("exam_id",[])
+                if not exam_ids or not exam_ids[0]: raise ClientError(400,"exam_id is required.")
+                student_ids=req.query.get("student_id",[]); question_ids=req.query.get("question_id",[])
+                return self._json(get_admin_code_results(exam_ids[0],student_id=student_ids[0] if student_ids else None,question_id=question_ids[0] if question_ids else None))
             if path=="/api/admin/server-info":
                 self._auth(req,"admin"); addresses=self._lan_addresses(); scheme="https" if (os.getenv("CSS_TLS_CERT") and os.getenv("CSS_TLS_KEY")) else "http"
                 return self._json({"addresses":sorted(addresses),"current_url":f"{scheme}://{self.headers.get('host',f'127.0.0.1:{PORT}')}","port":PORT,"scheme":scheme})
@@ -218,6 +255,7 @@ class Handler(BaseHTTPRequestHandler):
                 if not settings.get("exam_released") or not item or item.get("release_id")!=settings.get("exam_release_id"): raise ClientError(403,"Lượt thi đã kết thúc hoặc chưa được phân phối.")
                 if not item.get("started_at"): raise ClientError(403,"Chỉ xem được đề sau khi bắt đầu làm bài.")
                 if remaining_seconds(item)<=0: raise ClientError(403,"Đã hết giờ làm bài.")
+                if not item.get("exam_file"): raise ClientError(404,"Lượt thi này không có file đề ZIP/PDF; dùng endpoint đề code.")
                 target=(EXAM_DIR/item["exam_file"]).resolve()
                 if target.parent!=EXAM_DIR.resolve() or not target.is_file() or target.suffix.lower() not in {".pdf",".txt",".png",".jpg",".jpeg",".gif",".webp"}: raise ClientError(404,"File đề không còn tồn tại.")
                 audit("exam.viewed",sess["user_id"],client_ip(req),{"exam_file":target.name})
@@ -228,6 +266,12 @@ class Handler(BaseHTTPRequestHandler):
                 notifications=read_json("notifications.json", [])
                 personal=[item for item in notifications if item.get("student_id") in (None, sess["user_id"])]
                 return self._json({"assigned":bool(item),"started":bool(item and item.get("started_at")),"exam_file":item.get("exam_file") if item and item.get("started_at") else None,"status":item.get("status") if item else "not_assigned","remaining_seconds":remaining_seconds(item or {}) if item and item.get("started_at") else None,"started_at":item.get("started_at") if item else None,"ends_at":item.get("ends_at") if item else None,"server_time":utc_now(),"exam_state":settings.get("exam_state","idle"),"notifications":personal[-10:],"exam_password_enabled":settings.get("exam_password_enabled",False),"accepted_submission_extensions":settings.get("accepted_submission_extensions",[".zip"])})
+            if path=="/api/student/code-exam":
+                sess=self._auth(req,"student"); return self._json(get_student_code_exam(sess["user_id"]))
+            if path=="/api/student/code/submission":
+                sess=self._auth(req,"student"); question_ids=req.query.get("question_id",[])
+                if not question_ids or not question_ids[0]: raise ClientError(400,"question_id is required.")
+                return self._json(get_student_submission(sess["user_id"],question_ids[0]))
             if path.startswith("/admin/submissions/"):
                 sess=self._auth(req,"admin"); parts=[urllib.parse.unquote(x) for x in path.split("/")[3:]]
                 if len(parts)!=2: raise ClientError(404,"Không tìm thấy file bài nộp.")
@@ -238,7 +282,7 @@ class Handler(BaseHTTPRequestHandler):
                 audit("admin.submission_downloaded",sess["user_id"],client_ip(req),{"student_id":sid,"filename":filename})
                 return self._send(200,target.read_bytes(),mimetypes.guess_type(target.name)[0] or "application/octet-stream",{"Content-Disposition":f'attachment; filename="{target.name}"'})
             return self._send(404,"Không tìm thấy trang.")
-        except (ClientError, SecurityError) as e: return self._handle_error(e)
+        except (ClientError, SecurityError, CodeExamError, QuestionError) as e: return self._handle_error(e)
         except Exception:
             traceback.print_exc(); return self._json({"detail":"Lỗi máy chủ nội bộ."},500)
 
@@ -275,6 +319,18 @@ class Handler(BaseHTTPRequestHandler):
                 sess=get_session(req)
                 if sess: logout_session(sess["token"]); audit("auth.logout",sess["user_id"],client_ip(req),{})
                 return self._redirect("/login",clear_cookie=True)
+            if path=="/api/admin/questions":
+                sess=self._auth(req,"admin"); payload=self._json_body(req)
+                question=create_question(payload,sess["user_id"],client_ip(req))
+                return self._json({"ok":True,"question":question},201)
+            if path.startswith("/api/admin/questions/") and path.endswith("/publish"):
+                sess=self._auth(req,"admin"); question_id=urllib.parse.unquote(path[len("/api/admin/questions/"):-len("/publish")].strip("/")); payload=self._json_body(req)
+                if not question_id: raise ClientError(400,"question id is required.")
+                question,validation=publish_question(question_id,payload.get("sample_source"),sess["user_id"],client_ip(req))
+                return self._json({"ok":True,"question":question,"validation":validation},200)
+            if path=="/api/admin/code-exams":
+                sess=self._auth(req,"admin"); exam=create_code_exam(self._json_body(req),sess["user_id"],client_ip(req))
+                return self._json({"ok":True,"code_exam":exam},201)
             if path=="/api/admin/accounts/import":
                 sess=self._auth(req,"admin"); text=f.get("pasted_text",""); file=req.files.get("account_file")
                 if file and file.get("filename"):
@@ -366,13 +422,18 @@ class Handler(BaseHTTPRequestHandler):
                         except ValueError:
                             raise ValueError("Số chia không hợp lệ.")
                         config={"last_digit_map":json.loads(f.get("last_digit_map","{}")),"custom_modulus":modulus,"exam_files":selected_files}
+                    if f.get("code_exam_id"):
+                        config["code_exam_id"]=f.get("code_exam_id").strip()
+                        config["code_only"]=f.get("code_only","false").lower() in {"true","1","on","yes"}
                     result=distribute_exams(mode,config)
+                except CodeExamError as e: raise ClientError(e.status,str(e))
                 except (ValueError,json.JSONDecodeError) as e: raise ClientError(400,str(e))
                 audit("admin.exam_distributed",sess["user_id"],client_ip(req),{"release_id":result["release_id"],"mode":mode}); return self._json(result)
             if path=="/api/admin/end-exam":
                 sess=self._auth(req,"admin"); settings=read_json("settings.json"); old=settings.get("exam_release_id")
                 if not settings.get("exam_released") or not old:
                     raise ClientError(409, "Hiện không có kỳ thi đang diễn ra.")
+                transition_code_exam(old,"ended")
                 settings.update({"exam_state":"ended","exam_released":False,"exam_release_id":None,"exam_release_at":None}); write_json("settings.json",settings); assignments=read_json("assignments.json"); ended=utc_now()
                 for item in assignments.values():
                     if item.get("release_id")==old and item.get("status")!="submitted": item["status"]="ended"; item["ends_at"]=ended
@@ -413,6 +474,21 @@ class Handler(BaseHTTPRequestHandler):
                 except PermissionError as e: raise ClientError(403,str(e))
                 except ValueError as e: raise ClientError(400,str(e))
                 return self._json({"ok":True,"exam_file":item["exam_file"],"started_at":item["started_at"],"ends_at":item["ends_at"],"remaining_seconds":remaining_seconds(item)})
+            if path=="/api/student/code/run":
+                sess=self._auth(req,"student"); payload=self._json_body(req)
+                question_id=payload.get("question_id"); source_code=payload.get("source_code")
+                if not isinstance(question_id,str) or not question_id: raise ClientError(400,"question_id is required.")
+                result=run_pretest(sess["user_id"],question_id,source_code,client_ip(req))
+                infra=result.get("error_category") in {"INVALID_REQUEST","JDK_NOT_FOUND","JUDGE_INFRA_ERROR","PROTOCOL_ERROR"}
+                return self._json({"ok":not infra,**result},503 if infra else 200)
+            if path=="/api/student/code/submit":
+                sess=self._auth(req,"student"); payload=self._json_body(req)
+                question_id=payload.get("question_id"); source_code=payload.get("source_code")
+                if not isinstance(question_id,str) or not question_id: raise ClientError(400,"question_id is required.")
+                submission,graded=submit_code(sess["user_id"],question_id,source_code,client_ip(req))
+                if not graded:
+                    return self._json({"ok":False,"submission":submission},503)
+                return self._json({"ok":True,"submission":submission},201)
             if path=="/api/student/submit":
                 sess=self._auth(req,"student"); file=req.files.get("file")
                 if not file or not file.get("filename") or not file["filename"].lower().endswith(".zip"): raise ClientError(400,"Chỉ chấp nhận file .zip.")
@@ -442,7 +518,7 @@ class Handler(BaseHTTPRequestHandler):
                 admins[username]={"username":username,"password_hash":hash_password(password),"active":True,"created_at":utc_now(),"created_by":sess["user_id"]}; write_json("admins.json",admins); audit("admin.admin_created",sess["user_id"],client_ip(req),{"new_admin":username})
                 return self._json({"ok":True,"username":username})
             return self._json({"detail":"Không tìm thấy endpoint."},404)
-        except (ClientError, SecurityError) as e: return self._handle_error(e)
+        except (ClientError, SecurityError, CodeExamError, QuestionError) as e: return self._handle_error(e)
         except Exception:
             traceback.print_exc(); return self._json({"detail":"Lỗi máy chủ nội bộ."},500)
 
