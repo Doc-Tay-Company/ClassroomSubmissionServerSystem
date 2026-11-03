@@ -568,12 +568,14 @@ def _complete_submission(student_id: str, submission_id: str, question: dict, ex
                         "checks": execution.get("checks"),
                     },
                     question["total_points"],
+                    verdict=verdict,
                 )
             else:
                 checked = grade_stdio(
                     question["tests"],
                     execution.get("tests"),
                     question["total_points"],
+                    verdict=verdict,
                 )
             score = checked.score
             if _decimal(execution.get("total_points"), "reported total_points") != _decimal(question["total_points"], "total_points"):
@@ -822,9 +824,15 @@ def publish_question(question_id: str, sample_source: str, actor: str, ip: str) 
                 question["checks"],
                 {"score": execution.get("score"), "total_points": execution.get("total_points"), "checks": returned},
                 question["total_points"],
+                verdict=execution.get("verdict"),
             )
         else:
-            verified = grade_stdio(question["tests"], returned, question["total_points"])
+            verified = grade_stdio(
+                question["tests"],
+                returned,
+                question["total_points"],
+                verdict=execution.get("verdict"),
+            )
     except GradingError as exc:
         raise QuestionError(f"Sample solution returned an invalid result: {exc}", 422) from exc
     all_checks_passed = len(returned) == len(configured) and all(item.get("passed") is True for item in returned)

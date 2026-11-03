@@ -10,15 +10,22 @@ import re
 import sys
 import time
 from typing import Mapping, Sequence
+from uuid import uuid4
 
-from .grading import grade_stdio, sum_configured_points
+from .grading import (
+    grade_stdio,
+    parse_nonnegative_decimal,
+    plain_number,
+    sum_configured_points,
+)
 from .java_runner import (
     DEFAULT_JAVA_COMPILE_LIMITS,
     ProcessStatus,
     RunWorkspace,
-    _is_java_identifier,
     compile_java_in_workspace,
+    is_java_identifier,
     java_heap_limit_mb,
+    java_process_environment,
     minimal_environment,
     run_process,
 )
@@ -137,31 +144,6 @@ class StdioResult:
         }
 
 
-def _number(value, field: str) -> Decimal:
-    if isinstance(value, bool) or not isinstance(value, (int, float, Decimal)):
-        raise ValueError(f"{field} must be a finite non-negative number")
-    try:
-        number = Decimal(str(value))
-    except InvalidOperation as exc:
-        raise ValueError(f"{field} must be a finite non-negative number") from exc
-    if not number.is_finite() or number < 0:
-        raise ValueError(f"{field} must be a finite non-negative number")
-    if len(number.as_tuple().digits) > 1000 or abs(number.as_tuple().exponent) > 1000:
-        raise ValueError(f"{field} exceeds the supported numeric range")
-    try:
-        if not math.isfinite(float(number)):
-            raise ValueError(f"{field} exceeds the supported numeric range")
-    except (OverflowError, ValueError) as exc:
-        raise ValueError(f"{field} exceeds the supported numeric range") from exc
-    return number
-
-
-def _plain_number(value: Decimal) -> int | float:
-    if value == value.to_integral_value():
-        return int(value)
-    return float(value)
-
-
 def _positive_seconds(value, field: str) -> float:
     if (
         isinstance(value, bool)
@@ -209,9 +191,9 @@ def _java_target(
         simple_name = target_class
         package = target_package or ""
 
-    if not _is_java_identifier(simple_name):
+    if not is_java_identifier(simple_name):
         raise ValueError("target_class must be a valid Java class name")
-    if package and not all(_is_java_identifier(part) for part in package.split(".")):
+    if package and not all(is_java_identifier(part) for part in package.split(".")):
         raise ValueError("target_package must be a valid Java package name")
     filename = f"{simple_name}.java"
     if target_file is not None:
@@ -259,7 +241,7 @@ def _validate_tests(tests: Sequence[Mapping]) -> tuple[list[_TestCase], Decimal]
         is_visible = test.get("is_visible")
         if not isinstance(is_visible, bool):
             raise ValueError(f"test '{test_id}' is_visible must be a boolean")
-        points = _number(test.get("points"), f"test '{test_id}' points")
+        points = parse_nonnegative_decimal(test.get("points"), f"test '{test_id}' points")
         compare_mode = test.get("compare_mode", "normalized")
         if not isinstance(compare_mode, str) or compare_mode not in _VALID_COMPARE_MODES:
             raise ValueError(f"test '{test_id}' has an unsupported compare_mode")
@@ -276,12 +258,12 @@ def _validate_tests(tests: Sequence[Mapping]) -> tuple[list[_TestCase], Decimal]
         abs_tolerance = (
             None
             if abs_value is unset
-            else _number(abs_value, f"test '{test_id}' abs_tolerance")
+            else parse_nonnegative_decimal(abs_value, f"test '{test_id}' abs_tolerance")
         )
         rel_tolerance = (
             None
             if rel_value is unset
-            else _number(rel_value, f"test '{test_id}' rel_tolerance")
+            else parse_nonnegative_decimal(rel_value, f"test '{test_id}' rel_tolerance")
         )
         if compare_mode == "float_tolerance" and abs_tolerance is None and rel_tolerance is None:
             raise ValueError(
@@ -390,8 +372,16 @@ def compare_outputs(
         return failed(f"Unsupported compare_mode: {compare_mode!r}.")
 
     try:
-        abs_error = None if abs_tolerance is None else _number(abs_tolerance, "abs_tolerance")
-        rel_error = None if rel_tolerance is None else _number(rel_tolerance, "rel_tolerance")
+        abs_error = (
+            None
+            if abs_tolerance is None
+            else parse_nonnegative_decimal(abs_tolerance, "abs_tolerance")
+        )
+        rel_error = (
+            None
+            if rel_tolerance is None
+            else parse_nonnegative_decimal(rel_tolerance, "rel_tolerance")
+        )
     except (TypeError, ValueError) as exc:
         return failed(str(exc))
     if abs_error is None and rel_error is None:
@@ -490,8 +480,8 @@ def _test_result(
         id=test.test_id,
         verdict=verdict,
         passed=passed,
-        points=_plain_number(test.points),
-        points_earned=0,
+        points=plain_number(test.points),
+        points_earned=plain_number(test.points) if passed else 0,
         is_visible=test.is_visible,
         expected_stdout=test.expected_stdout,
         actual_stdout=actual_stdout,
@@ -571,13 +561,38 @@ def _python_executable(configured: str | Path | None) -> str:
     return str(resolved)
 
 
-def _java_runtime_environment(source: Mapping[str, str], jdk) -> dict[str, str]:
-    result = minimal_environment(source)
-    original_path = result.get("PATH", "")
-    jdk_bin = str(Path(jdk.java).parent)
-    result["PATH"] = jdk_bin + (os.pathsep + original_path if original_path else "")
-    result["JAVA_HOME"] = jdk.home
-    return result
+def _snapshot_compiled_output(output_dir: Path) -> dict[str, bytes]:
+    """Keep the javac output in the server process before student code can alter it."""
+    snapshot = {}
+    for path in output_dir.rglob("*"):
+        if path.is_symlink():
+            raise OSError("Java compiler output contains an unexpected symbolic link.")
+        if path.is_file():
+            snapshot[path.relative_to(output_dir).as_posix()] = path.read_bytes()
+    return snapshot
+
+
+def _materialize_compiled_output(
+    workspace: RunWorkspace, test_index: int, snapshot: Mapping[str, bytes]
+) -> Path:
+    output_dir = workspace.result / f"stdio_{test_index}_{uuid4().hex}" / "classes"
+    output_dir.mkdir(parents=True)
+    for relative_path, contents in snapshot.items():
+        target = output_dir.joinpath(*relative_path.split("/"))
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(contents)
+    return output_dir
+
+
+def _materialize_python_source(
+    workspace: RunWorkspace, target_file: str, source_bytes: bytes, test_index: int
+) -> Path:
+    source_path = (
+        workspace.result / f"stdio_{test_index}_{uuid4().hex}" / target_file
+    )
+    source_path.parent.mkdir(parents=True)
+    source_path.write_bytes(source_bytes)
+    return source_path
 
 
 def run_stdio(
@@ -596,6 +611,7 @@ def run_stdio(
     env: Mapping[str, str] | None = None,
     workspace_parent: str | Path | None = None,
     job_limits: JobLimits | None = None,
+    keep_temp: bool = False,
 ) -> StdioResult:
     """Compile once when required, then run each STDIO test in its own Job Object.
 
@@ -626,6 +642,8 @@ def run_stdio(
             raise ValueError("max_output_bytes must be a positive integer")
         if not isinstance(visible_only, bool):
             raise ValueError("visible_only must be a boolean")
+        if not isinstance(keep_temp, bool):
+            raise ValueError("keep_temp must be a boolean")
         if env is not None and (
             not isinstance(env, Mapping)
             or any(
@@ -669,11 +687,12 @@ def run_stdio(
     compiler_limits = job_limits or DEFAULT_JAVA_COMPILE_LIMITS
     workspace = None
     compile_summary = None
+    java_class_snapshot = None
     test_results: list[StdioTestResult] = []
     result: StdioResult | None = None
 
     try:
-        workspace = RunWorkspace.create(workspace_parent)
+        workspace = RunWorkspace.create(workspace_parent, keep_temp=keep_temp)
         if normalized_language == "java":
             compile_result = compile_java_in_workspace(
                 source_code,
@@ -708,6 +727,8 @@ def run_stdio(
                     expected_class_file_exists=compile_result.expected_class_file_exists,
                 )
                 compile_summary = compile_result
+            if compile_verdict is None:
+                java_class_snapshot = _snapshot_compiled_output(workspace.out)
         else:
             python_path = _python_executable(python_executable)
             source_file = workspace.src / target_file
@@ -762,7 +783,7 @@ def run_stdio(
             result = StdioResult(
                 verdict=compile_verdict,
                 score=0,
-                total_points=_plain_number(selected_total),
+                total_points=plain_number(selected_total),
                 tests=test_results,
                 run_id=workspace.run_id,
                 duration_ms=max(0, int((time.monotonic() - started) * 1000)),
@@ -771,34 +792,40 @@ def run_stdio(
                 error_category=compile_category,
             )
         else:
-            if normalized_language == "java":
-                heap_mb = java_heap_limit_mb(process_limits)
-                command_prefix = [
-                    java_config.java,
-                    f"-Xmx{heap_mb}m",
-                    "-Dfile.encoding=UTF-8",
-                    "-cp",
-                    str(workspace.out),
-                    binary_class,
-                ]
-            else:
-                command_prefix = [
-                    python_path,
-                    "-I",
-                    "-B",
-                    "-X",
-                    "utf8",
-                    str(source_file),
-                ]
-
             for index, test in enumerate(selected_cases):
+                if normalized_language == "java":
+                    test_class_dir = _materialize_compiled_output(
+                        workspace, index, java_class_snapshot
+                    )
+                    test_command = [
+                        java_config.java,
+                        f"-Xmx{java_heap_limit_mb(process_limits)}m",
+                        "-Dfile.encoding=UTF-8",
+                        "-cp",
+                        str(test_class_dir),
+                        binary_class,
+                    ]
+                else:
+                    test_source = _materialize_python_source(
+                        workspace, target_file, source_bytes, index
+                    )
+                    test_command = [
+                        python_path,
+                        "-I",
+                        "-B",
+                        "-X",
+                        "utf8",
+                        str(test_source),
+                    ]
                 process_environment = (
-                    _java_runtime_environment(environment, java_config)
+                    java_process_environment(
+                        environment, Path(java_config.home), Path(java_config.java).parent
+                    )
                     if normalized_language == "java"
                     else minimal_environment(environment)
                 )
                 process_result = run_process(
-                    command_prefix,
+                    test_command,
                     cwd=workspace.root,
                     timeout_seconds=timeout_seconds,
                     max_output_bytes=max_output_bytes,
@@ -851,7 +878,7 @@ def run_stdio(
                 [{"id": test.test_id, "points": test.points} for test in selected_cases],
                 [test.to_dict() for test in test_results],
                 selected_total,
-                force_zero=verdict in _INFRASTRUCTURE_CATEGORIES,
+                verdict=verdict,
             )
             earned_by_id = {test["id"]: test["points_earned"] for test in graded.results}
             test_results = [
@@ -860,7 +887,7 @@ def run_stdio(
             result = StdioResult(
                 verdict=verdict,
                 score=graded.score,
-                total_points=_plain_number(selected_total),
+                total_points=plain_number(selected_total),
                 tests=test_results,
                 run_id=workspace.run_id,
                 duration_ms=max(0, int((time.monotonic() - started) * 1000)),
@@ -885,7 +912,7 @@ def run_stdio(
         result = StdioResult(
             verdict=category,
             score=0,
-            total_points=_plain_number(selected_total),
+            total_points=plain_number(selected_total),
             tests=test_results,
             run_id=workspace.run_id if workspace else None,
             duration_ms=max(0, int((time.monotonic() - started) * 1000)),
@@ -895,46 +922,13 @@ def run_stdio(
         )
     finally:
         if workspace is not None:
-            try:
-                workspace.cleanup()
-            except Exception as exc:
-                category = "JUDGE_INFRA_ERROR"
-                error = f"Workspace cleanup failed: {type(exc).__name__}: {exc}"
-                prior_results = {test.id: test for test in test_results}
-                test_results = []
-                for test in selected_cases:
-                    prior = prior_results.get(test.test_id)
-                    test_results.append(
-                        _test_result(
-                            test,
-                            verdict=category,
-                            actual_stdout=prior.actual_stdout if prior else "",
-                            stderr=prior.stderr if prior else "",
-                            duration_ms=prior.duration_ms if prior else 0,
-                            error=error,
-                            error_category=category,
-                            exit_code=prior.exit_code if prior else None,
-                            stdout_truncated=prior.stdout_truncated if prior else False,
-                            stderr_truncated=prior.stderr_truncated if prior else False,
-                        )
-                    )
-                result = StdioResult(
-                    verdict=category,
-                    score=0,
-                    total_points=_plain_number(selected_total),
-                    tests=test_results,
-                    run_id=workspace.run_id,
-                    duration_ms=max(0, int((time.monotonic() - started) * 1000)),
-                    compile_result=compile_summary,
-                    error=error,
-                    error_category=category,
-                )
+            workspace.cleanup()
 
     if result is None:
         return StdioResult(
             verdict="JUDGE_INFRA_ERROR",
             score=0,
-            total_points=_plain_number(selected_total),
+            total_points=plain_number(selected_total),
             tests=test_results,
             run_id=workspace.run_id if workspace else None,
             duration_ms=max(0, int((time.monotonic() - started) * 1000)),

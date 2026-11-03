@@ -2,29 +2,41 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field, replace
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 from enum import Enum
 import hashlib
 import json
+import logging
 import math
 import os
 from pathlib import Path
 from pathlib import PurePosixPath, PureWindowsPath
 import re
 import shutil
+import stat
 import subprocess
+import sys
 import tempfile
 import threading
 import time
+import unicodedata
 from typing import Mapping, Sequence
 import uuid
-from .grading import GradingError, grade_reflection
+
+from .grading import (
+    GradingError,
+    grade_reflection,
+    parse_nonnegative_decimal,
+    plain_number,
+)
 from .windows_job import (
     DEFAULT_JOB_LIMITS,
     MIN_JAVA_JOB_MEMORY_MB,
     JobLimits,
     create_job_process,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class ProcessStatus(str, Enum):
@@ -478,9 +490,16 @@ class RunWorkspace:
     out: Path
     input: Path
     result: Path
+    keep_temp: bool = False
+    cleanup_error: str | None = field(default=None, init=False, repr=False)
+    _cleaned: bool = field(default=False, init=False, repr=False)
 
     @classmethod
-    def create(cls, parent: str | Path | None = None) -> "RunWorkspace":
+    def create(
+        cls, parent: str | Path | None = None, *, keep_temp: bool = False
+    ) -> "RunWorkspace":
+        if not isinstance(keep_temp, bool):
+            raise ValueError("keep_temp must be a boolean")
         base = Path(parent) if parent is not None else Path(tempfile.gettempdir()) / "ClassroomSubmissionServer"
         base.mkdir(parents=True, exist_ok=True)
 
@@ -494,18 +513,29 @@ class RunWorkspace:
             out=root / "out",
             input=root / "input",
             result=root / "result",
+            keep_temp=keep_temp,
         )
         try:
             for directory in (workspace.src, workspace.out, workspace.input, workspace.result):
                 directory.mkdir()
-        except Exception:
-            shutil.rmtree(root, ignore_errors=True)
+        except Exception as exc:
+            try:
+                _remove_workspace_tree(root)
+            except Exception as cleanup_exc:
+                _log_workspace_cleanup_failure(run_id, root, cleanup_exc)
             raise
         return workspace
 
     def cleanup(self) -> None:
-        if self.root.exists():
-            shutil.rmtree(self.root, ignore_errors=False)
+        if self.keep_temp or self._cleaned:
+            return
+        try:
+            _remove_workspace_tree(self.root)
+            self._cleaned = True
+            self.cleanup_error = None
+        except Exception as exc:
+            self.cleanup_error = f"{type(exc).__name__}: {exc}"
+            _log_workspace_cleanup_failure(self.run_id, self.root, exc)
 
     def __enter__(self) -> "RunWorkspace":
         return self
@@ -513,6 +543,99 @@ class RunWorkspace:
     def __exit__(self, exc_type, exc, traceback) -> bool:
         self.cleanup()
         return False
+
+
+def _is_reparse_point(path: Path) -> bool:
+    try:
+        info = os.lstat(path)
+    except FileNotFoundError:
+        return False
+    attributes = getattr(info, "st_file_attributes", 0)
+    reparse_flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+    return stat.S_ISLNK(info.st_mode) or bool(attributes & reparse_flag)
+
+
+def _is_directory_reparse_point(path: Path) -> bool:
+    try:
+        info = os.lstat(path)
+    except FileNotFoundError:
+        return False
+    attributes = getattr(info, "st_file_attributes", 0)
+    directory_flag = getattr(stat, "FILE_ATTRIBUTE_DIRECTORY", 0x10)
+    return bool(attributes & directory_flag)
+
+
+def _remove_readonly_on_error(function, path, error) -> None:
+    target = Path(path)
+    if not os.path.lexists(target):
+        return
+    if _is_reparse_point(target):
+        # Never chmod or descend through symlinks, junctions, or other reparse points.
+        raise error
+    if not isinstance(error, PermissionError) and getattr(error, "winerror", None) != 5:
+        raise error
+    os.chmod(target, stat.S_IREAD | stat.S_IWRITE)
+    retry_result = function(path)
+    close = getattr(retry_result, "close", None)
+    if close is not None:
+        close()
+
+
+def _remove_workspace_tree(root: Path) -> None:
+    if not os.path.lexists(root):
+        return
+    if _is_reparse_point(root):
+        if _is_directory_reparse_point(root):
+            os.rmdir(root)
+        else:
+            os.unlink(root)
+        return
+
+    last_error = None
+    for attempt in range(3):
+        try:
+            if os.name == "nt" and sys.version_info >= (3, 12):
+                shutil.rmtree(root, onexc=_remove_readonly_on_error)
+            else:
+                shutil.rmtree(
+                    root,
+                    onerror=lambda function, path, exc_info: _remove_readonly_on_error(
+                        function, path, exc_info[1]
+                    ),
+                )
+            return
+        except FileNotFoundError:
+            return
+        except OSError as exc:
+            if not os.path.lexists(root):
+                return
+            last_error = exc
+            if attempt < 2:
+                time.sleep(0.05 * (attempt + 1))
+    if last_error is not None:
+        raise last_error
+
+
+def _log_workspace_cleanup_failure(run_id: str, root: Path, error: Exception) -> None:
+    try:
+        logger.error(
+            "Execution workspace cleanup failed (run_id=%s, path=%s): %s: %s",
+            run_id,
+            root,
+            type(error).__name__,
+            error,
+        )
+    except Exception:
+        # Logging must not turn best-effort cleanup into a server failure.
+        pass
+
+
+def _environment_value(environment: Mapping[str, str], name: str) -> str | None:
+    target = name.casefold()
+    for key, value in environment.items():
+        if key.casefold() == target:
+            return value
+    return None
 
 
 def minimal_environment(source: Mapping[str, str] | None = None) -> dict[str, str]:
@@ -523,7 +646,13 @@ def minimal_environment(source: Mapping[str, str] | None = None) -> dict[str, st
         if os.name == "nt"
         else ("PATH", "HOME", "TMPDIR", "LANG", "LC_ALL")
     )
-    return {key: values[key] for key in allowed if key in values}
+    if os.name == "nt":
+        return {
+            name: value
+            for name in allowed
+            if (value := _environment_value(values, name)) is not None
+        }
+    return {name: values[name] for name in allowed if name in values}
 
 
 class _BoundedCapture:
@@ -924,14 +1053,6 @@ def run_process(
     )
 
 
-def _environment_value(environment: Mapping[str, str], name: str) -> str | None:
-    target = name.casefold()
-    for key, value in environment.items():
-        if key.casefold() == target:
-            return value
-    return None
-
-
 def _resolve_jdk_paths(environment: Mapping[str, str]) -> tuple[Path, Path, Path]:
     executable_suffix = ".exe" if os.name == "nt" else ""
     configured_home = _environment_value(environment, "JAVA_HOME")
@@ -970,19 +1091,10 @@ def _resolve_jdk_paths(environment: Mapping[str, str]) -> tuple[Path, Path, Path
     return javac.parent.parent, javac, java
 
 
-def _java_tool_environment(
+def java_process_environment(
     environment: Mapping[str, str], jdk_home: Path, jdk_bin: Path
 ) -> dict[str, str]:
-    allowed = (
-        ("SystemRoot", "WINDIR", "TEMP", "TMP", "PATH")
-        if os.name == "nt"
-        else ("PATH", "HOME", "TMPDIR", "LANG", "LC_ALL")
-    )
-    result = {
-        name: value
-        for name in allowed
-        if (value := _environment_value(environment, name)) is not None
-    }
+    result = minimal_environment(environment)
     original_path = _environment_value(environment, "PATH")
     result["PATH"] = str(jdk_bin) + (os.pathsep + original_path if original_path else "")
     result["JAVA_HOME"] = str(jdk_home)
@@ -1031,7 +1143,7 @@ def _detect_jdk(
     environment: Mapping[str, str], *, cwd: Path, job_limits: JobLimits
 ) -> tuple[JDKConfig, dict[str, str]]:
     home, javac, java = _resolve_jdk_paths(environment)
-    tool_environment = _java_tool_environment(environment, home, javac.parent)
+    tool_environment = java_process_environment(environment, home, javac.parent)
     javac_version, javac_major = _probe_java_tool(
         javac, cwd=cwd, environment=tool_environment, job_limits=job_limits
     )
@@ -1232,8 +1344,9 @@ def compile_java(
     env: Mapping[str, str] | None = None,
     workspace_parent: str | Path | None = None,
     job_limits: JobLimits | None = None,
+    keep_temp: bool = False,
 ) -> CompileResult:
-    """Compile one Java source file in a temporary workspace and always clean it."""
+    """Compile one Java source file; retain its workspace only when keep_temp is true."""
     if not isinstance(source_code, str):
         raise ValueError("source_code must be a string")
     if (
@@ -1249,6 +1362,8 @@ def compile_java(
         or max_output_bytes < 0
     ):
         raise ValueError("max_output_bytes must not be negative")
+    if not isinstance(keep_temp, bool):
+        raise ValueError("keep_temp must be a boolean")
     relative_source, expected_class_file = _validated_source_path(source_path)
 
     started = time.monotonic()
@@ -1256,7 +1371,7 @@ def compile_java(
     jdk = None
     result = None
     try:
-        workspace = RunWorkspace.create(workspace_parent)
+        workspace = RunWorkspace.create(workspace_parent, keep_temp=keep_temp)
         result = compile_java_in_workspace(
             source_code,
             workspace,
@@ -1276,26 +1391,7 @@ def compile_java(
         )
     finally:
         if workspace is not None:
-            try:
-                workspace.cleanup()
-            except Exception as exc:
-                if result is None:
-                    result = _failed_compile_result(
-                        exc,
-                        duration_ms=max(0, int((time.monotonic() - started) * 1000)),
-                        run_id=workspace.run_id,
-                        expected_class_file=expected_class_file,
-                        jdk=jdk,
-                    )
-                else:
-                    result = replace(
-                        result,
-                        status=ProcessStatus.START_ERROR,
-                        success=False,
-                        verdict=None,
-                        error=f"Workspace cleanup failed: {type(exc).__name__}: {exc}",
-                        error_category="JUDGE_INFRA_ERROR",
-                    )
+            workspace.cleanup()
     if result is None:
         return _failed_compile_result(
             RuntimeError("Compilation ended without a result."),
@@ -1309,14 +1405,23 @@ def compile_java(
 _JAVA_KEYWORDS = frozenset(
     "abstract assert boolean break byte case catch char class const continue default do double else enum "
     "extends final finally float for goto if implements import instanceof int interface long native new "
-    "package private protected public return short static strictfp super switch synchronized this throw "
+    "package private protected public return short static strictfp super switch synchronized this throw _ "
     "throws transient try void volatile while true false null"
     .split()
 )
 
 
-def _is_java_identifier(value: str) -> bool:
+def is_java_identifier(value: str) -> bool:
+    """Validate the classroom identifier subset, not every JLS identifier character.
+
+    The accepted Unicode start/continuation rules follow Python's identifier
+    categories, with Java's ``$`` allowed. Java identifier-ignorable format
+    characters are intentionally excluded; javac remains authoritative for
+    identifiers inside student source.
+    """
     if not value or value in _JAVA_KEYWORDS:
+        return False
+    if any(unicodedata.category(character) == "Cf" for character in value):
         return False
     first = value[0]
     if first not in "_$" and not first.isidentifier():
@@ -1324,30 +1429,9 @@ def _is_java_identifier(value: str) -> bool:
     return all(character in "_$" or ("A" + character).isidentifier() for character in value[1:])
 
 
-def _decimal_number(value, field: str) -> Decimal:
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise ValueError(f"{field} must be a finite non-negative number")
-    try:
-        number = Decimal(str(value))
-    except InvalidOperation as exc:
-        raise ValueError(f"{field} must be a finite non-negative number") from exc
-    if not number.is_finite() or number < 0:
-        raise ValueError(f"{field} must be a finite non-negative number")
-    if len(number.as_tuple().digits) > 1000 or abs(number.as_tuple().exponent) > 1000:
-        raise ValueError(f"{field} exceeds the supported numeric range")
-    try:
-        if not math.isfinite(float(number)):
-            raise ValueError(f"{field} exceeds the supported numeric range")
-    except (OverflowError, ValueError) as exc:
-        raise ValueError(f"{field} exceeds the supported numeric range") from exc
-    return number
-
-
 def _normalized_number(value: int | float | Decimal) -> int | float:
     if isinstance(value, Decimal):
-        if value == value.to_integral_value():
-            return int(value)
-        return float(value)
+        return plain_number(value)
     if isinstance(value, float) and value.is_integer():
         return int(value)
     return value
@@ -1366,7 +1450,7 @@ def _validate_reflection_request(
         raise ValueError("source_code must be non-empty and within the size limit")
 
     if not isinstance(target_class_name, str) or not all(
-        _is_java_identifier(part) for part in target_class_name.split(".")
+        is_java_identifier(part) for part in target_class_name.split(".")
     ):
         raise ValueError("target_class_name must be a valid Java binary class name")
     source_path, expected_class_file = _validated_source_path(
@@ -1387,7 +1471,9 @@ def _validate_reflection_request(
     checks = specification.get("checks")
     if not isinstance(checks, list):
         raise ValueError("specification must contain a checks array")
-    declared_total = _decimal_number(specification.get("total_points"), "total_points")
+    declared_total = parse_nonnegative_decimal(
+        specification.get("total_points"), "total_points", allow_decimal=False
+    )
     seen_ids: set[str] = set()
     points_total = Decimal(0)
     validated_checks: list[Mapping] = []
@@ -1402,7 +1488,9 @@ def _validate_reflection_request(
             raise ValueError(f"check '{check_id}' must have a non-empty kind")
         if not isinstance(check.get("is_visible"), bool):
             raise ValueError(f"check '{check_id}' is_visible must be a boolean")
-        points_total += _decimal_number(check.get("points"), f"check '{check_id}' points")
+        points_total += parse_nonnegative_decimal(
+            check.get("points"), f"check '{check_id}' points", allow_decimal=False
+        )
         seen_ids.add(check_id)
         validated_checks.append(check)
     if declared_total != points_total:
@@ -1488,8 +1576,9 @@ def run_reflection_judge(
     env: Mapping[str, str] | None = None,
     workspace_parent: str | Path | None = None,
     job_limits: JobLimits | None = None,
+    keep_temp: bool = False,
 ) -> JudgeResult:
-    """Compile one Java source and run ReflectionJudge in the same isolated workspace."""
+    """Compile and judge in one workspace, cleaned unless keep_temp is enabled."""
     started = time.monotonic()
     try:
         (
@@ -1544,6 +1633,17 @@ def run_reflection_judge(
             run_id=None,
             duration_ms=max(0, int((time.monotonic() - started) * 1000)),
             error="max_output_bytes must be a positive integer",
+            error_category="INVALID_REQUEST",
+        )
+    if not isinstance(keep_temp, bool):
+        return JudgeResult(
+            verdict="INVALID_REQUEST",
+            score=0,
+            total_points=_normalized_number(total_points),
+            checks=_failed_judge_checks(checks, "INVALID_REQUEST"),
+            run_id=None,
+            duration_ms=max(0, int((time.monotonic() - started) * 1000)),
+            error="keep_temp must be a boolean",
             error_category="INVALID_REQUEST",
         )
     if student_stdout_limit_bytes is None:
@@ -1614,7 +1714,7 @@ def run_reflection_judge(
         )
     environment = dict(os.environ if env is None else env)
     try:
-        workspace = RunWorkspace.create(workspace_parent)
+        workspace = RunWorkspace.create(workspace_parent, keep_temp=keep_temp)
         source_file = workspace.src / source_path
         source_file.parent.mkdir(parents=True, exist_ok=True)
         source_file.write_bytes(source_bytes)
@@ -1782,7 +1882,9 @@ def run_reflection_judge(
                         except (json.JSONDecodeError, TypeError):
                             pass
                         try:
-                            graded = grade_reflection(checks, payload, total_points)
+                            graded = grade_reflection(
+                                checks, payload, total_points, verdict=verdict
+                            )
                         except GradingError as exc:
                             verdict = exc.category
                             score = 0
@@ -1824,21 +1926,7 @@ def run_reflection_judge(
         )
     finally:
         if workspace is not None:
-            try:
-                workspace.cleanup()
-            except Exception as exc:
-                result = JudgeResult(
-                    verdict="JUDGE_INFRA_ERROR",
-                    score=0,
-                    total_points=total_points_value,
-                    checks=_failed_judge_checks(checks, "JUDGE_INFRA_ERROR"),
-                    run_id=workspace.run_id,
-                    duration_ms=max(0, int((time.monotonic() - started) * 1000)),
-                    error=f"Workspace cleanup failed: {type(exc).__name__}: {exc}",
-                    error_category="JUDGE_INFRA_ERROR",
-                    compile_result=result.compile_result if result else None,
-                    process_result=result.process_result if result else None,
-                )
+            workspace.cleanup()
     if result is None:
         return JudgeResult(
             verdict="JUDGE_INFRA_ERROR",

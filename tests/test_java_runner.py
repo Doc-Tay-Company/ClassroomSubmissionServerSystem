@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -19,7 +20,9 @@ from app.java_runner import (
     _resolve_jdk_paths,
     classify_judge_process_result,
     compile_java,
+    is_java_identifier,
     java_heap_limit_mb,
+    java_process_environment,
     minimal_environment,
     run_reflection_judge,
     run_process,
@@ -29,6 +32,57 @@ from app.windows_job import JobLimits, JobObjectError, create_job_process
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+class JavaIdentifierTests(unittest.TestCase):
+    def test_classroom_identifier_subset(self):
+        for value in ("Student", "_Student", "$Student", "MônHọc"):
+            with self.subTest(value=value):
+                self.assertTrue(is_java_identifier(value))
+        for value in ("", "_", "class", "1Student", "Name\u200c"):
+            with self.subTest(value=value):
+                self.assertFalse(is_java_identifier(value))
+
+
+class JavaEnvironmentTests(unittest.TestCase):
+    def test_tool_and_runtime_share_minimal_java_environment_builder(self):
+        source = {
+            "SystemRoot": "C:\\Windows",
+            "WINDIR": "C:\\Windows",
+            "TEMP": "C:\\Temp",
+            "TMP": "C:\\Temp",
+            "PATH": "existing-path",
+            "JAVA_HOME": "untrusted-old-jdk",
+            "PROJECT_SECRET": "not-for-student-processes",
+        }
+        environment = java_process_environment(
+            source, Path("selected-jdk"), Path("selected-jdk") / "bin"
+        )
+        self.assertEqual(environment["JAVA_HOME"], "selected-jdk")
+        self.assertEqual(
+            environment["PATH"],
+            f"{Path('selected-jdk') / 'bin'}{os.pathsep}existing-path",
+        )
+        self.assertNotIn("PROJECT_SECRET", environment)
+
+    @unittest.skipUnless(os.name == "nt", "Windows environment variable names are case-insensitive")
+    def test_minimal_environment_accepts_mixed_case_windows_variable_names(self):
+        environment = minimal_environment(
+            {
+                "systemroot": "C:\\Windows",
+                "windir": "C:\\Windows",
+                "temp": "C:\\Temp",
+                "tmp": "C:\\Temp",
+                "path": "safe-path",
+                "PROJECT_SECRET": "not-for-student-processes",
+            }
+        )
+        self.assertEqual(environment["SystemRoot"], "C:\\Windows")
+        self.assertEqual(environment["WINDIR"], "C:\\Windows")
+        self.assertEqual(environment["TEMP"], "C:\\Temp")
+        self.assertEqual(environment["TMP"], "C:\\Temp")
+        self.assertEqual(environment["PATH"], "safe-path")
+        self.assertNotIn("PROJECT_SECRET", environment)
 
 
 class JavaHeapBudgetTests(unittest.TestCase):
@@ -213,6 +267,124 @@ class RunWorkspaceTests(unittest.TestCase):
                 second.cleanup()
             self.assertFalse(first.root.exists())
             self.assertFalse(second.root.exists())
+
+    def test_cleanup_removes_read_only_and_nested_read_only_files(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workspace = RunWorkspace.create(temp_dir)
+            top_level = workspace.root / "readonly.txt"
+            nested_dir = workspace.result / "nested"
+            nested_dir.mkdir()
+            nested_file = nested_dir / "readonly.txt"
+            top_level.write_text("read only", encoding="utf-8")
+            nested_file.write_text("nested read only", encoding="utf-8")
+            top_level.chmod(stat.S_IREAD)
+            nested_file.chmod(stat.S_IREAD)
+
+            workspace.cleanup()
+
+            self.assertFalse(workspace.root.exists())
+            self.assertIsNone(workspace.cleanup_error)
+
+    def test_cleanup_is_idempotent_and_keep_temp_is_preserved(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workspace = RunWorkspace.create(temp_dir)
+            workspace.cleanup()
+            workspace.cleanup()
+            self.assertFalse(workspace.root.exists())
+
+            retained = RunWorkspace.create(temp_dir, keep_temp=True)
+            retained.cleanup()
+            retained.cleanup()
+            self.assertTrue(retained.root.is_dir())
+            shutil.rmtree(retained.root)
+
+    def test_cleanup_failure_is_logged_and_can_be_retried(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workspace = RunWorkspace.create(temp_dir)
+            with self.assertLogs("app.java_runner", level="ERROR"):
+                with patch(
+                    "app.java_runner._remove_workspace_tree",
+                    side_effect=PermissionError("workspace is temporarily locked"),
+                ):
+                    workspace.cleanup()
+            self.assertTrue(workspace.root.is_dir())
+            self.assertIn("PermissionError", workspace.cleanup_error)
+
+            workspace.cleanup()
+            self.assertFalse(workspace.root.exists())
+            self.assertIsNone(workspace.cleanup_error)
+
+    def test_cleanup_does_not_follow_directory_symlink(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workspace = RunWorkspace.create(temp_dir)
+            outside = Path(temp_dir) / "outside"
+            outside.mkdir()
+            sentinel = outside / "keep.txt"
+            sentinel.write_text("outside workspace", encoding="utf-8")
+            link = workspace.root / "link_to_outside"
+            try:
+                os.symlink(outside, link, target_is_directory=True)
+            except (OSError, NotImplementedError) as symlink_error:
+                junction_created = False
+                if os.name == "nt":
+                    command = f'mklink /J "{link}" "{outside}"'
+                    junction = subprocess.run(
+                        ["cmd.exe", "/d", "/c", command],
+                        capture_output=True,
+                        text=True,
+                        check=False,
+                    )
+                    junction_created = junction.returncode == 0
+                if not junction_created:
+                    workspace.cleanup()
+                    self.skipTest(
+                        f"Symlink/junction creation is unavailable: {symlink_error}"
+                    )
+
+            workspace.cleanup()
+
+            self.assertTrue(sentinel.is_file())
+            self.assertFalse(workspace.root.exists())
+
+    def test_concurrent_workspaces_are_unique_and_cleanup_independently(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            def create_and_cleanup(index):
+                workspace = RunWorkspace.create(temp_dir)
+                root = workspace.root
+                (workspace.src / f"{index}.txt").write_text(str(index), encoding="utf-8")
+                workspace.cleanup()
+                return workspace.run_id, root
+
+            with ThreadPoolExecutor(max_workers=8) as executor:
+                results = list(executor.map(create_and_cleanup, range(16)))
+
+            run_ids = [run_id for run_id, _ in results]
+            roots = [root for _, root in results]
+            self.assertEqual(len(run_ids), len(set(run_ids)))
+            self.assertEqual(len(roots), len(set(roots)))
+            self.assertTrue(all(not root.exists() for root in roots))
+
+    @unittest.skipUnless(os.name == "nt", "Windows Job Object process lifecycle test")
+    def test_live_process_workspace_is_untouched_and_cleans_after_job_termination(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            active_workspace = RunWorkspace.create(temp_dir)
+            other_workspace = RunWorkspace.create(temp_dir)
+            process = create_job_process(
+                python_command("import time; time.sleep(30)"),
+                cwd=active_workspace.root,
+                env=minimal_environment(),
+            )
+            try:
+                other_workspace.cleanup()
+                self.assertIsNone(process.poll())
+                self.assertTrue(active_workspace.root.is_dir())
+                self.assertFalse(other_workspace.root.exists())
+            finally:
+                process.terminate()
+                process.wait(timeout=3)
+                process.close()
+                active_workspace.cleanup()
+            self.assertFalse(active_workspace.root.exists())
 
     def test_workspace_cleans_up_when_context_body_raises(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -482,6 +654,22 @@ class JavaCompileTests(unittest.TestCase):
             self.assertEqual(len(compile_commands), 1)
             self.assertEqual(compile_commands[0][1:4], ["-encoding", "UTF-8", "-proc:none"])
             self.assertEqual(list(Path(temp_dir).iterdir()), [])
+
+    def test_compile_keep_temp_retains_workspace_when_requested(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            result = compile_java(
+                "public class Retained { public static void main(String[] args) {} }",
+                source_path="Retained.java",
+                workspace_parent=temp_dir,
+                keep_temp=True,
+            )
+            workspace_path = Path(temp_dir) / f"run_{result.run_id}"
+            try:
+                self.assertTrue(result.success, result.error or result.stderr)
+                self.assertTrue(workspace_path.is_dir())
+                self.assertTrue((workspace_path / "out" / "Retained.class").is_file())
+            finally:
+                shutil.rmtree(workspace_path, ignore_errors=True)
 
     def test_java_syntax_error_is_compile_error_ce(self):
         result = compile_java(
@@ -823,6 +1011,16 @@ class ReflectionVerticalSliceTests(unittest.TestCase):
             self.assertEqual(len(result.checks), 6)
             self.assertEqual(list(Path(temp_dir).iterdir()), [])
             self.assertIsNotNone(result.run_id)
+
+    def test_reflection_keep_temp_retains_workspace_when_requested(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            result = self.run_sample(workspace_parent=temp_dir, keep_temp=True)
+            workspace_path = Path(temp_dir) / f"run_{result.run_id}"
+            try:
+                self.assertEqual((result.verdict, result.score), ("AC", 100))
+                self.assertTrue(workspace_path.is_dir())
+            finally:
+                shutil.rmtree(workspace_path, ignore_errors=True)
 
     def test_reflection_heap_is_derived_from_total_job_memory(self):
         memory_bytes = 512 * 1024 * 1024

@@ -29,29 +29,91 @@ class ExamScore:
     questions: list[dict]
 
 
-def _number(value, field: str, category: str) -> Decimal:
-    if isinstance(value, bool) or not isinstance(value, (int, float, Decimal)):
-        raise GradingError(f"{field} must be a finite non-negative number", category)
+_STUDENT_VERDICTS = frozenset({"AC", "WA", "CE", "TLE", "MLE", "RE", "OLE"})
+_INFRASTRUCTURE_VERDICTS = frozenset(
+    {"INVALID_REQUEST", "JDK_NOT_FOUND", "JUDGE_INFRA_ERROR", "PROTOCOL_ERROR"}
+)
+_VALID_VERDICTS = _STUDENT_VERDICTS | _INFRASTRUCTURE_VERDICTS
+
+
+def _validate_verdict(verdict: str | None) -> None:
+    if verdict is None:
+        return
+    if not isinstance(verdict, str) or verdict not in _VALID_VERDICTS:
+        raise GradingError("Judge result has an invalid verdict", "PROTOCOL_ERROR")
+    if verdict in _INFRASTRUCTURE_VERDICTS:
+        raise GradingError(
+            f"Cannot calculate a score for infrastructure verdict {verdict}", verdict
+        )
+
+
+def _validate_verdict_matches_results(verdict: str | None, results: list[dict]) -> None:
+    if verdict == "AC" and not all(result["passed"] for result in results):
+        raise GradingError("AC verdict conflicts with failed checks/tests", "PROTOCOL_ERROR")
+    if verdict == "WA" and all(result["passed"] for result in results):
+        raise GradingError("WA verdict conflicts with passing checks/tests", "PROTOCOL_ERROR")
+
+
+def _is_json_value(value, seen: set[int] | None = None, depth: int = 0) -> bool:
+    if value is None or isinstance(value, (str, bool, int)):
+        return True
+    if isinstance(value, float):
+        return math.isfinite(value)
+    if depth >= 100:
+        return False
+    if not isinstance(value, (list, dict)):
+        return False
+    if seen is None:
+        seen = set()
+    identity = id(value)
+    if identity in seen:
+        return False
+    seen.add(identity)
+    try:
+        if isinstance(value, list):
+            return all(_is_json_value(item, seen, depth + 1) for item in value)
+        return all(
+            isinstance(key, str) and _is_json_value(item, seen, depth + 1)
+            for key, item in value.items()
+        )
+    finally:
+        seen.remove(identity)
+
+
+def parse_nonnegative_decimal(
+    value, field: str, *, allow_decimal: bool = True
+) -> Decimal:
+    """Parse bounded finite non-negative numeric input without losing precision."""
+    accepted_types = (int, float, Decimal) if allow_decimal else (int, float)
+    if isinstance(value, bool) or not isinstance(value, accepted_types):
+        raise ValueError(f"{field} must be a finite non-negative number")
     try:
         number = Decimal(str(value))
     except (InvalidOperation, ValueError) as exc:
-        raise GradingError(f"{field} must be a finite non-negative number", category) from exc
+        raise ValueError(f"{field} must be a finite non-negative number") from exc
     if not number.is_finite() or number < 0:
-        raise GradingError(f"{field} must be a finite non-negative number", category)
+        raise ValueError(f"{field} must be a finite non-negative number")
     if len(number.as_tuple().digits) > 1000 or abs(number.as_tuple().exponent) > 1000:
-        raise GradingError(f"{field} exceeds the supported numeric range", category)
+        raise ValueError(f"{field} exceeds the supported numeric range")
     try:
         if not math.isfinite(float(number)):
-            raise GradingError(f"{field} exceeds the supported numeric range", category)
+            raise ValueError(f"{field} exceeds the supported numeric range")
     except (OverflowError, ValueError) as exc:
-        raise GradingError(f"{field} exceeds the supported numeric range", category) from exc
+        raise ValueError(f"{field} exceeds the supported numeric range") from exc
     return number
 
 
-def _plain_number(value: Decimal) -> int | float:
+def plain_number(value: Decimal) -> int | float:
     if value == value.to_integral_value():
         return int(value)
     return float(value)
+
+
+def _number(value, field: str, category: str) -> Decimal:
+    try:
+        return parse_nonnegative_decimal(value, field)
+    except ValueError as exc:
+        raise GradingError(str(exc), category) from exc
 
 
 def _decimal_sum(values) -> Decimal:
@@ -120,12 +182,13 @@ def _normalize_question_results(
     item_name: str,
     reported_score=None,
     reported_total_points=None,
-    force_zero: bool = False,
+    verdict: str | None = None,
 ) -> QuestionScore:
     specs, configured_points, total = _configured_points(
         specifications, total_points, item_name=item_name
     )
     protocol_category = "PROTOCOL_ERROR" if item_name == "check" else "JUDGE_INFRA_ERROR"
+    _validate_verdict(verdict)
     result_list = _sequence(results, f"{item_name} results", protocol_category)
     if len(result_list) != len(specs):
         raise GradingError(
@@ -144,6 +207,17 @@ def _normalize_question_results(
             raise GradingError(f"unknown {item_name} result id", protocol_category)
         if item_id in results_by_id:
             raise GradingError(f"duplicate {item_name} result id: {item_id}", protocol_category)
+        if item_name == "test":
+            if raw.get("verdict") is not None:
+                _validate_verdict(raw["verdict"])
+            error_category = raw.get("error_category")
+            if error_category is not None:
+                if (
+                    not isinstance(error_category, str)
+                    or error_category not in _INFRASTRUCTURE_VERDICTS
+                ):
+                    raise GradingError("STDIO result has an invalid error_category", protocol_category)
+                _validate_verdict(error_category)
         results_by_id[item_id] = raw
 
     normalized_results: list[dict] = []
@@ -171,10 +245,23 @@ def _normalize_question_results(
                 raise GradingError(f"{item_name} '{item_id}' passed must be a boolean", protocol_category)
             if result["error"] is not None and not isinstance(result["error"], str):
                 raise GradingError(f"{item_name} '{item_id}' error must be a string or null", protocol_category)
+            if not _is_json_value(result["expected"]):
+                raise GradingError(f"{item_name} '{item_id}' expected must be a JSON value", protocol_category)
+            if not _is_json_value(result["actual"]):
+                raise GradingError(f"{item_name} '{item_id}' actual must be a JSON value", protocol_category)
+            if "points" in result:
+                reported_points = _number(
+                    result["points"], f"{item_name} '{item_id}' points", protocol_category
+                )
+                if reported_points != configured_points[item_id]:
+                    raise GradingError(
+                        f"{item_name} '{item_id}' points do not match configuration",
+                        protocol_category,
+                    )
             normalized = {
                 "id": item_id,
                 "passed": result["passed"],
-                "points_earned": _plain_number(points_earned),
+                "points_earned": plain_number(points_earned),
                 "expected": result["expected"],
                 "actual": result["actual"],
                 "error": result["error"],
@@ -200,15 +287,17 @@ def _normalize_question_results(
                     f"{item_name} '{item_id}' earned more than its configured points",
                     protocol_category,
                 )
-            points_earned = (
-                configured_points[item_id]
-                if result["passed"] and not force_zero
-                else Decimal(0)
-            )
+            expected_earned = configured_points[item_id] if result["passed"] else Decimal(0)
+            if reported_earned != expected_earned:
+                raise GradingError(
+                    f"{item_name} '{item_id}' points_earned conflicts with passed",
+                    protocol_category,
+                )
+            points_earned = reported_earned
             normalized = dict(result)
             normalized["id"] = item_id
-            normalized["points"] = _plain_number(reported_points)
-            normalized["points_earned"] = _plain_number(points_earned)
+            normalized["points"] = plain_number(reported_points)
+            normalized["points_earned"] = plain_number(points_earned)
         earned_values.append(points_earned)
         normalized_results.append(normalized)
     earned_sum = _decimal_sum(earned_values)
@@ -226,41 +315,85 @@ def _normalize_question_results(
     if earned_sum > total:
         raise GradingError("score exceeds total_points", protocol_category)
 
-    score = Decimal(0) if force_zero else earned_sum
     return QuestionScore(
-        score=_plain_number(score),
-        total_points=_plain_number(total),
+        score=plain_number(earned_sum),
+        total_points=plain_number(total),
         results=normalized_results,
     )
 
 
-def grade_reflection(check_specifications, judge_payload: Mapping, total_points) -> QuestionScore:
-    """Validate an untrusted ReflectionJudge payload and calculate its score."""
+def grade_reflection(
+    check_specifications,
+    judge_payload: Mapping,
+    total_points,
+    *,
+    verdict: str | None = None,
+) -> QuestionScore:
+    """Validate an untrusted judge payload and calculate its score.
+
+    ``verdict`` is optional because the frozen child JSON schema omits it; Python
+    runner callers pass the surrounding JudgeResult verdict when they have it.
+    """
+    _validate_verdict(verdict)
     if not isinstance(judge_payload, Mapping):
         raise GradingError("ReflectionJudge result must be an object", "PROTOCOL_ERROR")
+    error_category = judge_payload.get("error_category")
+    if error_category is not None:
+        if not isinstance(error_category, str) or error_category not in _INFRASTRUCTURE_VERDICTS:
+            raise GradingError("ReflectionJudge returned an invalid error_category", "PROTOCOL_ERROR")
+        _validate_verdict(error_category)
     if not {"score", "total_points", "checks"}.issubset(judge_payload):
         raise GradingError("ReflectionJudge result is missing score fields", "PROTOCOL_ERROR")
-    return _normalize_question_results(
+    checks = judge_payload["checks"]
+    if not isinstance(checks, list):
+        raise GradingError("ReflectionJudge checks must be a list", "PROTOCOL_ERROR")
+    payload_verdict = judge_payload.get("verdict")
+    if payload_verdict is not None:
+        _validate_verdict(payload_verdict)
+        if verdict is not None and payload_verdict != verdict:
+            raise GradingError("Judge verdict fields do not match", "PROTOCOL_ERROR")
+        verdict = payload_verdict
+    _validate_verdict(verdict)
+    graded = _normalize_question_results(
         check_specifications,
-        judge_payload["checks"],
+        checks,
         total_points,
         item_name="check",
         reported_score=judge_payload["score"],
         reported_total_points=judge_payload["total_points"],
+        verdict=verdict,
     )
+    _validate_verdict_matches_results(verdict, graded.results)
+    return graded
 
 
-def grade_stdio(test_specifications, test_results, total_points, *, force_zero: bool = False) -> QuestionScore:
+def grade_stdio(
+    test_specifications,
+    test_results,
+    total_points,
+    *,
+    force_zero: bool = False,
+    verdict: str | None = None,
+) -> QuestionScore:
     """Validate generated STDIO test results and calculate one question score."""
+    _validate_verdict(verdict)
     if not isinstance(force_zero, bool):
         raise GradingError("force_zero must be a boolean", "JUDGE_INFRA_ERROR")
-    return _normalize_question_results(
+    if force_zero:
+        # Retain this legacy keyword but refuse to hide an infrastructure failure as zero.
+        raise GradingError(
+            "Cannot calculate a score for infrastructure failure",
+            verdict if verdict in _INFRASTRUCTURE_VERDICTS else "JUDGE_INFRA_ERROR",
+        )
+    graded = _normalize_question_results(
         test_specifications,
         test_results,
         total_points,
         item_name="test",
-        force_zero=force_zero,
+        verdict=verdict,
     )
+    _validate_verdict_matches_results(verdict, graded.results)
+    return graded
 
 
 def grade_exam(question_scores) -> ExamScore:
@@ -275,6 +408,7 @@ def grade_exam(question_scores) -> ExamScore:
             raise GradingError(
                 f"question score at index {index} must be an object", "JUDGE_INFRA_ERROR"
             )
+        # Legacy exam score records use `id`; retain this fallback for stored results.
         question_id = raw.get("question_id", raw.get("id"))
         if not isinstance(question_id, str) or not question_id.strip():
             raise GradingError(
@@ -290,15 +424,15 @@ def grade_exam(question_scores) -> ExamScore:
             raise GradingError(f"question '{question_id}' score exceeds total_points", "JUDGE_INFRA_ERROR")
         normalized_question = dict(raw)
         normalized_question["question_id"] = question_id
-        normalized_question["score"] = _plain_number(score)
-        normalized_question["total_points"] = _plain_number(total)
+        normalized_question["score"] = plain_number(score)
+        normalized_question["total_points"] = plain_number(total)
         normalized.append(normalized_question)
         score_values.append(score)
         points_values.append(total)
     score_sum = _decimal_sum(score_values)
     points_sum = _decimal_sum(points_values)
     return ExamScore(
-        score=_plain_number(score_sum),
-        total_points=_plain_number(points_sum),
+        score=plain_number(score_sum),
+        total_points=plain_number(points_sum),
         questions=normalized,
     )

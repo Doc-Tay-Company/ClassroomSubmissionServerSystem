@@ -41,6 +41,8 @@
 | 12 | Dùng lại câu hỏi bằng **snapshot, không phải link sống**: khi thêm câu hỏi vào đề, server copy nguyên bản câu hỏi lúc đó vào đề, kèm `source_question_id` và phiên bản. Sửa ngân hàng sau đó không làm thay đổi đề đã phát. Đề còn ở trạng thái nháp thì admin bấm “cập nhật từ ngân hàng” mới lấy bản mới nhất. |
 | 13 | Giới hạn mặc định (admin sửa được theo từng câu hỏi/đề): pretest tối đa 20 lần/câu hỏi/kỳ thi, timeout judge theo spec, output cắt ngắn. Số lần nộp code dùng lại chính sách nộp sẵn có của kỳ thi (`submission_policy`, `max_submissions`). |
 
+`target_class` và package được server kiểm tra theo classroom identifier subset: Unicode start/continuation categories của Python, cho phép `$`, nhưng loại các ký tự identifier-ignorable mà Java cho phép. Đây không phải parser đầy đủ của Java Language Specification; javac vẫn xác thực tên khai báo trong source.
+
 ## 3. Mục tiêu
 
 1. Sinh viên làm bài code ngay trên web, không cần nộp ZIP rồi chờ.
@@ -209,7 +211,7 @@ Sinh viên nộp Student.java (1 file, 1 public class, đúng package)
 ### Các lớp bảo vệ của MVP trên Windows (bắt buộc)
 
 1. **Process riêng, không `exec`/`eval` trong server.** Code sinh viên chỉ chạy trong process con (`python.exe` hoặc `java.exe` riêng), server chỉ điều phối.
-2. **Thư mục tạm riêng cho từng lần chấm.** Tạo thư mục tạm riêng (ví dụ dưới thư mục tạm của Windows hoặc thư mục tạm của project), copy code sinh viên vào đó, chạy xong xóa sạch trong `finally`. Code không bao giờ được chạy trực tiếp trong thư mục project.
+2. **Workspace riêng cho mỗi lần chấm.** Tạo root duy nhất theo `run_id`, xử lý code trong workspace riêng và cleanup trong `finally`. Production mặc định cleanup; debug có thể truyền `keep_temp=True`. Cleanup Windows bỏ thuộc tính read-only khi cần và retry tối đa 3 lần có giới hạn. Không đi theo symlink, junction hoặc reparse point. Nếu lock/quyền truy cập vẫn cản cleanup, lỗi được ghi log nội bộ, không làm crash server và không thay verdict đã có. Code không chạy trực tiếp trong thư mục project.
 3. **Không truyền test/check qua file.** Với stdio, input đưa qua stdin pipe, output kỳ vọng so sánh ở phía server. Với reflection, spec đã lọc được đưa qua stdin pipe cho harness. Như vậy code sinh viên không có file test nào trên đĩa để đọc trộm trong lần chạy đó.
 4. **Timeout cứng.** Timeout cho từng test (stdio) và cho toàn bộ lần chạy judge (reflection, Phase 1). Hết timeout thì kill process và cây process con nếu có thể, verdict `TLE`, server vẫn sống.
 5. **Cắt output và giới hạn dung lượng.** Cắt stdout/stderr (mặc định 64 KiB cho stdio, theo spec cho reflection), giới hạn độ dài code nộp, giới hạn số lần chạy thử và số lần chấm chạy cùng lúc, kèm cooldown ngắn chống spam nút Run.

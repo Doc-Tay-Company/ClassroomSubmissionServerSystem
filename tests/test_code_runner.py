@@ -5,13 +5,14 @@ from decimal import Decimal
 from pathlib import Path
 import shutil
 import unittest
+from uuid import uuid4
 from unittest.mock import patch
 
 from app.code_runner import _failure_for_process, compare_outputs, outputs_match, run_stdio
 from app.code_exams import _job_limits
 from app.questions import QuestionError, _validate_question
 from app.java_runner import ProcessResult, ProcessStatus
-from app.windows_job import JobLimits, JobObjectError
+from app.windows_job import JobLimits, JobObjectError, create_job_process
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 WORKSPACE_PARENT = REPO_ROOT / ".test-code-runner-workspaces"
@@ -267,6 +268,10 @@ class PythonStdioIntegrationTests(WorkspaceTestCase):
         self.assertEqual([test.verdict for test in result.tests], ["AC", "AC"])
         self.assertEqual(result.compile_result.status, "EXITED")
 
+    def test_wrong_output_is_wa(self):
+        result = run_stdio("print('wrong')", "python", [make_test("wrong", "", "expected\n")])
+        self.assertEqual((result.verdict, result.tests[0].verdict, result.score), ("WA", "WA", 0))
+
     def test_syntax_error_is_ce_and_workspace_is_cleaned(self):
         result = run_stdio(
             "if:",
@@ -286,6 +291,44 @@ class PythonStdioIntegrationTests(WorkspaceTestCase):
         self.assertEqual(result.tests[0].verdict, "RE")
         self.assertEqual(result.tests[0].actual_stdout.replace("\r\n", "\n"), "expected\n")
         self.assertEqual(result.score, 0)
+
+    def test_each_test_gets_original_source_even_if_previous_test_rewrites_it(self):
+        source = (
+            "import sys\nfrom pathlib import Path\n"
+            "value = sys.stdin.read().strip()\n"
+            "if value == 'mutate': Path(__file__).write_text(\"print('tampered')\")\n"
+            "print('mutated' if value == 'mutate' else value)\n"
+        )
+        result = run_stdio(
+            source,
+            "python",
+            [make_test("mutate", "mutate", "mutated\n"), make_test("fresh", "safe", "safe\n")],
+        )
+        self.assertEqual([test.verdict for test in result.tests], ["AC", "AC"])
+        self.assertEqual(
+            [test.actual_stdout.replace("\r\n", "\n") for test in result.tests],
+            ["mutated\n", "safe\n"],
+        )
+
+    def test_student_environment_does_not_expose_data_directory_for_file_read(self):
+        secret_file = WORKSPACE_PARENT / f"secret-{uuid4().hex}.txt"
+        secret_file.write_text("must-not-be-readable-through-env", encoding="utf-8")
+        env = dict(os.environ)
+        env["CLASSROOM_DATA_DIR"] = str(WORKSPACE_PARENT)
+        try:
+            result = run_stdio(
+                "import os; from pathlib import Path; p=os.getenv('CLASSROOM_DATA_DIR'); "
+                f"print(Path(p, '{secret_file.name}').read_text() if p else 'not-exposed')",
+                "python",
+                [make_test("file-read", "", "not-exposed\n")],
+                env=env,
+            )
+        finally:
+            secret_file.unlink(missing_ok=True)
+        self.assertEqual(
+            (result.verdict, result.tests[0].actual_stdout.replace("\r\n", "\n")),
+            ("AC", "not-exposed\n"),
+        )
 
     def test_timeout_does_not_prevent_later_test(self):
         source = (
@@ -330,6 +373,71 @@ class PythonStdioIntegrationTests(WorkspaceTestCase):
         )
         self.assertEqual(result.verdict, "AC")
         self.assertIn("diagnostic", result.tests[0].stderr)
+
+    def test_stderr_flood_is_bounded_as_ole(self):
+        result = run_stdio(
+            "import os; os.write(2, b'e' * 1000000)",
+            "python",
+            [make_test("stderr-flood", "", "")],
+            max_output_bytes=4096,
+        )
+        self.assertEqual(result.tests[0].verdict, "OLE")
+        self.assertTrue(result.tests[0].stderr_truncated)
+        self.assertLessEqual(len(result.tests[0].stderr.encode("utf-8")), 4096)
+
+    def test_spawned_child_is_terminated_when_test_process_exits(self):
+        created = []
+        real_create = create_job_process
+
+        def record_job(*args, **kwargs):
+            process = real_create(*args, **kwargs)
+            created.append(process)
+            return process
+
+        with patch("app.java_runner.create_job_process", side_effect=record_job):
+            result = run_stdio(
+                "import subprocess, sys; subprocess.Popen([sys.executable, '-c', "
+                "'import time; time.sleep(30)']); print('done')",
+                "python",
+                [make_test("spawn", "", "done\n")],
+            )
+        self.assertEqual(result.verdict, "AC")
+        runtime_jobs = [job for job in created if "py_compile" not in job.args]
+        self.assertEqual(len(runtime_jobs), 1)
+        self.assertTrue(runtime_jobs[0]._closed)
+        self.assertTrue(runtime_jobs[0]._job_empty_on_close)
+
+    def test_cleanup_failure_does_not_replace_student_result(self):
+        with self.assertLogs("app.java_runner", level="ERROR"):
+            with patch(
+                "app.java_runner._remove_workspace_tree",
+                side_effect=PermissionError("simulated locked workspace"),
+            ):
+                result = run_stdio(
+                    "print('ok')",
+                    "python",
+                    [make_test("ok", "", "ok\n")],
+                    workspace_parent=WORKSPACE_PARENT,
+                )
+        self.assertEqual((result.verdict, result.score), ("AC", 1))
+        root = WORKSPACE_PARENT / f"run_{result.run_id}"
+        self.assertTrue(root.is_dir())
+        shutil.rmtree(root)
+
+    def test_keep_temp_option_retains_successful_execution_workspace(self):
+        result = run_stdio(
+            "print('ok')",
+            "python",
+            [make_test("ok", "", "ok\n")],
+            workspace_parent=WORKSPACE_PARENT,
+            keep_temp=True,
+        )
+        root = WORKSPACE_PARENT / f"run_{result.run_id}"
+        try:
+            self.assertEqual(result.verdict, "AC")
+            self.assertTrue(root.is_dir())
+        finally:
+            shutil.rmtree(root, ignore_errors=True)
 
     def test_broken_stdin_consumer_is_student_failure_not_infrastructure(self):
         result = run_stdio(
@@ -412,6 +520,132 @@ class JavaStdioIntegrationTests(WorkspaceTestCase):
         result = run_stdio(source, "java", [make_test("exit", "", "expected\n")], target_class="Main")
         self.assertEqual(result.verdict, "RE")
         self.assertEqual(result.tests[0].actual_stdout.replace("\r\n", "\n"), "expected\n")
+
+    def test_wrong_output_is_wa(self):
+        result = run_stdio(
+            "public class Main { public static void main(String[] a) { System.out.println(\"wrong\"); } }",
+            "java",
+            [make_test("wrong", "", "expected\n")],
+            target_class="Main",
+        )
+        self.assertEqual((result.verdict, result.tests[0].verdict, result.score), ("WA", "WA", 0))
+
+    def test_each_test_gets_original_compiled_classes_after_class_file_mutation(self):
+        source = (
+            "import java.nio.file.*; import java.util.Scanner; public class Main { "
+            "public static void main(String[] args) throws Exception { "
+            "String value = new Scanner(System.in).nextLine(); "
+            "if (value.equals(\"mutate\")) Files.write(Path.of(" +
+            "System.getProperty(\"java.class.path\"), \"Main.class\"), new byte[]{0}); "
+            "System.out.println(value.equals(\"mutate\") ? \"mutated\" : value); } }"
+        )
+        result = run_stdio(
+            source,
+            "java",
+            [make_test("mutate", "mutate", "mutated\n"), make_test("fresh", "safe", "safe\n")],
+            target_class="Main",
+        )
+        self.assertEqual([test.verdict for test in result.tests], ["AC", "AC"])
+        self.assertEqual(
+            [test.actual_stdout.replace("\r\n", "\n") for test in result.tests],
+            ["mutated\n", "safe\n"],
+        )
+
+    def test_student_environment_does_not_expose_data_directory_for_file_read(self):
+        secret_file = WORKSPACE_PARENT / f"secret-{uuid4().hex}.txt"
+        secret_file.write_text("must-not-be-readable-through-env", encoding="utf-8")
+        env = dict(os.environ)
+        env["CLASSROOM_DATA_DIR"] = str(WORKSPACE_PARENT)
+        try:
+            result = run_stdio(
+                "import java.nio.file.*; public class Main { public static void main(String[] a) "
+                "throws Exception { String p=System.getenv(\"CLASSROOM_DATA_DIR\"); "
+                "System.out.println(p == null ? \"not-exposed\" : "
+                f"Files.readString(Path.of(p, \"{secret_file.name}\"))); }} }}",
+                "java",
+                [make_test("file-read", "", "not-exposed\n")],
+                target_class="Main",
+                env=env,
+            )
+        finally:
+            secret_file.unlink(missing_ok=True)
+        self.assertEqual(
+            (result.verdict, result.tests[0].actual_stdout.replace("\r\n", "\n")),
+            ("AC", "not-exposed\n"),
+        )
+
+    def test_stderr_flood_is_bounded_as_ole(self):
+        source = (
+            "public class Main { public static void main(String[] a) { "
+            "for (int i=0;i<1000000;i++) System.err.print('e'); } }"
+        )
+        result = run_stdio(
+            source,
+            "java",
+            [make_test("stderr-flood", "", "")],
+            target_class="Main",
+            max_output_bytes=4096,
+        )
+        self.assertEqual(result.tests[0].verdict, "OLE")
+        self.assertTrue(result.tests[0].stderr_truncated)
+        self.assertLessEqual(len(result.tests[0].stderr.encode("utf-8")), 4096)
+
+    def test_stdout_flood_is_bounded_as_ole(self):
+        source = (
+            "public class Main { public static void main(String[] a) { "
+            "for (int i=0;i<1000000;i++) System.out.print('x'); } }"
+        )
+        result = run_stdio(
+            source,
+            "java",
+            [make_test("stdout-flood", "", "")],
+            target_class="Main",
+            max_output_bytes=4096,
+        )
+        self.assertEqual(result.tests[0].verdict, "OLE")
+        self.assertTrue(result.tests[0].stdout_truncated)
+        self.assertLessEqual(len(result.tests[0].actual_stdout.encode("utf-8")), 4096)
+
+    def test_java_timeout_does_not_prevent_later_test(self):
+        source = (
+            "import java.util.Scanner; public class Main { public static void main(String[] a) { "
+            "String value = new Scanner(System.in).nextLine(); "
+            "if (value.equals(\"hang\")) while (true) {} System.out.println(value); } }"
+        )
+        result = run_stdio(
+            source,
+            "java",
+            [make_test("slow", "hang", "hang\n"), make_test("next", "ok", "ok\n")],
+            target_class="Main",
+            timeout_seconds=2,
+        )
+        self.assertEqual([test.verdict for test in result.tests], ["TLE", "AC"])
+
+    def test_spawned_child_is_terminated_when_test_process_exits(self):
+        created = []
+        real_create = create_job_process
+
+        def record_job(*args, **kwargs):
+            process = real_create(*args, **kwargs)
+            created.append(process)
+            return process
+
+        source = (
+            "public class Main { public static class Child { public static void main(String[] a) "
+            "throws Exception { Thread.sleep(30000); } } public static void main(String[] a) "
+            "throws Exception { String java=System.getProperty(\"java.home\")+\"\\\\bin\\\\java.exe\"; "
+            "new ProcessBuilder(java, \"-cp\", System.getProperty(\"java.class.path\"), "
+            "\"Main$Child\").start(); System.out.println(\"done\"); } }"
+        )
+        with patch("app.java_runner.create_job_process", side_effect=record_job):
+            result = run_stdio(
+                source, "java", [make_test("spawn", "", "done\n")], target_class="Main"
+            )
+        self.assertEqual(result.verdict, "AC")
+        self.assertGreaterEqual(len(created), 2)  # JDK probes and runtime process.
+        runtime_job = created[-1]
+        self.assertTrue(runtime_job._closed)
+        self.assertTrue(runtime_job._job_empty_on_close)
 
     def test_java_student_process_gets_minimal_environment(self):
         from app.java_runner import run_process as real_run_process
