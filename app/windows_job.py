@@ -474,10 +474,16 @@ def _create_attribute_list(handles):
 
 
 class WindowsJobProcess:
-    """A process assigned to a Job before its primary thread is resumed."""
+    """A Job-contained process with parent-owned pipe readers.
+
+    When enabled, ``protocol`` is the parent's read endpoint. Its child write
+    handle is explicitly allowlisted for inheritance and the parent's copy is
+    closed after process creation; ``close()`` releases the read endpoint.
+    """
 
     def __init__(
-        self, args, process_handle, job_handle, completion_port, pid, stdout, stderr, stdin, limits
+        self, args, process_handle, job_handle, completion_port, pid,
+        stdout, stderr, stdin, limits, protocol=None, protocol_handle_value=None
     ):
         self.args = list(args)
         self._process_handle = process_handle
@@ -487,6 +493,8 @@ class WindowsJobProcess:
         self.stdout = stdout
         self.stderr = stderr
         self.stdin = stdin
+        self.protocol = protocol
+        self.protocol_handle_value = protocol_handle_value
         self.limits = limits
         self.returncode: int | None = None
         self._closed = False
@@ -586,14 +594,11 @@ class WindowsJobProcess:
         return int(info.ActiveProcesses)
 
     def _wait_for_job_empty(self, timeout: float) -> bool:
-        deadline = time.monotonic() + timeout
-        while True:
-            if self.active_process_count() == 0:
-                return True
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                return False
-            time.sleep(min(0.01, remaining))
+        if self.active_process_count() == 0:
+            return True
+        # Job completion notifications are queued by the kernel. Wait for the
+        # active-zero event instead of repeatedly querying the accounting API.
+        return self._wait_for_active_zero_message(timeout)
 
     def _wait_for_active_zero_message(self, timeout: float) -> bool:
         deadline = time.monotonic() + timeout
@@ -700,7 +705,7 @@ class WindowsJobProcess:
                 failure = failure or _error_message("CloseHandle(completion port)")
             else:
                 self._completion_port = None
-        for stream in (self.stdin, self.stdout, self.stderr):
+        for stream in (self.stdin, self.stdout, self.stderr, self.protocol):
             if stream is None:
                 continue
             try:
@@ -723,14 +728,15 @@ def create_job_process(
     env: Mapping[str, str],
     limits: JobLimits = DEFAULT_JOB_LIMITS,
     stdin_pipe: bool = False,
+    protocol_pipe: bool = False,
 ) -> WindowsJobProcess:
     """Create suspended, assign to a configured Job, then resume the primary thread."""
     if os.name != "nt":
         raise JobObjectError("Windows Job Objects are only available on Windows.")
     if not command or any(not isinstance(arg, str) for arg in command):
         raise ValueError("command must be a non-empty sequence of strings")
-    if not isinstance(stdin_pipe, bool):
-        raise ValueError("stdin_pipe must be a boolean")
+    if not isinstance(stdin_pipe, bool) or not isinstance(protocol_pipe, bool):
+        raise ValueError("stdin_pipe and protocol_pipe must be booleans")
     if limits is None:
         limits = DEFAULT_JOB_LIMITS
     elif not isinstance(limits, JobLimits):
@@ -750,6 +756,8 @@ def create_job_process(
     completion_port = None
     process_info = _ProcessInformation()
     stdout_stream = stderr_stream = stdin_stream = None
+    protocol_stream = protocol_writer = None
+    protocol_handle_value = None
     stdout_writer = stderr_writer = stdin_handle = None
     attribute_pointer = None
     assigned = False
@@ -768,12 +776,16 @@ def create_job_process(
 
         stdout_stream, stdout_writer = _make_pipe()
         stderr_stream, stderr_writer = _make_pipe()
+        if protocol_pipe:
+            protocol_stream, protocol_writer = _make_pipe()
+            protocol_handle_value = int(_handle_value(protocol_writer))
         if stdin_pipe:
             stdin_handle, stdin_stream = _make_stdin_pipe()
         else:
             stdin_handle = _create_stdin_handle()
         attribute_buffer, attribute_pointer = _create_attribute_list(
             [stdin_handle, stdout_writer, stderr_writer]
+            + ([protocol_writer] if protocol_writer is not None else [])
         )
 
         startup = _StartupInfoExW()
@@ -835,11 +847,13 @@ def create_job_process(
             stderr_stream,
             stdin_stream,
             limits,
+            protocol_stream,
+            protocol_handle_value,
         )
         process_info.hProcess = None
         job_handle = None
         completion_port = None
-        stdout_stream = stderr_stream = stdin_stream = None
+        stdout_stream = stderr_stream = stdin_stream = protocol_stream = None
         transferred = True
         return process
     except JobObjectError:
@@ -851,6 +865,7 @@ def create_job_process(
             _kernel32.DeleteProcThreadAttributeList(attribute_pointer)
         _close_handle(stdout_writer)
         _close_handle(stderr_writer)
+        _close_handle(protocol_writer)
         _close_handle(stdin_handle)
         _close_handle(process_info.hThread)
         if not transferred:
@@ -869,3 +884,5 @@ def create_job_process(
                 stderr_stream.close()
             if stdin_stream:
                 stdin_stream.close()
+            if protocol_stream:
+                protocol_stream.close()

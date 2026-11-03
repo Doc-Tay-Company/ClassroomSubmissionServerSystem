@@ -1,8 +1,10 @@
 import java.io.ByteArrayOutputStream;
+import java.io.DataInputStream;
+import java.io.FileDescriptor;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.io.PrintStream;
 import java.lang.reflect.Array;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
@@ -29,10 +31,14 @@ import java.util.Map;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import sun.misc.Unsafe;
 
 /** Command-line foundation for loading a student's compiled target class. */
 public final class ReflectionJudge {
     private static final int MAX_SPEC_BYTES = 1024 * 1024;
+    private static final int DEFAULT_MAX_PROTOCOL_BYTES = 1024 * 1024;
+    private static final byte[] PROTOCOL_OVERFLOW_MARKER =
+            "JUDGE_PROTOCOL_LIMIT_EXCEEDED\n".getBytes(StandardCharsets.US_ASCII);
     private static final int MAX_JSON_DEPTH = 64;
     private static final int MAX_POINT_PRECISION = 1000;
     private static final int MAX_POINT_SCALE = 1000;
@@ -41,14 +47,24 @@ public final class ReflectionJudge {
     private static final String JUDGE_INFRA_ERROR = "JUDGE_INFRA_ERROR";
     private static final String CLASS_LOADING_FAILURE = "CLASS_LOADING_FAILURE";
     private static final String STUDENT_EXCEPTION = "STUDENT_EXCEPTION";
+    private static final String STUDENT_FATAL_ERROR = "STUDENT_FATAL_ERROR";
+    private static volatile ProtocolChannel activeProtocol;
 
     private ReflectionJudge() {}
 
     public static void main(String[] args) {
-        PrintStream protocolOut = System.out;
-        ProtocolChannel protocol = new ProtocolChannel(protocolOut);
-        PrintStream capturedStudentOut = new PrintStream(
-                new DiscardingOutputStream(), true, StandardCharsets.UTF_8);
+        int protocolLimit = protocolLimitFromArgs(args);
+        final ProtocolChannel protocol;
+        try {
+            long protocolHandle = new DataInputStream(System.in).readLong();
+            protocol = new ProtocolChannel(outputStreamForHandle(protocolHandle), protocolLimit);
+        } catch (IOException | ReflectiveOperationException | RuntimeException error) {
+            return;
+        }
+        activeProtocol = protocol;
+        if (!protocol.markJudgeStarted()) {
+            return;
+        }
         Thread shutdownHook = new Thread(protocol::writeEmergencyResponse, "judge-protocol-shutdown");
         try {
             Runtime.getRuntime().addShutdownHook(shutdownHook);
@@ -60,32 +76,65 @@ public final class ReflectionJudge {
         }
         Response response;
         try {
-            System.setOut(capturedStudentOut);
             response = execute(args, protocol);
         } catch (Throwable error) {
+            if (isVmFatal(error)) {
+                protocol.markJudgeFatal(error);
+                throw (Error) error;
+            }
             response = Response.failure(
                     BigDecimal.ZERO,
                     List.of(),
                     JUDGE_INFRA_ERROR,
                     null,
                     safeMessage(error));
-        } finally {
-            // Keep System.out attached to the discard stream. A student static
-            // initializer may start a thread that writes after class loading.
-            try {
-                System.setOut(capturedStudentOut);
-            } catch (SecurityException ignored) {
-                // The saved protocol stream below remains independent of System.out.
-            }
         }
         protocol.write(response);
     }
 
+    private static OutputStream outputStreamForHandle(long handle)
+            throws ReflectiveOperationException {
+        if (handle == 0 || handle == -1) {
+            throw new IllegalArgumentException("Protocol pipe handle is invalid.");
+        }
+        Field unsafeField = Unsafe.class.getDeclaredField("theUnsafe");
+        unsafeField.setAccessible(true);
+        Unsafe unsafe = (Unsafe) unsafeField.get(null);
+        FileDescriptor descriptor = new FileDescriptor();
+        Field handleField = FileDescriptor.class.getDeclaredField("handle");
+        unsafe.putLong(descriptor, unsafe.objectFieldOffset(handleField), handle);
+        return new FileOutputStream(descriptor);
+    }
+
+    private static int protocolLimitFromArgs(String[] args) {
+        if (args != null && args.length == 3) {
+            try {
+                int limit = Integer.parseInt(args[2]);
+                if (limit >= PROTOCOL_OVERFLOW_MARKER.length) {
+                    return limit;
+                }
+            } catch (NumberFormatException ignored) {
+                // execute() reports invalid request through the bounded channel.
+            }
+        }
+        return DEFAULT_MAX_PROTOCOL_BYTES;
+    }
+
     private static Response execute(String[] args, ProtocolChannel protocol) {
-        if (args == null || args.length != 2) {
+        if (args == null || args.length != 3) {
             return Response.failure(
                     BigDecimal.ZERO, List.of(), INVALID_REQUEST, null,
-                    "Expected arguments: <target-class-name> <student-output-directory>.");
+                    "Expected arguments: <target-class-name> <student-output-directory> <protocol-limit-bytes>.");
+        }
+
+        try {
+            if (Integer.parseInt(args[2]) < PROTOCOL_OVERFLOW_MARKER.length) {
+                throw new NumberFormatException();
+            }
+        } catch (NumberFormatException error) {
+            return Response.failure(
+                    BigDecimal.ZERO, List.of(), INVALID_REQUEST, null,
+                    "Judge protocol limit is invalid.");
         }
 
         String targetClassName = args[0];
@@ -122,9 +171,13 @@ public final class ReflectionJudge {
                     "Student output directory cannot be accessed.");
         }
 
-        protocol.armForStudentExecution(spec);
+        if (!protocol.armForStudentExecution(spec)) {
+            return Response.failure(spec.totalPoints,
+                    failedChecks(spec, JUDGE_INFRA_ERROR + ": lifecycle channel failed"),
+                    JUDGE_INFRA_ERROR, null, "Judge lifecycle channel failed.");
+        }
         try {
-            return loadTargetClassAndRunChecks(targetClassName, studentOutput, spec);
+            return loadTargetClassAndRunChecks(targetClassName, studentOutput, spec, protocol);
         } catch (ClassNotFoundException error) {
             String message = "Target class '" + targetClassName
                     + "' was not found in the student output directory.";
@@ -135,6 +188,8 @@ public final class ReflectionJudge {
                     CLASS_LOADING_FAILURE,
                     message);
         } catch (ExceptionInInitializerError error) {
+            Throwable cause = error.getCause() == null ? error : error.getCause();
+            rethrowStudentFatal(cause);
             String message = "Student class initialization failed: " + safeMessage(error.getCause() == null
                     ? error : error.getCause());
             return Response.failure(
@@ -159,6 +214,7 @@ public final class ReflectionJudge {
                     null,
                     "Judge could not close the student class loader.");
         } catch (Throwable error) {
+            rethrowFatal(error);
             return Response.failure(
                     spec.totalPoints,
                     failedChecks(spec, JUDGE_INFRA_ERROR + ": " + safeMessage(error)),
@@ -169,7 +225,7 @@ public final class ReflectionJudge {
     }
 
     private static Response loadTargetClassAndRunChecks(
-            String targetClassName, Path studentOutput, Spec spec)
+            String targetClassName, Path studentOutput, Spec spec, ProtocolChannel protocol)
             throws IOException, ClassNotFoundException {
         URL studentDirectory = studentOutput.toUri().toURL();
         try (URLClassLoader loader = new URLClassLoader(
@@ -179,7 +235,15 @@ public final class ReflectionJudge {
                 throw new ClassNotFoundException(
                         "Target class was resolved by a parent loader, not student output.");
             }
-            Class.forName(targetClassName, true, loader);
+            try {
+                Class.forName(targetClassName, true, loader);
+            } catch (VirtualMachineError | ThreadDeath fatal) {
+                protocol.markStudentFatal(fatal);
+                throw fatal;
+            } catch (ExceptionInInitializerError error) {
+                rethrowStudentFatal(error);
+                throw error;
+            }
             return runChecks(target, loader, spec);
         }
     }
@@ -363,7 +427,14 @@ public final class ReflectionJudge {
                     check, expected, null, "INVALID_CHECK_SPEC: " + error.getMessage());
         } catch (CheckFailure error) {
             return CheckResult.failed(check, expected, error.actual, error.code);
+        } catch (ExceptionInInitializerError error) {
+            Throwable cause = unwrapStudentCause(error);
+            rethrowStudentFatal(cause);
+            return CheckResult.failed(
+                    check, expected, exceptionText(cause),
+                    "STUDENT_EXCEPTION: " + exceptionText(cause));
         } catch (Throwable error) {
+            rethrowFatal(error);
             return CheckResult.failed(check, expected, null, "CHECK_ERROR: " + safeMessage(error));
         }
     }
@@ -706,6 +777,7 @@ public final class ReflectionJudge {
             return constructor.newInstance(arguments);
         } catch (InvocationTargetException error) {
             Throwable cause = unwrapInvocation(error);
+            rethrowStudentFatal(cause);
             throw new CheckFailure("CONSTRUCTOR_EXCEPTION: " + exceptionText(cause), exceptionText(cause));
         } catch (ReflectiveOperationException | SecurityException error) {
             throw new CheckFailure("CONSTRUCTOR_ERROR: " + safeMessage(error), safeMessage(error));
@@ -800,7 +872,9 @@ public final class ReflectionJudge {
         try {
             return new InvocationOutcome(method.invoke(target, arguments), null, false);
         } catch (InvocationTargetException error) {
-            return new InvocationOutcome(null, unwrapInvocation(error), false);
+            Throwable cause = unwrapInvocation(error);
+            rethrowStudentFatal(cause);
+            return new InvocationOutcome(null, cause, false);
         } catch (IllegalAccessException | IllegalArgumentException error) {
             return new InvocationOutcome(null, error, true);
         }
@@ -813,6 +887,43 @@ public final class ReflectionJudge {
             current = ((InvocationTargetException) current).getCause();
         }
         return current;
+    }
+
+    private static boolean isVmFatal(Throwable error) {
+        Throwable cause = unwrapStudentCause(error);
+        return cause instanceof VirtualMachineError || cause instanceof ThreadDeath;
+    }
+
+    private static void rethrowFatal(Throwable error) {
+        if (isVmFatal(error)) {
+            throw (Error) unwrapStudentCause(error);
+        }
+    }
+
+    private static void rethrowStudentFatal(Throwable error) {
+        Throwable cause = unwrapStudentCause(error);
+        if (cause instanceof VirtualMachineError || cause instanceof ThreadDeath) {
+            ProtocolChannel protocol = activeProtocol;
+            if (protocol != null) {
+                protocol.markStudentFatal(cause);
+            }
+            throw (Error) cause;
+        }
+    }
+
+    private static Throwable unwrapStudentCause(Throwable error) {
+        Throwable current = error;
+        while (true) {
+            if (current instanceof InvocationTargetException
+                    && ((InvocationTargetException) current).getCause() != null) {
+                current = ((InvocationTargetException) current).getCause();
+            } else if (current instanceof ExceptionInInitializerError
+                    && ((ExceptionInInitializerError) current).getCause() != null) {
+                current = ((ExceptionInInitializerError) current).getCause();
+            } else {
+                return current;
+            }
+        }
     }
 
     private static String exceptionText(Throwable error) {
@@ -1585,15 +1696,26 @@ public final class ReflectionJudge {
     }
 
     private static final class ProtocolChannel {
-        private final PrintStream output;
+        // The Python parent owns the read endpoint; the Judge owns the
+        // inherited write endpoint. The handle number arrives in a consumed
+        // stdin prefix and is never placed in args, properties, or environment.
+        private final OutputStream output;
+        private final int maxBytes;
+        private int bytesWritten;
         private boolean written;
+        private boolean studentStarted;
         private Response emergencyResponse;
 
-        private ProtocolChannel(PrintStream output) {
+        private ProtocolChannel(OutputStream output, int maxBytes) {
             this.output = output;
+            this.maxBytes = maxBytes;
         }
 
-        private synchronized void armForStudentExecution(Spec spec) {
+        private synchronized boolean markJudgeStarted() {
+            return writeFrame("!J\n");
+        }
+
+        private synchronized boolean armForStudentExecution(Spec spec) {
             String message = "Student code terminated the Judge JVM with System.exit().";
             List<CheckResult> checks = new ArrayList<>();
             for (SpecCheck check : spec.checks) {
@@ -1609,6 +1731,37 @@ public final class ReflectionJudge {
                     null,
                     "STUDENT_PROCESS_EXIT",
                     message);
+            studentStarted = true;
+            return writeFrame("!S\n");
+        }
+
+        private synchronized void markStudentFatal(Throwable error) {
+            if (emergencyResponse == null) {
+                return;
+            }
+            String message = "Student code caused a fatal JVM error: " + safeMessage(error);
+            List<CheckResult> checks = new ArrayList<>();
+            for (CheckResult check : emergencyResponse.checks) {
+                checks.add(new CheckResult(
+                        check.id, false, BigDecimal.ZERO, check.expected,
+                        "<student JVM terminated>", "STUDENT_FATAL_ERROR: " + message));
+            }
+            emergencyResponse = Response.failure(
+                    emergencyResponse.totalPoints, checks, null, STUDENT_FATAL_ERROR, message);
+        }
+
+        private synchronized void markJudgeFatal(Throwable error) {
+            if (!studentStarted) {
+                emergencyResponse = Response.failure(
+                        BigDecimal.ZERO, List.of(), JUDGE_INFRA_ERROR, null,
+                        "Judge JVM failed before student execution: " + safeMessage(error));
+            } else if (emergencyResponse != null
+                    && !STUDENT_FATAL_ERROR.equals(emergencyResponse.failureType)) {
+                emergencyResponse = Response.failure(
+                        emergencyResponse.totalPoints, emergencyResponse.checks,
+                        JUDGE_INFRA_ERROR, null,
+                        "Judge JVM failed during student execution: " + safeMessage(error));
+            }
         }
 
         private synchronized void writeEmergencyResponse() {
@@ -1626,9 +1779,33 @@ public final class ReflectionJudge {
         private void writeLocked(Response response) {
             written = true;
             byte[] bytes = response.toJson().getBytes(StandardCharsets.UTF_8);
-            output.write(bytes, 0, bytes.length);
-            output.write('\n');
-            output.flush();
+            byte[] completion = "!C\n".getBytes(StandardCharsets.US_ASCII);
+            if ((long) bytesWritten + bytes.length + completion.length > maxBytes) {
+                bytes = PROTOCOL_OVERFLOW_MARKER;
+            }
+            try {
+                output.write(bytes);
+                output.write(completion);
+                output.flush();
+                output.close();
+            } catch (IOException ignored) {
+                // The parent classifies a broken or empty channel as PROTOCOL_ERROR.
+            }
+        }
+
+        private boolean writeFrame(String frame) {
+            byte[] bytes = frame.getBytes(StandardCharsets.US_ASCII);
+            if ((long) bytesWritten + bytes.length > maxBytes) {
+                return false;
+            }
+            try {
+                output.write(bytes);
+                output.flush();
+                bytesWritten += bytes.length;
+                return true;
+            } catch (IOException ignored) {
+                return false;
+            }
         }
     }
 
@@ -1671,18 +1848,6 @@ public final class ReflectionJudge {
             }
         }
         output.append('"');
-    }
-
-    private static final class DiscardingOutputStream extends OutputStream {
-        @Override
-        public void write(int value) {
-            // Student stdout is intentionally isolated from the JSON result channel.
-        }
-
-        @Override
-        public void write(byte[] bytes, int offset, int length) {
-            // Discard without buffering so arbitrary static-initializer output is bounded.
-        }
     }
 
     private static final class InvalidSpecificationException extends Exception {

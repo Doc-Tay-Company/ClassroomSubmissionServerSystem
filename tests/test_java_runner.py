@@ -91,8 +91,47 @@ class JudgeClassificationTests(unittest.TestCase):
         result = self.process_result(stdout=json.dumps(payload))
         self.assertEqual(classify_judge_process_result(result), "RE")
 
+    def test_student_fatal_error_failure_type_maps_to_re(self):
+        payload = {
+            "score": 0,
+            "total_points": 1,
+            "checks": [],
+            "error_category": None,
+            "failure_type": "STUDENT_FATAL_ERROR",
+            "error": "Student caused a fatal JVM error.",
+        }
+        self.assertEqual(
+            classify_judge_process_result(self.process_result(stdout=json.dumps(payload))), "RE"
+        )
+
+    def test_judge_lifecycle_distinguishes_student_and_infrastructure_termination(self):
+        from app.java_runner import _parse_judge_lifecycle
+
+        self.assertEqual(_parse_judge_lifecycle("!J\n"), ("INFRA_BEFORE_STUDENT", None))
+        self.assertEqual(
+            _parse_judge_lifecycle("!J\n!S\n"), ("STUDENT_TERMINATED", None)
+        )
+        self.assertEqual(
+            _parse_judge_lifecycle("!J\n!S\n{}!C\n"), ("COMPLETED", "{}")
+        )
+        self.assertEqual(
+            _parse_judge_lifecycle("!J\n{}!C\n"), ("COMPLETED", "{}")
+        )
+        self.assertEqual(_parse_judge_lifecycle("!S\n{}!C\n"), ("INFRA_BEFORE_START", None))
+
     def test_missing_protocol_after_process_exit_is_infrastructure_protocol_error(self):
         self.assertEqual(classify_judge_process_result(self.process_result()), "PROTOCOL_ERROR")
+
+    def test_protocol_capture_is_omitted_from_serialized_process_result(self):
+        result = replace(
+            self.process_result(),
+            protocol_output='{"score":999,"total_points":999,"checks":[]}',
+            protocol_output_bytes=47,
+        )
+        serialized = result.to_dict()
+        self.assertNotIn("protocol_output", serialized)
+        self.assertNotIn("protocol_output_bytes", serialized)
+        self.assertNotIn("protocol_truncated", serialized)
 
     def test_process_limits_map_to_judge_verdicts(self):
         self.assertEqual(
@@ -246,6 +285,14 @@ class ProcessRunnerTests(unittest.TestCase):
         self.assertLess(result.duration_ms, 3000)
         self.assert_jobs_reaped(jobs)
 
+    def test_infinite_loop_observes_hard_timeout(self):
+        result, jobs = self.execute_observing_jobs(
+            "while True: pass", timeout_seconds=0.2
+        )
+        self.assertEqual(result.status, ProcessStatus.TIMEOUT)
+        self.assertLess(result.duration_ms, 1500)
+        self.assert_jobs_reaped(jobs)
+
     def test_captures_stdout(self):
         result = self.execute("print('out')")
         self.assertEqual(result.stdout, "out\r\n")
@@ -297,6 +344,16 @@ class ProcessRunnerTests(unittest.TestCase):
         self.assertLess(result.duration_ms, 4000)
         self.assert_jobs_reaped(jobs)
 
+    def test_output_limit_wakes_monitor_even_with_timeout_active(self):
+        result, jobs = self.execute_observing_jobs(
+            "import os; exec(\"while True: os.write(1, b'x' * 4096)\")",
+            timeout_seconds=0.2,
+            max_output_bytes=8192,
+        )
+        self.assertEqual(result.status, ProcessStatus.OUTPUT_LIMIT)
+        self.assertLess(result.duration_ms, 1500)
+        self.assert_jobs_reaped(jobs)
+
     def test_large_stderr_is_bounded_and_stops_process(self):
         result, jobs = self.execute_observing_jobs(
             "import os; os.write(2, b'e' * 1000000)",
@@ -330,6 +387,25 @@ class ProcessRunnerTests(unittest.TestCase):
         )
         self.assertEqual(result.status, ProcessStatus.EXITED)
         self.assertEqual(result.stdout.strip(), "started=1")
+        self.assert_jobs_reaped(jobs)
+
+    def test_parent_exit_cleans_up_spawned_child(self):
+        code = (
+            "import subprocess,sys; "
+            "subprocess.Popen([sys.executable,'-c','import time; time.sleep(30)']); "
+            "print('parent-exit', flush=True)"
+        )
+        result, jobs = self.execute_observing_jobs(code)
+        self.assertEqual(result.status, ProcessStatus.EXITED)
+        self.assertEqual(result.stdout.strip(), "parent-exit")
+        self.assert_jobs_reaped(jobs)
+
+    def test_abnormal_child_exit_is_reaped_without_server_failure(self):
+        result, jobs = self.execute_observing_jobs(
+            "import os; os._exit(17)"
+        )
+        self.assertEqual(result.status, ProcessStatus.EXITED)
+        self.assertEqual(result.exit_code, 17)
         self.assert_jobs_reaped(jobs)
 
     def test_spawn_exception_returns_start_error(self):
@@ -749,13 +825,107 @@ class ReflectionVerticalSliceTests(unittest.TestCase):
             self.assertEqual((recovered.verdict, recovered.score), ("AC", 100))
             self.assertEqual(list(Path(temp_dir).iterdir()), [])
 
+    def test_system_exit_nonzero_runtime_halt_and_vm_fatal_recover(self):
+        abnormal_sources = (
+            ("if (System.nanoTime() != Long.MIN_VALUE) System.exit(23);", "exit-nonzero"),
+            ("Runtime.getRuntime().halt(0);", "runtime-halt"),
+            ("if (System.nanoTime() != Long.MIN_VALUE) throw new OutOfMemoryError(\"test\");", "oom"),
+            ("getName();", "stack-overflow"),
+        )
+        for statement, name in abnormal_sources:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as temp_dir:
+                source = self.sample_source().replace(
+                    "public String getName() { return name; }",
+                    f"public String getName() {{ {statement} return name; }}",
+                )
+                failed = self.run_sample(source=source, workspace_parent=temp_dir)
+                self.assertEqual(failed.verdict, "RE")
+                recovered = self.run_sample(workspace_parent=temp_dir)
+                self.assertEqual((recovered.verdict, recovered.score), ("AC", 100))
+
+    def test_unexpected_runtime_exception_is_a_failed_check_not_judge_failure(self):
+        source = self.sample_source().replace(
+            "public String getName() { return name; }",
+            "public String getName() { if (System.nanoTime() != Long.MIN_VALUE) "
+            "throw new IllegalStateException(\"unexpected\"); return name; }",
+        )
+        result = self.run_sample(source=source)
+        self.assertEqual((result.verdict, result.score), ("WA", 70))
+        failed = next(check for check in result.checks if check["id"] == "name-setter")
+        self.assertIn("IllegalStateException", failed["error"])
+
+    def test_fatal_class_initialization_error_is_re_and_next_run_recovers(self):
+        source = self.sample_source().replace(
+            "package model; public class Student implements Comparable<Student> {",
+            "package model; public class Student implements Comparable<Student> { "
+            "static { if (System.nanoTime() != Long.MIN_VALUE) "
+            "throw new InternalError(\"fatal initialization\"); }",
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            failed = self.run_sample(source=source, workspace_parent=temp_dir)
+            self.assertEqual(failed.verdict, "RE")
+            recovered = self.run_sample(workspace_parent=temp_dir)
+            self.assertEqual((recovered.verdict, recovered.score), ("AC", 100))
+
     def test_student_stdout_does_not_corrupt_judge_json(self):
         source = self.sample_source().replace(
             "private String name = \"\";",
-            "static { System.out.println(\"student output\"); } private String name = \"\";",
+            "static { System.out.println(\"student output\"); System.err.println(\"student error\"); } private String name = \"\";",
         )
         result = self.run_sample(source=source)
         self.assertEqual((result.verdict, result.score), ("AC", 100))
+        self.assertIn("student output", result.process_result.stdout)
+        self.assertIn("student error", result.process_result.stderr)
+
+    def test_student_raw_file_descriptor_stdout_is_bounded_and_separate(self):
+        source = self.sample_source().replace(
+            "private String name = \"\";",
+            "static { try { new java.io.FileOutputStream(java.io.FileDescriptor.out).write("
+            "new byte[65536]); } catch (java.io.IOException e) { throw new RuntimeException(e); } } "
+            "private String name = \"\";",
+        )
+        result = self.run_sample(source=source, student_stdout_limit_bytes=1024)
+        self.assertEqual(result.verdict, "OLE")
+        self.assertLessEqual(result.process_result.stdout_bytes, 65536)
+        self.assertEqual(result.error_category, None)
+
+    def test_student_stderr_has_an_independent_output_limit(self):
+        source = self.sample_source().replace(
+            "private String name = \"\";",
+            "static { System.err.print(\"e\".repeat(65536)); } private String name = \"\";",
+        )
+        result = self.run_sample(source=source, student_stderr_limit_bytes=1024)
+        self.assertEqual(result.verdict, "OLE")
+        self.assertEqual(result.process_result.stdout_bytes, 0)
+        self.assertTrue(result.process_result.stderr_truncated)
+
+    def test_protocol_limit_is_infrastructure_error_not_student_ole(self):
+        result = self.run_sample(judge_protocol_limit_bytes=64)
+        self.assertEqual(result.verdict, "JUDGE_INFRA_ERROR")
+        self.assertEqual(result.error_category, "JUDGE_INFRA_ERROR")
+
+    def test_student_output_overflow_wins_even_if_protocol_file_is_valid(self):
+        source = self.sample_source().replace(
+            "private String name = \"\";",
+            "static { System.out.print(\"x\".repeat(65536)); } private String name = \"\";",
+        )
+        actual_run_process = run_process
+
+        def seed_valid_protocol(command, **kwargs):
+            result = actual_run_process(command, **kwargs)
+            if "ReflectionJudge" in command:
+                result = replace(
+                    result,
+                    protocol_output=json.dumps(
+                        {"score": 100, "total_points": 100, "checks": []}
+                    ),
+                    protocol_output_bytes=48,
+                )
+            return result
+
+        with patch("app.java_runner.run_process", side_effect=seed_valid_protocol):
+            result = self.run_sample(source=source, student_stdout_limit_bytes=1024)
+        self.assertEqual(result.verdict, "OLE")
 
     def test_resource_failures_recover_and_every_job_is_empty(self):
         exit_source = self.sample_source().replace(
@@ -842,7 +1012,11 @@ class ReflectionVerticalSliceTests(unittest.TestCase):
         def corrupt_judge_result(command, **kwargs):
             process_result = actual_run_process(command, **kwargs)
             if "ReflectionJudge" in command:
-                return replace(process_result, stdout="not json", stdout_bytes=8)
+                return replace(
+                    process_result,
+                    protocol_output="!J\n!S\nnot json!C\n",
+                    protocol_output_bytes=16,
+                )
             return process_result
 
         with patch("app.java_runner.run_process", side_effect=corrupt_judge_result):

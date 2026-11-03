@@ -6,7 +6,13 @@ import subprocess
 import tempfile
 import unittest
 
-from app.java_runner import ProcessResult, ProcessStatus, classify_judge_process_result
+from app.java_runner import (
+    ProcessResult,
+    ProcessStatus,
+    classify_judge_process_result,
+    minimal_environment,
+    run_process,
+)
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -62,22 +68,54 @@ class ReflectionJudgeTests(unittest.TestCase):
         self.assertEqual(compiled.returncode, 0, compiled.stderr)
         return output_root
 
-    def run_judge(self, target: str, output_dir: Path, specification: str) -> dict:
-        result = subprocess.run(
-            ["java", "-cp", str(self.judge_out), "ReflectionJudge", target, str(output_dir)],
+    def run_judge_process(
+        self,
+        target: str,
+        output_dir: Path,
+        specification: str,
+        *,
+        timeout: float = 10,
+        classpath: str | None = None,
+        protocol_limit_bytes: int = 1024 * 1024,
+    ) -> tuple[subprocess.CompletedProcess, bytes]:
+        command = [
+            shutil.which("java"), "-Xmx128m", "-cp", classpath or str(self.judge_out),
+            "ReflectionJudge", target, str(output_dir), str(protocol_limit_bytes),
+        ]
+        process_result = run_process(
+            command,
             cwd=self.case_root,
-            input=specification.encode("utf-8"),
-            capture_output=True,
-            timeout=10,
-            check=False,
+            input_data=specification.encode("utf-8"),
+            max_output_bytes=1024 * 1024,
+            protocol_limit_bytes=protocol_limit_bytes,
+            timeout_seconds=timeout,
+            env=minimal_environment(),
         )
+        if process_result.status == ProcessStatus.TIMEOUT:
+            raise subprocess.TimeoutExpired(command, timeout)
+        result = subprocess.CompletedProcess(
+            command,
+            process_result.exit_code,
+            process_result.stdout.encode("utf-8"),
+            process_result.stderr.encode("utf-8"),
+        )
+        raw_protocol = process_result.protocol_output or ""
+        if raw_protocol.startswith("!J\n"):
+            raw_protocol = raw_protocol[3:]
+        if raw_protocol.startswith("!S\n"):
+            raw_protocol = raw_protocol[3:]
+        if raw_protocol.endswith("!C\n"):
+            raw_protocol = raw_protocol[:-3]
+        return result, raw_protocol.encode("utf-8")
+
+    def run_judge(self, target: str, output_dir: Path, specification: str) -> dict:
+        result, protocol = self.run_judge_process(target, output_dir, specification)
         self.assertEqual(result.returncode, 0, result.stderr.decode("utf-8", errors="replace"))
-        stdout = result.stdout.decode("utf-8")
-        self.assertEqual(stdout.count("\n"), 1, stdout)
+        output = protocol.decode("utf-8")
         try:
-            return json.loads(stdout)
+            return json.loads(output)
         except json.JSONDecodeError as error:
-            self.fail(f"Judge stdout was not one JSON result: {error}: {stdout!r}")
+            self.fail(f"Judge result channel was not valid JSON: {error}: {output!r}")
 
     @staticmethod
     def make_check(check_id: str, kind: str, points: int = 1, **properties) -> dict:
@@ -202,16 +240,11 @@ class ReflectionJudgeTests(unittest.TestCase):
         student_output = self.case_root / "empty_student_out"
         student_output.mkdir()
         classpath = os.pathsep.join((str(self.judge_out), str(external_output)))
-        process = subprocess.run(
-            ["java", "-cp", classpath, "ReflectionJudge", "model.Student", str(student_output)],
-            cwd=self.case_root,
-            input=self.valid_spec().encode("utf-8"),
-            capture_output=True,
-            timeout=10,
-            check=False,
+        process, protocol = self.run_judge_process(
+            "model.Student", student_output, self.valid_spec(), classpath=classpath
         )
         self.assertEqual(process.returncode, 0, process.stderr.decode("utf-8", errors="replace"))
-        result = json.loads(process.stdout.decode("utf-8"))
+        result = json.loads(protocol.decode("utf-8"))
         self.assertEqual(result["failure_type"], "CLASS_LOADING_FAILURE")
 
     def test_malformed_spec_returns_valid_invalid_request_result(self):
@@ -251,19 +284,62 @@ class ReflectionJudgeTests(unittest.TestCase):
             'private int fieldValue; '
             'static { System.out.println("STUDENT_STDOUT_SENTINEL"); } }'
         )
-        process = subprocess.run(
-            ["java", "-cp", str(self.judge_out), "ReflectionJudge", "model.Student", str(output)],
-            cwd=self.case_root,
-            input=self.valid_spec().encode("utf-8"),
-            capture_output=True,
-            timeout=10,
-            check=False,
+        process, protocol = self.run_judge_process(
+            "model.Student", output, self.valid_spec()
         )
-        stdout = process.stdout.decode("utf-8")
         self.assertEqual(process.returncode, 0, process.stderr.decode("utf-8", errors="replace"))
-        self.assertNotIn("STUDENT_STDOUT_SENTINEL", stdout)
-        self.assertEqual(stdout.count("\n"), 1)
-        self.assertEqual(json.loads(stdout)["total_points"], 2)
+        self.assertIn(b"STUDENT_STDOUT_SENTINEL", process.stdout)
+        self.assertEqual(process.stdout.count(b"\n"), 1)
+        self.assertEqual(json.loads(protocol.decode("utf-8"))["total_points"], 2)
+
+    def test_student_raw_file_descriptor_stdout_is_captured_separately(self):
+        output = self.compile_student(
+            'package model; public class Student { private int fieldValue; static { '
+            'try { new java.io.FileOutputStream(java.io.FileDescriptor.out).write('
+            '"RAW_FD_OUT".getBytes(java.nio.charset.StandardCharsets.UTF_8)); '
+            '} catch (java.io.IOException error) { throw new RuntimeException(error); } } }'
+        )
+        process, protocol = self.run_judge_process("model.Student", output, self.valid_spec())
+        self.assertEqual(process.returncode, 0, process.stderr.decode("utf-8", errors="replace"))
+        self.assertIn(b"RAW_FD_OUT", process.stdout)
+        self.assertEqual(json.loads(protocol.decode("utf-8"))["total_points"], 2)
+
+    def test_student_stderr_is_separate_from_result_channel(self):
+        output = self.compile_student(
+            'package model; public class Student { private int fieldValue; static { '
+            'System.err.println("STUDENT_STDERR_SENTINEL"); } }'
+        )
+        process, protocol = self.run_judge_process("model.Student", output, self.valid_spec())
+        self.assertEqual(process.returncode, 0, process.stderr.decode("utf-8", errors="replace"))
+        self.assertIn(b"STUDENT_STDERR_SENTINEL", process.stderr)
+        self.assertEqual(json.loads(protocol.decode("utf-8"))["total_points"], 2)
+
+    def test_student_json_looking_stdout_is_not_result_transport(self):
+        output = self.compile_student(
+            'package model; public class Student { private int fieldValue; static { '
+            'System.out.println("{\\\"score\\\":999,\\\"checks\\\":[]}"); } }'
+        )
+        process, protocol = self.run_judge_process("model.Student", output, self.valid_spec())
+        self.assertEqual(process.returncode, 0, process.stderr.decode("utf-8", errors="replace"))
+        self.assertIn(b'{"score":999,"checks":[]}', process.stdout)
+        self.assertEqual(json.loads(protocol.decode("utf-8"))["score"], 2)
+
+    def test_valid_result_is_written_to_private_protocol_file(self):
+        output = self.compile_student(self.behavior_sample_source())
+        process, protocol = self.run_judge_process("model.Student", output, self.valid_spec())
+        self.assertEqual(process.returncode, 0, process.stderr.decode("utf-8", errors="replace"))
+        payload = json.loads(protocol.decode("utf-8"))
+        self.assertEqual(payload["total_points"], 2)
+        self.assertNotIn(b'"total_points"', process.stdout)
+
+    def test_protocol_overflow_writes_bounded_infrastructure_marker(self):
+        output = self.compile_student(self.behavior_sample_source())
+        process, protocol = self.run_judge_process(
+            "model.Student", output, self.valid_spec(), protocol_limit_bytes=64
+        )
+        self.assertEqual(process.returncode, 0, process.stderr.decode("utf-8", errors="replace"))
+        self.assertEqual(protocol, b"JUDGE_PROTOCOL_LIMIT_EXCEEDED\n")
+        self.assertLessEqual(len(protocol), 64)
 
     def test_class_initialization_exception_is_distinguished(self):
         output = self.compile_student(
@@ -557,14 +633,7 @@ class ReflectionJudgeTests(unittest.TestCase):
             )
         )
         with self.assertRaises(subprocess.TimeoutExpired):
-            subprocess.run(
-                ["java", "-cp", str(self.judge_out), "ReflectionJudge", "model.Student", str(output)],
-                cwd=self.case_root,
-                input=specification.encode("utf-8"),
-                capture_output=True,
-                timeout=1.5,
-                check=False,
-            )
+            self.run_judge_process("model.Student", output, specification, timeout=1.5)
 
     def test_system_exit_is_classified_as_re_and_next_judge_run_recovers(self):
         output = self.compile_student(
@@ -573,44 +642,41 @@ class ReflectionJudgeTests(unittest.TestCase):
         specification = self.spec_for(
             self.make_check("terminate", "behavior", method="terminate", args=[], expect_return=None)
         )
-        exited = subprocess.run(
-            ["java", "-cp", str(self.judge_out), "ReflectionJudge", "model.Student", str(output)],
-            cwd=self.case_root,
-            input=specification.encode("utf-8"),
-            capture_output=True,
-            timeout=10,
-            check=False,
+        exited, exit_protocol = self.run_judge_process(
+            "model.Student", output, specification
         )
         self.assertEqual(exited.returncode, 0, exited.stderr.decode("utf-8", errors="replace"))
-        exit_payload = json.loads(exited.stdout.decode("utf-8"))
+        exit_payload = json.loads(exit_protocol.decode("utf-8"))
         self.assertEqual(exit_payload["failure_type"], "STUDENT_PROCESS_EXIT")
-        self.assertEqual(classify_judge_process_result(self.as_process_result(exited)), "RE")
+        self.assertEqual(
+            classify_judge_process_result(self.as_process_result(exited, exit_protocol)), "RE"
+        )
 
         recovered_output = self.compile_student(self.behavior_sample_source())
-        recovered = subprocess.run(
-            ["java", "-cp", str(self.judge_out), "ReflectionJudge", "model.Student", str(recovered_output)],
-            cwd=self.case_root,
-            input=self.final_behavior_spec().encode("utf-8"),
-            capture_output=True,
-            timeout=15,
-            check=False,
+        recovered, recovered_protocol = self.run_judge_process(
+            "model.Student", recovered_output, self.final_behavior_spec(), timeout=15
         )
         self.assertEqual(recovered.returncode, 0, recovered.stderr.decode("utf-8", errors="replace"))
-        recovered_payload = json.loads(recovered.stdout.decode("utf-8"))
+        recovered_payload = json.loads(recovered_protocol.decode("utf-8"))
         self.assertEqual(recovered_payload["score"], 100)
-        self.assertEqual(classify_judge_process_result(self.as_process_result(recovered)), "AC")
+        self.assertEqual(
+            classify_judge_process_result(self.as_process_result(recovered, recovered_protocol)),
+            "AC",
+        )
 
     @staticmethod
-    def as_process_result(process: subprocess.CompletedProcess) -> ProcessResult:
+    def as_process_result(
+        process: subprocess.CompletedProcess, protocol: bytes
+    ) -> ProcessResult:
         stdout = process.stdout.decode("utf-8", errors="replace")
         stderr = process.stderr.decode("utf-8", errors="replace")
         return ProcessResult(
             status=ProcessStatus.EXITED,
             exit_code=process.returncode,
             duration_ms=0,
-            stdout=stdout,
+            stdout=protocol.decode("utf-8", errors="replace"),
             stderr=stderr,
-            stdout_bytes=len(process.stdout),
+            stdout_bytes=len(protocol),
             stderr_bytes=len(process.stderr),
             stdout_truncated=False,
             stderr_truncated=False,

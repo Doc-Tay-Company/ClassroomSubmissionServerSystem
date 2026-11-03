@@ -1,7 +1,7 @@
 """Workspace and bounded subprocess primitives for the Java execution path."""
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, replace
+from dataclasses import asdict, dataclass, field, replace
 from decimal import Decimal, InvalidOperation
 from enum import Enum
 import json
@@ -47,9 +47,16 @@ class ProcessResult:
     stderr_truncated: bool
     error: str | None = None
     error_category: str | None = None
+    protocol_output: str | None = field(default=None, repr=False)
+    protocol_output_bytes: int = field(default=0, repr=False)
+    protocol_truncated: bool = field(default=False, repr=False)
 
     def to_dict(self) -> dict:
         result = asdict(self)
+        # Protocol bytes are internal judge data and must not enter API payloads.
+        result.pop("protocol_output", None)
+        result.pop("protocol_output_bytes", None)
+        result.pop("protocol_truncated", None)
         result["status"] = self.status.value
         return result
 
@@ -115,7 +122,7 @@ def classify_judge_process_result(result: ProcessResult) -> str:
     failure_type = payload.get("failure_type")
     if failure_type is not None and not isinstance(failure_type, str):
         return "PROTOCOL_ERROR"
-    if failure_type in {"STUDENT_EXCEPTION", "STUDENT_PROCESS_EXIT"}:
+    if failure_type in {"STUDENT_EXCEPTION", "STUDENT_PROCESS_EXIT", "STUDENT_FATAL_ERROR"}:
         return "RE"
     if result.exit_code != 0:
         return "RE"
@@ -214,6 +221,35 @@ JAVA_HEAP_BUDGET_DIVISOR = 2
 MAX_REFLECTION_SOURCE_BYTES = 1024 * 1024
 MAX_REFLECTION_SPEC_BYTES = 1024 * 1024
 DEFAULT_REFLECTION_OUTPUT_BYTES = 256 * 1024
+DEFAULT_REFLECTION_PROTOCOL_BYTES = 1024 * 1024
+_JUDGE_PROTOCOL_OVERFLOW_MARKER = "JUDGE_PROTOCOL_LIMIT_EXCEEDED\n"
+_JUDGE_STARTED_FRAME = "!J\n"
+_STUDENT_STARTED_FRAME = "!S\n"
+_JUDGE_COMPLETED_FRAME = "!C\n"
+
+
+def _parse_judge_lifecycle(protocol_text: str) -> tuple[str, str | None]:
+    """Return (state, JSON payload); lifecycle frames travel only on judge pipe."""
+    if not protocol_text.startswith(_JUDGE_STARTED_FRAME):
+        return "INFRA_BEFORE_START", None
+    remainder = protocol_text[len(_JUDGE_STARTED_FRAME):]
+    student_started = remainder.startswith(_STUDENT_STARTED_FRAME)
+    if student_started:
+        remainder = remainder[len(_STUDENT_STARTED_FRAME):]
+    completed = remainder.endswith(_JUDGE_COMPLETED_FRAME)
+    if completed:
+        remainder = remainder[:-len(_JUDGE_COMPLETED_FRAME)]
+    if not student_started:
+        if not completed:
+            return "INFRA_BEFORE_STUDENT", None
+        if not remainder:
+            return "PROTOCOL_ERROR", None
+        return "COMPLETED", remainder
+    if not completed and not remainder:
+        return "STUDENT_TERMINATED", None
+    if not completed or not remainder:
+        return "PROTOCOL_ERROR", None
+    return "COMPLETED", remainder
 DEFAULT_REFLECTION_TIMEOUT_SECONDS = 10
 _INFRASTRUCTURE_CATEGORIES = frozenset(
     {"INVALID_REQUEST", "JDK_NOT_FOUND", "JUDGE_INFRA_ERROR", "PROTOCOL_ERROR"}
@@ -302,14 +338,30 @@ def minimal_environment(source: Mapping[str, str] | None = None) -> dict[str, st
 
 
 class _BoundedCapture:
-    def __init__(self, max_bytes: int):
+    def __init__(
+        self,
+        max_bytes: int,
+        *,
+        stdout_limit_bytes: int | None = None,
+        stderr_limit_bytes: int | None = None,
+        protocol_limit_bytes: int | None = None,
+    ):
         self.max_bytes = max_bytes
+        self.stream_limits = {
+            "stdout": stdout_limit_bytes,
+            "stderr": stderr_limit_bytes,
+        }
         self.lock = threading.Lock()
         self.buffers = {"stdout": bytearray(), "stderr": bytearray()}
         self.bytes_seen = {"stdout": 0, "stderr": 0}
         self.truncated = {"stdout": False, "stderr": False}
         self.stored_bytes = 0
         self.output_limit = threading.Event()
+        self.protocol_limit = protocol_limit_bytes
+        self.protocol_buffer = bytearray()
+        self.protocol_bytes_seen = 0
+        self.protocol_truncated = False
+        self.protocol_limit_event = threading.Event()
         self.read_error: str | None = None
 
     def read_stream(self, name: str, stream) -> None:
@@ -321,6 +373,10 @@ class _BoundedCapture:
                 with self.lock:
                     self.bytes_seen[name] += len(chunk)
                     available = self.max_bytes - self.stored_bytes
+                    stream_limit = self.stream_limits[name]
+                    if stream_limit is not None:
+                        available = min(available, stream_limit - len(self.buffers[name]))
+                    available = max(0, available)
                     kept = min(available, len(chunk))
                     if kept:
                         self.buffers[name].extend(chunk[:kept])
@@ -332,13 +388,47 @@ class _BoundedCapture:
             with self.lock:
                 self.read_error = f"{type(exc).__name__}: {exc}"
 
-    def snapshot(self) -> tuple[dict[str, str], dict[str, int], dict[str, bool], str | None]:
+    def read_protocol(self, stream) -> None:
+        try:
+            while True:
+                chunk = stream.read(8192)
+                if not chunk:
+                    return
+                with self.lock:
+                    self.protocol_bytes_seen += len(chunk)
+                    available = self.protocol_limit - len(self.protocol_buffer)
+                    kept = min(max(0, available), len(chunk))
+                    if kept:
+                        self.protocol_buffer.extend(chunk[:kept])
+                    if kept < len(chunk):
+                        self.protocol_truncated = True
+                        self.protocol_limit_event.set()
+        except Exception as exc:
+            with self.lock:
+                self.read_error = f"{type(exc).__name__}: {exc}"
+
+    def snapshot(self):
         with self.lock:
             output = {
                 name: bytes(value).decode("utf-8", errors="replace")
                 for name, value in self.buffers.items()
             }
-            return output, dict(self.bytes_seen), dict(self.truncated), self.read_error
+            protocol = bytes(self.protocol_buffer).decode("utf-8", errors="replace")
+            return (
+                output,
+                dict(self.bytes_seen),
+                dict(self.truncated),
+                self.read_error,
+                protocol,
+                self.protocol_bytes_seen,
+                self.protocol_truncated,
+            )
+
+
+# Wait in the kernel between checks instead of waking every 10 ms. Reader
+# threads keep draining both pipes and signal output_limit as soon as the
+# combined cap is crossed; this bounds event response latency to 100 ms.
+_PROCESS_MONITOR_WAIT_SECONDS = 0.1
 
 
 def _terminate_and_reap(process: subprocess.Popen) -> bool:
@@ -398,10 +488,14 @@ def run_process(
     env: Mapping[str, str] | None = None,
     job_limits: JobLimits | None = None,
     input_data: bytes | None = None,
+    stdout_limit_bytes: int | None = None,
+    stderr_limit_bytes: int | None = None,
+    protocol_limit_bytes: int | None = None,
 ) -> ProcessResult:
     """Run a Job-contained process with bounded output and a hard timeout.
 
-    The output limit applies to the combined captured stdout and stderr bytes.
+    Student output is bounded separately from an optional bounded Judge
+    protocol pipe. Protocol data is intentionally omitted from public dicts.
     Job creation/assignment errors fail closed and never fall back to Popen.
     """
     if isinstance(command, (str, bytes)) or not command or any(not isinstance(arg, str) for arg in command):
@@ -412,6 +506,15 @@ def run_process(
         raise ValueError("timeout_seconds must be a positive finite number")
     if not isinstance(max_output_bytes, int) or isinstance(max_output_bytes, bool) or max_output_bytes < 0:
         raise ValueError("max_output_bytes must not be negative")
+    for name, value in (
+        ("stdout_limit_bytes", stdout_limit_bytes),
+        ("stderr_limit_bytes", stderr_limit_bytes),
+        ("protocol_limit_bytes", protocol_limit_bytes),
+    ):
+        if value is not None and (
+            not isinstance(value, int) or isinstance(value, bool) or value < 0
+        ):
+            raise ValueError(f"{name} must be a non-negative integer or None")
     if input_data is not None and not isinstance(input_data, bytes):
         raise ValueError("input_data must be bytes or None")
 
@@ -423,7 +526,8 @@ def run_process(
             cwd=str(cwd),
             env=process_env,
             limits=job_limits or DEFAULT_JOB_LIMITS,
-            stdin_pipe=input_data is not None,
+            stdin_pipe=input_data is not None or protocol_limit_bytes is not None,
+            protocol_pipe=protocol_limit_bytes is not None,
         )
     except Exception as exc:
         return ProcessResult(
@@ -440,11 +544,22 @@ def run_process(
             error_category=getattr(exc, "category", "JUDGE_INFRA_ERROR"),
         )
 
-    capture = _BoundedCapture(max_output_bytes)
+    capture = _BoundedCapture(
+        max_output_bytes,
+        stdout_limit_bytes=stdout_limit_bytes,
+        stderr_limit_bytes=stderr_limit_bytes,
+        protocol_limit_bytes=protocol_limit_bytes,
+    )
     readers = [
         threading.Thread(target=capture.read_stream, args=(name, stream), daemon=True)
         for name, stream in (("stdout", process.stdout), ("stderr", process.stderr))
     ]
+    if process.protocol is not None:
+        readers.append(
+            threading.Thread(
+                target=capture.read_protocol, args=(process.protocol,), daemon=True
+            )
+        )
     input_errors: list[str] = []
     input_writer = None
     status = ProcessStatus.EXITED
@@ -455,14 +570,21 @@ def run_process(
     try:
         for reader in readers:
             reader.start()
-        if input_data is not None:
+        if input_data is not None or protocol_limit_bytes is not None:
+            if protocol_limit_bytes is not None:
+                handle_value = process.protocol_handle_value
+                if not isinstance(handle_value, int) or handle_value <= 0:
+                    raise RuntimeError("Protocol pipe handle is unavailable.")
+                input_payload = handle_value.to_bytes(8, byteorder="big") + (input_data or b"")
+            else:
+                input_payload = input_data or b""
             input_writer = threading.Thread(
                 target=_write_process_input,
-                args=(process.stdin, input_data, input_errors),
+                args=(process.stdin, input_payload, input_errors),
                 daemon=True,
             )
             input_writer.start()
-        while process.poll() is None:
+        while True:
             if input_errors:
                 status = ProcessStatus.START_ERROR
                 error = input_errors[0]
@@ -476,6 +598,13 @@ def run_process(
                     status = ProcessStatus.START_ERROR
                     error = "Could not stop the child process after reaching the output limit."
                     error_category = "JUDGE_INFRA_ERROR"
+                break
+            if capture.protocol_limit_event.is_set():
+                status = ProcessStatus.START_ERROR
+                error = "Judge protocol exceeded its configured output limit."
+                error_category = "JUDGE_INFRA_ERROR"
+                if not _terminate_and_reap(process):
+                    error += " Child process could not be stopped."
                 break
             if capture.read_error is not None:
                 status = ProcessStatus.START_ERROR
@@ -507,7 +636,13 @@ def run_process(
                     error = "Could not stop the child process after timeout."
                     error_category = "JUDGE_INFRA_ERROR"
                 break
-            time.sleep(min(0.01, remaining))
+            try:
+                process.wait(timeout=min(remaining, _PROCESS_MONITOR_WAIT_SECONDS))
+                break
+            except subprocess.TimeoutExpired:
+                # A blocking kernel wait bounds monitoring frequency while
+                # retaining prompt checks for reader and Job Object events.
+                continue
 
         exit_code = process.wait(timeout=1.0)
     except Exception as exc:
@@ -551,11 +686,24 @@ def run_process(
                 process.stderr.close()
             except OSError:
                 pass
+        if process.protocol:
+            try:
+                process.protocol.close()
+            except OSError:
+                pass
 
     if exit_code is None:
         exit_code = process.poll()
 
-    output, byte_counts, truncated, read_error = capture.snapshot()
+    (
+        output,
+        byte_counts,
+        truncated,
+        read_error,
+        protocol_output,
+        protocol_bytes,
+        protocol_truncated,
+    ) = capture.snapshot()
     if status == ProcessStatus.EXITED and capture.output_limit.is_set():
         status = ProcessStatus.OUTPUT_LIMIT
     if status == ProcessStatus.EXITED and read_error:
@@ -564,6 +712,10 @@ def run_process(
         error_category = "JUDGE_INFRA_ERROR"
     if status == ProcessStatus.EXITED and memory_limit_hit:
         status = ProcessStatus.MEMORY_LIMIT
+    if status == ProcessStatus.EXITED and protocol_truncated:
+        status = ProcessStatus.START_ERROR
+        error = "Judge protocol exceeded its configured output limit."
+        error_category = "JUDGE_INFRA_ERROR"
 
     return ProcessResult(
         status=status,
@@ -577,6 +729,9 @@ def run_process(
         stderr_truncated=truncated["stderr"],
         error=error,
         error_category=error_category,
+        protocol_output=protocol_output if protocol_limit_bytes is not None else None,
+        protocol_output_bytes=protocol_bytes,
+        protocol_truncated=protocol_truncated,
     )
 
 
@@ -1138,6 +1293,9 @@ def run_reflection_judge(
     compile_timeout_seconds: float = 20,
     judge_timeout_seconds: float = DEFAULT_REFLECTION_TIMEOUT_SECONDS,
     max_output_bytes: int = DEFAULT_REFLECTION_OUTPUT_BYTES,
+    student_stdout_limit_bytes: int | None = None,
+    student_stderr_limit_bytes: int | None = None,
+    judge_protocol_limit_bytes: int = DEFAULT_REFLECTION_PROTOCOL_BYTES,
     env: Mapping[str, str] | None = None,
     workspace_parent: str | Path | None = None,
     job_limits: JobLimits | None = None,
@@ -1197,6 +1355,41 @@ def run_reflection_judge(
             run_id=None,
             duration_ms=max(0, int((time.monotonic() - started) * 1000)),
             error="max_output_bytes must be a positive integer",
+            error_category="INVALID_REQUEST",
+        )
+    if student_stdout_limit_bytes is None:
+        student_stdout_limit_bytes = max_output_bytes
+    if student_stderr_limit_bytes is None:
+        student_stderr_limit_bytes = max_output_bytes
+    for name, value in (
+        ("student_stdout_limit_bytes", student_stdout_limit_bytes),
+        ("student_stderr_limit_bytes", student_stderr_limit_bytes),
+    ):
+        if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+            return JudgeResult(
+                verdict="INVALID_REQUEST",
+                score=0,
+                total_points=_normalized_number(total_points),
+                checks=_failed_judge_checks(checks, "INVALID_REQUEST"),
+                run_id=None,
+                duration_ms=max(0, int((time.monotonic() - started) * 1000)),
+                error=f"{name} must be a non-negative integer",
+                error_category="INVALID_REQUEST",
+            )
+    if (
+        not isinstance(judge_protocol_limit_bytes, int)
+        or isinstance(judge_protocol_limit_bytes, bool)
+        or judge_protocol_limit_bytes < len(_JUDGE_PROTOCOL_OVERFLOW_MARKER.encode("ascii"))
+        or judge_protocol_limit_bytes > 2**31 - 1
+    ):
+        return JudgeResult(
+            verdict="INVALID_REQUEST",
+            score=0,
+            total_points=_normalized_number(total_points),
+            checks=_failed_judge_checks(checks, "INVALID_REQUEST"),
+            run_id=None,
+            duration_ms=max(0, int((time.monotonic() - started) * 1000)),
+            error="judge_protocol_limit_bytes is outside the supported range",
             error_category="INVALID_REQUEST",
         )
 
@@ -1353,40 +1546,75 @@ def run_reflection_judge(
                         "ReflectionJudge",
                         target_class_name,
                         str(workspace.out),
+                        str(judge_protocol_limit_bytes),
                     ],
                     cwd=workspace.root,
                     timeout_seconds=judge_timeout_seconds,
-                    max_output_bytes=max_output_bytes,
+                    max_output_bytes=(
+                        student_stdout_limit_bytes + student_stderr_limit_bytes
+                    ),
+                    stdout_limit_bytes=student_stdout_limit_bytes,
+                    stderr_limit_bytes=student_stderr_limit_bytes,
+                    protocol_limit_bytes=judge_protocol_limit_bytes,
                     env=tool_environment,
                     job_limits=judge_limits,
                     input_data=specification_bytes,
                 )
-                verdict = classify_judge_process_result(judge_process)
                 if judge_process.status != ProcessStatus.EXITED:
+                    verdict = classify_judge_process_result(judge_process)
                     score = 0
                     check_results = _failed_judge_checks(checks, verdict)
                     error = judge_process.error or judge_process.stderr or verdict
                 else:
-                    payload = None
-                    if judge_process.stdout.strip():
-                        try:
-                            payload = json.loads(judge_process.stdout)
-                        except json.JSONDecodeError:
-                            pass
-                    try:
-                        graded = grade_reflection(checks, payload, total_points)
-                    except GradingError as exc:
-                        verdict = exc.category
+                    lifecycle, protocol_text = _parse_judge_lifecycle(
+                        judge_process.protocol_output or ""
+                    )
+                    if lifecycle in {"INFRA_BEFORE_START", "INFRA_BEFORE_STUDENT"}:
+                        verdict = "JUDGE_INFRA_ERROR"
                         score = 0
                         check_results = _failed_judge_checks(checks, verdict)
-                        error = str(exc)
+                        error = "Judge terminated before student execution started."
+                    elif lifecycle == "STUDENT_TERMINATED":
+                        verdict = "RE"
+                        score = 0
+                        check_results = _failed_judge_checks(checks, verdict)
+                        error = "Student terminated the Judge JVM before it completed."
+                    elif lifecycle == "PROTOCOL_ERROR" or protocol_text is None:
+                        verdict = "PROTOCOL_ERROR"
+                        score = 0
+                        check_results = _failed_judge_checks(checks, verdict)
+                        error = "Judge lifecycle protocol was malformed or incomplete."
+                    elif protocol_text == _JUDGE_PROTOCOL_OVERFLOW_MARKER:
+                        verdict = "JUDGE_INFRA_ERROR"
+                        score = 0
+                        check_results = _failed_judge_checks(checks, verdict)
+                        error = "Judge protocol exceeded its configured output limit."
                     else:
-                        score, check_results = graded.score, graded.results
-                        error = payload.get("error") or judge_process.error
-                    if verdict in {"TLE", "MLE", "OLE", "RE", "PROTOCOL_ERROR", "JUDGE_INFRA_ERROR"}:
-                        score = 0
-                        check_results = _failed_judge_checks(checks, verdict)
-                        error = error or judge_process.stderr or verdict
+                        protocol_result = replace(
+                            judge_process,
+                            stdout=protocol_text,
+                            stdout_bytes=judge_process.protocol_output_bytes,
+                        )
+                        verdict = classify_judge_process_result(protocol_result)
+                        payload = None
+                        try:
+                            payload = json.loads(protocol_text)
+                        except (json.JSONDecodeError, TypeError):
+                            pass
+                        try:
+                            graded = grade_reflection(checks, payload, total_points)
+                        except GradingError as exc:
+                            verdict = exc.category
+                            score = 0
+                            check_results = _failed_judge_checks(checks, verdict)
+                            error = str(exc)
+                        else:
+                            score, check_results = graded.score, graded.results
+                            error = payload.get("error") or None
+                        if verdict in {"TLE", "MLE", "OLE", "RE", "PROTOCOL_ERROR", "JUDGE_INFRA_ERROR"}:
+                            score = 0
+                            check_results = _failed_judge_checks(checks, verdict)
+                            error = error or verdict
                 error_category = verdict if verdict in _INFRASTRUCTURE_CATEGORIES else None
                 result = JudgeResult(
                     verdict=verdict,

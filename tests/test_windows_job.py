@@ -82,6 +82,33 @@ class WindowsJobIntegrationTests(unittest.TestCase):
         finally:
             process.close()
 
+    def test_dedicated_protocol_pipe_is_inherited_and_separate_from_stdio(self):
+        code = (
+            "import msvcrt,os,sys; "
+            "handle=int.from_bytes(sys.stdin.buffer.read(8),'big'); "
+            "fd=msvcrt.open_osfhandle(handle,os.O_WRONLY|os.O_BINARY); "
+            "stream=os.fdopen(fd,'wb',buffering=0); stream.write(b'judge-json'); stream.close(); "
+            "print('student-stdout')"
+        )
+        process = create_job_process(
+            [sys.executable, "-c", code],
+            cwd=REPO_ROOT,
+            env=minimal_environment(),
+            stdin_pipe=True,
+            protocol_pipe=True,
+        )
+        try:
+            handle_value = process.protocol_handle_value
+            self.assertIsInstance(handle_value, int)
+            process.stdin.write(handle_value.to_bytes(8, "big"))
+            process.stdin.close()
+            self.assertEqual(process.wait(timeout=5), 0)
+            self.assertEqual(process.protocol.read(), b"judge-json")
+            self.assertEqual(process.stdout.read(), b"student-stdout\r\n")
+            self.assertEqual(process.stderr.read(), b"")
+        finally:
+            process.close()
+
     def test_timeout_terminates_job(self):
         result = run_process(
             [sys.executable, "-c", "import time; time.sleep(30)"],
