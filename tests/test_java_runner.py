@@ -17,6 +17,7 @@ from app.java_runner import (
     _resolve_jdk_paths,
     classify_judge_process_result,
     compile_java,
+    java_heap_limit_mb,
     minimal_environment,
     run_reflection_judge,
     run_process,
@@ -26,6 +27,39 @@ from app.windows_job import JobLimits, JobObjectError, create_job_process
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+class JavaHeapBudgetTests(unittest.TestCase):
+    def test_java_heap_uses_half_of_effective_job_budget(self):
+        for memory_mb, expected_heap_mb in ((256, 128), (512, 256), (2048, 1024)):
+            with self.subTest(memory_mb=memory_mb):
+                budget = memory_mb * 1024 * 1024
+                limits = JobLimits(
+                    process_memory_limit_bytes=budget,
+                    job_memory_limit_bytes=budget,
+                )
+                self.assertEqual(java_heap_limit_mb(limits), expected_heap_mb)
+                self.assertLess(expected_heap_mb * 1024 * 1024, budget)
+
+    def test_java_heap_respects_the_tighter_limit(self):
+        limits = JobLimits(
+            process_memory_limit_bytes=512 * 1024 * 1024,
+            job_memory_limit_bytes=256 * 1024 * 1024,
+        )
+        self.assertEqual(java_heap_limit_mb(limits), 128)
+
+    def test_java_heap_rejects_unusable_or_invalid_budget(self):
+        for budget in (1, True, None):
+            with self.subTest(budget=budget):
+                with self.assertRaises(ValueError):
+                    java_heap_limit_mb(budget)
+        with self.assertRaises(ValueError):
+            java_heap_limit_mb(
+                JobLimits(
+                    process_memory_limit_bytes=128 * 1024 * 1024,
+                    job_memory_limit_bytes=128 * 1024 * 1024,
+                )
+            )
 
 
 class JudgeClassificationTests(unittest.TestCase):
@@ -73,6 +107,10 @@ class JudgeClassificationTests(unittest.TestCase):
             classify_judge_process_result(self.process_result(ProcessStatus.OUTPUT_LIMIT)),
             "OLE",
         )
+
+    def test_exit_without_windows_memory_event_is_not_mle(self):
+        result = self.process_result(exit_code=137)
+        self.assertNotEqual(classify_judge_process_result(result), "MLE")
 
     def test_valid_check_results_map_to_ac_or_wa(self):
         check = {"id": "x", "passed": True, "points_earned": 1,
@@ -563,6 +601,40 @@ class ReflectionVerticalSliceTests(unittest.TestCase):
             self.assertEqual(len(result.checks), 6)
             self.assertEqual(list(Path(temp_dir).iterdir()), [])
             self.assertIsNotNone(result.run_id)
+
+    def test_reflection_heap_is_derived_from_total_job_memory(self):
+        memory_bytes = 512 * 1024 * 1024
+        commands = []
+        actual_run_process = run_process
+
+        def capture_command(command, **kwargs):
+            commands.append(list(command))
+            return actual_run_process(command, **kwargs)
+
+        with patch("app.java_runner.run_process", side_effect=capture_command):
+            result = self.run_sample(
+                job_limits=JobLimits(
+                    process_memory_limit_bytes=memory_bytes,
+                    job_memory_limit_bytes=memory_bytes,
+                )
+            )
+
+        self.assertEqual((result.verdict, result.score), ("AC", 100))
+        judge_commands = [command for command in commands if "ReflectionJudge" in command]
+        self.assertEqual(len(judge_commands), 1)
+        self.assertIn("-Xmx256m", judge_commands[0])
+
+    def test_reflection_rejects_java_budget_below_runtime_minimum(self):
+        memory_bytes = 128 * 1024 * 1024
+        result = self.run_sample(
+            job_limits=JobLimits(
+                process_memory_limit_bytes=memory_bytes,
+                job_memory_limit_bytes=memory_bytes,
+            )
+        )
+        self.assertEqual(result.verdict, "INVALID_REQUEST")
+        self.assertEqual(result.error_category, "INVALID_REQUEST")
+        self.assertIsNone(result.run_id)
 
     def test_wrong_modifier_scores_90(self):
         source = self.sample_source().replace("private String name", "public String name")

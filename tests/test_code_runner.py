@@ -8,8 +8,10 @@ import unittest
 from unittest.mock import patch
 
 from app.code_runner import _failure_for_process, compare_outputs, outputs_match, run_stdio
+from app.code_exams import _job_limits
+from app.questions import QuestionError, _validate_question
 from app.java_runner import ProcessResult, ProcessStatus
-from app.windows_job import JobObjectError
+from app.windows_job import JobLimits, JobObjectError
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 WORKSPACE_PARENT = REPO_ROOT / ".test-code-runner-workspaces"
@@ -147,6 +149,38 @@ class ProcessVerdictTests(unittest.TestCase):
                 self.assertEqual((actual, category), (verdict, None))
 
 
+class QuestionMemoryLimitTests(unittest.TestCase):
+    def test_question_memory_is_both_per_process_and_total_job_budget(self):
+        limits = _job_limits({"memory_limit_mb": 128})
+        expected = 128 * 1024 * 1024
+        self.assertEqual(limits.process_memory_limit_bytes, expected)
+        self.assertEqual(limits.job_memory_limit_bytes, expected)
+
+    def test_invalid_question_memory_config_is_rejected(self):
+        for value in (True, 15, 2049, 128.0, "128", None):
+            with self.subTest(value=value):
+                with self.assertRaises(ValueError):
+                    _job_limits({"memory_limit_mb": value})
+        with self.assertRaises(ValueError):
+            _job_limits({"language": "java", "memory_limit_mb": 128})
+
+    def test_java_question_config_rejects_budget_below_jvm_minimum(self):
+        with self.assertRaisesRegex(QuestionError, "at least 256"):
+            _validate_question(
+                {
+                    "title": "Low memory Java",
+                    "statement": "",
+                    "language": "java",
+                    "grading_mode": "reflection",
+                    "starter_code": "",
+                    "time_limit_seconds": 2,
+                    "memory_limit_mb": 128,
+                },
+                question_id="low-memory-java",
+                actor="admin",
+            )
+
+
 class WorkspaceTestCase(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -178,6 +212,20 @@ class StdioRequestValidationTests(WorkspaceTestCase):
             [make_test("t1", "", "", mode="contains")],
         )
         self.assertEqual(result.verdict, "INVALID_REQUEST")
+
+    def test_java_memory_budget_below_runtime_minimum_is_invalid(self):
+        result = run_stdio(
+            "public class Main { public static void main(String[] args) {} }",
+            "java",
+            [make_test("low-memory", "", "")],
+            target_class="Main",
+            job_limits=JobLimits(
+                process_memory_limit_bytes=128 * 1024 * 1024,
+                job_memory_limit_bytes=128 * 1024 * 1024,
+            ),
+        )
+        self.assertEqual(result.verdict, "INVALID_REQUEST")
+        self.assertIn("at least 256 MiB", result.error)
 
     def test_float_mode_requires_explicit_tolerance_configuration(self):
         result = run_stdio(
@@ -388,6 +436,26 @@ class JavaStdioIntegrationTests(WorkspaceTestCase):
         self.assertEqual(result.verdict, "AC")
         self.assertEqual(len(runtime_environments), 1)
         self.assertNotIn("CLASSROOM_TEST_SECRET", runtime_environments[0])
+
+    def test_java_heap_allocation_near_derived_limit_fits_job_budget(self):
+        source = (
+            "public class Main { public static void main(String[] args) { "
+            "byte[] data = new byte[112 * 1024 * 1024]; "
+            "for (int i = 0; i < data.length; i += 4096) data[i] = 1; "
+            "System.out.println(data[0]); } }"
+        )
+        memory_bytes = 256 * 1024 * 1024
+        result = run_stdio(
+            source,
+            "java",
+            [make_test("heap-near-limit", "", "1\n")],
+            target_class="Main",
+            job_limits=JobLimits(
+                process_memory_limit_bytes=memory_bytes,
+                job_memory_limit_bytes=memory_bytes,
+            ),
+        )
+        self.assertEqual((result.verdict, result.score), ("AC", 1), result.error)
 
     def test_java_package_mismatch_is_runtime_error_and_workspace_is_cleaned(self):
         source = "package wrong; public class Main { public static void main(String[] a) {} }"

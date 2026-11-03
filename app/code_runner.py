@@ -18,6 +18,7 @@ from .java_runner import (
     RunWorkspace,
     _is_java_identifier,
     compile_java_in_workspace,
+    java_heap_limit_mb,
     minimal_environment,
     run_process,
 )
@@ -655,6 +656,8 @@ def run_stdio(
             binary_class = None
         if job_limits is not None and not isinstance(job_limits, JobLimits):
             raise ValueError("job_limits must be a JobLimits value")
+        if normalized_language == "java":
+            java_heap_limit_mb(job_limits or DEFAULT_JOB_LIMITS)
     except (ValueError, UnicodeEncodeError) as exc:
         return _invalid_result(str(exc), started)
 
@@ -769,10 +772,7 @@ def run_stdio(
             )
         else:
             if normalized_language == "java":
-                heap_mb = max(
-                    16,
-                    min(128, process_limits.process_memory_limit_bytes // (2 * 1024 * 1024)),
-                )
+                heap_mb = java_heap_limit_mb(process_limits)
                 command_prefix = [
                     java_config.java,
                     f"-Xmx{heap_mb}m",

@@ -9,6 +9,7 @@ from typing import Mapping
 
 from .grading import GradingError, sum_configured_points
 from .storage import audit, read_json, update_json, utc_now
+from .windows_job import MIN_JAVA_JOB_MEMORY_MB
 
 
 class QuestionError(ValueError):
@@ -72,6 +73,10 @@ def _validate_question(payload: Mapping, *, question_id: str, actor: str) -> dic
     memory_mb = question.get("memory_limit_mb", 256)
     if isinstance(memory_mb, bool) or not isinstance(memory_mb, int) or not 16 <= memory_mb <= 2048:
         raise QuestionError("memory_limit_mb must be an integer between 16 and 2048")
+    if language == "java" and memory_mb < MIN_JAVA_JOB_MEMORY_MB:
+        raise QuestionError(
+            f"Java memory_limit_mb must be at least {MIN_JAVA_JOB_MEMORY_MB}"
+        )
     question["memory_limit_mb"] = memory_mb
     output_limit = question.get("max_output_bytes", 64 * 1024)
     if isinstance(output_limit, bool) or not isinstance(output_limit, int) or not 1024 <= output_limit <= 1024 * 1024:

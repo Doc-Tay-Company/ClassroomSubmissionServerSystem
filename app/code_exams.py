@@ -17,7 +17,7 @@ from .grading import GradingError, grade_exam, grade_reflection, grade_stdio
 from .java_runner import run_reflection_judge
 from .questions import QuestionError, get_question
 from .storage import audit, read_json, update_json, utc_now
-from .windows_job import DEFAULT_JOB_LIMITS, JobLimits
+from .windows_job import DEFAULT_JOB_LIMITS, MIN_JAVA_JOB_MEMORY_MB, JobLimits
 
 
 class CodeExamError(ValueError):
@@ -296,10 +296,22 @@ def _target_class_name(question: Mapping) -> str:
 
 
 def _job_limits(question: Mapping) -> JobLimits:
-    memory_bytes = int(question.get("memory_limit_mb", 256)) * 1024 * 1024
+    memory_mb = question.get("memory_limit_mb", 256)
+    if (
+        isinstance(memory_mb, bool)
+        or not isinstance(memory_mb, int)
+        or not 16 <= memory_mb <= 2048
+    ):
+        raise ValueError("memory_limit_mb must be an integer between 16 and 2048")
+    if question.get("language") == "java" and memory_mb < MIN_JAVA_JOB_MEMORY_MB:
+        raise ValueError(
+            f"Java memory_limit_mb must be at least {MIN_JAVA_JOB_MEMORY_MB}"
+        )
+    memory_bytes = memory_mb * 1024 * 1024
     return JobLimits(
         active_process_limit=DEFAULT_JOB_LIMITS.active_process_limit,
         process_memory_limit_bytes=memory_bytes,
+        job_memory_limit_bytes=memory_bytes,
     )
 
 

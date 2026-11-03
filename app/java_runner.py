@@ -18,7 +18,12 @@ import time
 from typing import Mapping, Sequence
 import uuid
 from .grading import GradingError, grade_reflection
-from .windows_job import DEFAULT_JOB_LIMITS, JobLimits, create_job_process
+from .windows_job import (
+    DEFAULT_JOB_LIMITS,
+    MIN_JAVA_JOB_MEMORY_MB,
+    JobLimits,
+    create_job_process,
+)
 
 
 class ProcessStatus(str, Enum):
@@ -201,7 +206,11 @@ class JDKConfigurationError(OSError):
     category = "JUDGE_INFRA_ERROR"
 
 
-DEFAULT_JAVA_COMPILE_LIMITS = JobLimits(process_memory_limit_bytes=512 * 1024 * 1024)
+DEFAULT_JAVA_COMPILE_LIMITS = JobLimits(
+    process_memory_limit_bytes=512 * 1024 * 1024,
+    job_memory_limit_bytes=512 * 1024 * 1024,
+)
+JAVA_HEAP_BUDGET_DIVISOR = 2
 MAX_REFLECTION_SOURCE_BYTES = 1024 * 1024
 MAX_REFLECTION_SPEC_BYTES = 1024 * 1024
 DEFAULT_REFLECTION_OUTPUT_BYTES = 256 * 1024
@@ -209,6 +218,29 @@ DEFAULT_REFLECTION_TIMEOUT_SECONDS = 10
 _INFRASTRUCTURE_CATEGORIES = frozenset(
     {"INVALID_REQUEST", "JDK_NOT_FOUND", "JUDGE_INFRA_ERROR", "PROTOCOL_ERROR"}
 )
+
+
+def java_heap_limit_mb(limits: JobLimits) -> int:
+    """Set Java heap to at most half its effective committed-memory budget.
+
+    The remaining budget is native/runtime headroom; Windows Job limits still
+    account for the complete JVM process, including ReflectionJudge and student
+    objects. Job Object limits are commit limits, not working-set limits.
+    """
+    if not isinstance(limits, JobLimits):
+        raise ValueError("limits must be a JobLimits value")
+    effective_limit_bytes = min(
+        limits.process_memory_limit_bytes,
+        limits.job_memory_limit_bytes,
+    )
+    if effective_limit_bytes < MIN_JAVA_JOB_MEMORY_MB * 1024 * 1024:
+        raise ValueError(
+            f"Java memory budget must be at least {MIN_JAVA_JOB_MEMORY_MB} MiB"
+        )
+    heap_limit_mb = effective_limit_bytes // (
+        JAVA_HEAP_BUDGET_DIVISOR * 1024 * 1024
+    )
+    return heap_limit_mb
 
 
 @dataclass
@@ -773,7 +805,7 @@ def compile_java_in_workspace(
         environment = dict(os.environ if env is None else env)
         compiler_limits = job_limits or DEFAULT_JAVA_COMPILE_LIMITS
         jdk, tool_environment = _detect_jdk(
-            environment, cwd=workspace.root, job_limits=compiler_limits
+            environment, cwd=workspace.root, job_limits=DEFAULT_JAVA_COMPILE_LIMITS
         )
         process_result = run_process(
             [
@@ -1172,8 +1204,32 @@ def run_reflection_judge(
     result = None
     jdk = None
     total_points_value = _normalized_number(total_points)
+    if job_limits is not None and not isinstance(job_limits, JobLimits):
+        return JudgeResult(
+            verdict="INVALID_REQUEST",
+            score=0,
+            total_points=total_points_value,
+            checks=_failed_judge_checks(checks, "INVALID_REQUEST"),
+            run_id=None,
+            duration_ms=max(0, int((time.monotonic() - started) * 1000)),
+            error="job_limits must be a JobLimits value",
+            error_category="INVALID_REQUEST",
+        )
     compile_limits = job_limits or DEFAULT_JAVA_COMPILE_LIMITS
     judge_limits = job_limits or DEFAULT_JOB_LIMITS
+    try:
+        java_heap_limit_mb(judge_limits)
+    except ValueError as exc:
+        return JudgeResult(
+            verdict="INVALID_REQUEST",
+            score=0,
+            total_points=total_points_value,
+            checks=_failed_judge_checks(checks, "INVALID_REQUEST"),
+            run_id=None,
+            duration_ms=max(0, int((time.monotonic() - started) * 1000)),
+            error=str(exc),
+            error_category="INVALID_REQUEST",
+        )
     environment = dict(os.environ if env is None else env)
     try:
         workspace = RunWorkspace.create(workspace_parent)
@@ -1182,7 +1238,7 @@ def run_reflection_judge(
         source_file.write_bytes(source_bytes)
 
         jdk, tool_environment = _detect_jdk(
-            environment, cwd=workspace.root, job_limits=compile_limits
+            environment, cwd=workspace.root, job_limits=DEFAULT_JAVA_COMPILE_LIMITS
         )
         student_compile_process = run_process(
             [
@@ -1291,7 +1347,7 @@ def run_reflection_judge(
                 judge_process = run_process(
                     [
                         jdk.java,
-                        "-Xmx128m",
+                        f"-Xmx{java_heap_limit_mb(judge_limits)}m",
                         "-cp",
                         str(judge_output),
                         "ReflectionJudge",

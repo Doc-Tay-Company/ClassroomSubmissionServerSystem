@@ -95,6 +95,10 @@ Nguyên tắc: code chấm không bao giờ chạy trong process của server we
 
 Mỗi câu hỏi có: `id`, `title`, `statement`, `language`, `grading_mode`, `category` (chủ đề để lọc, ví dụ OOP, mảng, vòng lặp — khác với `grading_mode`), `tags`, `difficulty` (tùy chọn), `starter_code`, `time_limit_seconds`, `memory_limit_mb`, `max_output_bytes`, `allow_pretest`, `max_pretest_runs`, `total_points` (phải bằng tổng điểm các check/test), `status` (`draft` / `published`), `source` (người tạo, thời gian tạo/sửa), `usage_count`.
 
+`memory_limit_mb` là giới hạn **tổng committed memory của một Job Object cho một execution phase**, tính theo MiB (1 MiB = 1024 × 1024 bytes) và áp dụng cho toàn process tree trong Job. Job Object `JOB_MEMORY` đo commit, không đo resident working set. `PROCESS_MEMORY` cũng là commit limit nhưng áp dụng riêng cho từng process; runner đặt nó bằng cùng budget để một process đơn không vượt question limit. Với Python, interpreter và student code đều nằm trong budget. Với Java Reflection, JVM dùng chung cho ReflectionJudge và student class; heap và native JVM memory đều chịu tổng Job limit. Với Java STDIO, mỗi lần chạy test có Job riêng. Java question cần ít nhất 256 MiB để JVM có đủ native startup headroom; giá trị thấp hơn bị từ chối như cấu hình không hợp lệ.
+
+Java `-Xmx` được suy ra từ budget hiệu dụng: tối đa một nửa tổng Job/process limit, làm tròn xuống MiB. Phần còn lại là headroom cho native JVM memory, class metadata, thread stacks, code cache và harness. `-Xmx` chỉ giới hạn Java heap, không phải tổng memory. Student compile và runtime chạy trong các Job riêng, mỗi Job chịu cùng `memory_limit_mb` của question. JDK version probes là thao tác hạ tầng và dùng budget riêng 512 MiB. `MLE` chỉ được trả khi Windows Job Object phát thông báo vượt process/job commit limit; Java `OutOfMemoryError`, exit code bất thường hoặc working set cao tự thân không đủ bằng chứng để gọi `MLE`.
+
 Trường riêng theo dạng chấm:
 
 - **Java reflection:** `target_class`, `target_package` (bắt buộc), `target_file`, danh sách `checks[]`.
@@ -160,7 +164,7 @@ Sinh viên nộp Student.java (1 file, 1 public class, đúng package)
       <temp>\src\model\Student.java
   → javac -encoding UTF-8 -d <temp>\out <temp>\src\model\Student.java
       Lỗi biên dịch → verdict CE, 0 điểm, kèm output javac cắt ngắn, dừng
-  → java -Xmx256m -cp <judge_out> ReflectionJudge <temp>\out
+  → java -Xmx<derived-from-memory_limit_mb> -cp <judge_out> ReflectionJudge <temp>\out
       Spec đã lọc (pretest: chỉ visible) được đưa qua stdin pipe, KHÔNG qua file
       Harness load class bằng URLClassLoader riêng, parent là platform classloader
       Harness kiểm tra từng check độc lập, in JSON kết quả ra stdout
