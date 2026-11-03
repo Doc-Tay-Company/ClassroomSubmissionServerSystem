@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field, replace
 from decimal import Decimal, InvalidOperation
 from enum import Enum
+import hashlib
 import json
 import math
 import os
@@ -226,6 +227,194 @@ _JUDGE_PROTOCOL_OVERFLOW_MARKER = "JUDGE_PROTOCOL_LIMIT_EXCEEDED\n"
 _JUDGE_STARTED_FRAME = "!J\n"
 _STUDENT_STARTED_FRAME = "!S\n"
 _JUDGE_COMPLETED_FRAME = "!C\n"
+_REFLECTION_JUDGE_SOURCE = Path(__file__).resolve().parents[1] / "judge" / "ReflectionJudge.java"
+_REFLECTION_JUDGE_CACHE_ROOT = (
+    Path(tempfile.gettempdir()) / "ClassroomSubmissionServer" / "judge_build_cache"
+)
+_REFLECTION_JUDGE_CACHE_FORMAT = 1
+_REFLECTION_JUDGE_CACHE_LOCK_GUARD = threading.Lock()
+_REFLECTION_JUDGE_CACHE_LOCKS: dict[str, threading.Lock] = {}
+
+
+def _reflection_judge_cache_identity(
+    source_bytes: bytes, jdk: JDKConfig
+) -> tuple[str, str, dict[str, str]]:
+    source_hash = hashlib.sha256(source_bytes).hexdigest()
+    compiler = {
+        "javac": os.path.normcase(str(Path(jdk.javac).resolve())).casefold(),
+        "version": jdk.javac_version,
+    }
+    identity = hashlib.sha256(
+        json.dumps(
+            {"source_sha256": source_hash, "compiler": compiler},
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
+    return identity, source_hash, compiler
+
+
+def _reflection_judge_cache_lock(identity: str) -> threading.Lock:
+    with _REFLECTION_JUDGE_CACHE_LOCK_GUARD:
+        lock = _REFLECTION_JUDGE_CACHE_LOCKS.get(identity)
+        if lock is None:
+            lock = threading.Lock()
+            _REFLECTION_JUDGE_CACHE_LOCKS[identity] = lock
+        return lock
+
+
+def _class_hashes(classes_dir: Path) -> dict[str, str] | None:
+    if not classes_dir.is_dir() or classes_dir.is_symlink():
+        return None
+    entries = list(classes_dir.rglob("*"))
+    if any(path.is_symlink() for path in entries):
+        return None
+    files = [path for path in entries if path.is_file()]
+    if any(path.suffix.casefold() != ".class" for path in files):
+        return None
+    hashes = {
+        path.relative_to(classes_dir).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
+        for path in files
+    }
+    return hashes if "ReflectionJudge.class" in hashes else None
+
+
+def _validated_reflection_judge_cache(
+    cache_dir: Path,
+    *,
+    source_hash: str,
+    compiler: Mapping[str, str],
+) -> Path | None:
+    try:
+        if cache_dir.is_symlink() or not cache_dir.is_dir():
+            return None
+        manifest_path = cache_dir / "manifest.json"
+        if manifest_path.is_symlink() or not manifest_path.is_file():
+            return None
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        if (
+            not isinstance(manifest, dict)
+            or manifest.get("format") != _REFLECTION_JUDGE_CACHE_FORMAT
+            or manifest.get("source_sha256") != source_hash
+            or manifest.get("compiler") != dict(compiler)
+            or not isinstance(manifest.get("class_hashes"), dict)
+        ):
+            return None
+        classes_dir = cache_dir / "classes"
+        actual_hashes = _class_hashes(classes_dir)
+        if actual_hashes is None or actual_hashes != manifest["class_hashes"]:
+            return None
+        return classes_dir
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        return None
+
+
+def _remove_reflection_judge_cache_entry(cache_dir: Path) -> None:
+    if cache_dir.is_symlink():
+        cache_dir.unlink()
+    elif cache_dir.exists():
+        shutil.rmtree(cache_dir)
+
+
+def _judge_build_infra_failure(message: str) -> ProcessResult:
+    return ProcessResult(
+        status=ProcessStatus.START_ERROR,
+        exit_code=None,
+        duration_ms=0,
+        stdout="",
+        stderr="",
+        stdout_bytes=0,
+        stderr_bytes=0,
+        stdout_truncated=False,
+        stderr_truncated=False,
+        error=message,
+        error_category="JUDGE_INFRA_ERROR",
+    )
+
+
+def _get_reflection_judge_build(
+    *,
+    source_bytes: bytes,
+    jdk: JDKConfig,
+    cwd: Path,
+    environment: Mapping[str, str],
+    timeout_seconds: float,
+    max_output_bytes: int,
+    job_limits: JobLimits,
+) -> tuple[Path | None, ProcessResult | None]:
+    """Return a validated cached Judge class directory, compiling it once per key."""
+    identity, source_hash, compiler = _reflection_judge_cache_identity(source_bytes, jdk)
+    cache_root = _REFLECTION_JUDGE_CACHE_ROOT
+    cache_dir = cache_root / identity
+    with _reflection_judge_cache_lock(identity):
+        cached_classes = _validated_reflection_judge_cache(
+            cache_dir, source_hash=source_hash, compiler=compiler
+        )
+        if cached_classes is not None:
+            return cached_classes, None
+
+        _remove_reflection_judge_cache_entry(cache_dir)
+        cache_root.mkdir(parents=True, exist_ok=True)
+        if cache_root.is_symlink():
+            raise OSError("ReflectionJudge cache root must not be a symbolic link.")
+        staging_dir = cache_root / f".{identity}.{uuid.uuid4().hex}.tmp"
+        source_dir = staging_dir / "src"
+        classes_dir = staging_dir / "classes"
+        try:
+            source_dir.mkdir(parents=True)
+            classes_dir.mkdir()
+            staged_source = source_dir / "ReflectionJudge.java"
+            staged_source.write_bytes(source_bytes)
+            compile_result = run_process(
+                [
+                    jdk.javac,
+                    "-encoding",
+                    "UTF-8",
+                    "-proc:none",
+                    "-d",
+                    str(classes_dir),
+                    str(staged_source),
+                ],
+                cwd=staging_dir,
+                timeout_seconds=timeout_seconds,
+                max_output_bytes=max_output_bytes,
+                env=environment,
+                job_limits=job_limits,
+            )
+            if compile_result.status != ProcessStatus.EXITED or compile_result.exit_code != 0:
+                return None, compile_result
+
+            hashes = _class_hashes(classes_dir)
+            if hashes is None:
+                return None, _judge_build_infra_failure(
+                    "javac succeeded but did not produce a complete ReflectionJudge build."
+                )
+            shutil.rmtree(source_dir)
+            manifest = {
+                "format": _REFLECTION_JUDGE_CACHE_FORMAT,
+                "source_sha256": source_hash,
+                "compiler": compiler,
+                "class_hashes": hashes,
+            }
+            manifest_path = staging_dir / "manifest.json"
+            with manifest_path.open("w", encoding="utf-8", newline="\n") as stream:
+                json.dump(manifest, stream, sort_keys=True, separators=(",", ":"))
+                stream.flush()
+                os.fsync(stream.fileno())
+
+            os.replace(staging_dir, cache_dir)
+            published_classes = _validated_reflection_judge_cache(
+                cache_dir, source_hash=source_hash, compiler=compiler
+            )
+            if published_classes is None:
+                _remove_reflection_judge_cache_entry(cache_dir)
+                return None, _judge_build_infra_failure(
+                    "Published ReflectionJudge cache failed integrity validation."
+                )
+            return published_classes, None
+        finally:
+            if staging_dir.exists():
+                shutil.rmtree(staging_dir, ignore_errors=True)
 
 
 def _parse_judge_lifecycle(protocol_text: str) -> tuple[str, str | None]:
@@ -1501,26 +1690,17 @@ def run_reflection_judge(
                 process_result=student_compile_process,
             )
         else:
-            judge_output = workspace.result / "judge_out"
-            judge_output.mkdir()
-            judge_source = Path(__file__).resolve().parents[1] / "judge" / "ReflectionJudge.java"
-            judge_compile_process = run_process(
-                [
-                    jdk.javac,
-                    "-encoding",
-                    "UTF-8",
-                    "-proc:none",
-                    "-d",
-                    str(judge_output),
-                    str(judge_source),
-                ],
+            judge_source_bytes = _REFLECTION_JUDGE_SOURCE.read_bytes()
+            judge_output, judge_compile_process = _get_reflection_judge_build(
+                source_bytes=judge_source_bytes,
+                jdk=jdk,
                 cwd=workspace.root,
+                environment=tool_environment,
                 timeout_seconds=compile_timeout_seconds,
                 max_output_bytes=max_output_bytes,
-                env=tool_environment,
                 job_limits=compile_limits,
             )
-            if judge_compile_process.status != ProcessStatus.EXITED or judge_compile_process.exit_code != 0:
+            if judge_compile_process is not None:
                 detail = "\n".join(
                     part for part in (judge_compile_process.stderr, judge_compile_process.stdout) if part
                 ).strip()

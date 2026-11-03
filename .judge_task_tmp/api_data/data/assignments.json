@@ -1,0 +1,13 @@
+{
+  "student-1": {
+    "exam_file": null,
+    "release_id": "04a892fd243345718b836923caaad7d7",
+    "assigned_at": "2026-11-03T14:49:43+00:00",
+    "started_at": "2026-11-03T14:49:43+00:00",
+    "ends_at": "2026-11-03T16:19:43+00:00",
+    "status": "submitted",
+    "ip_at_assignment": "127.0.0.1",
+    "code_exam_id": "f9c829dc09854af2a0f272197e2602a6",
+    "ip_at_start": "127.0.0.1"
+  }
+}

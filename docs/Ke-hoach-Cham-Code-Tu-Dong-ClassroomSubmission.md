@@ -164,13 +164,22 @@ Sinh viên nộp Student.java (1 file, 1 public class, đúng package)
       <temp>\src\model\Student.java
   → javac -encoding UTF-8 -d <temp>\out <temp>\src\model\Student.java
       Lỗi biên dịch → verdict CE, 0 điểm, kèm output javac cắt ngắn, dừng
-  → java -Xmx<derived-from-memory_limit_mb> -cp <judge_out> ReflectionJudge <temp>\out
+  → java -Xmx<derived-from-memory_limit_mb> -cp <judge_build_cache>/<key>/classes ReflectionJudge <temp>\out
       Spec đã lọc (pretest: chỉ visible) được đưa qua stdin pipe, KHÔNG qua file
-      Harness load class bằng URLClassLoader riêng, parent là platform classloader
-      Harness kiểm tra từng check độc lập, in JSON kết quả ra stdout
+      Mỗi check dùng một URLClassLoader mới, parent là platform classloader;
+      target class được load và khởi tạo lại từ student output directory.
+      Behavior check tạo fixture mới; static state và singleton của student không
+      được chia sẻ giữa các check.
+      Các check vẫn chạy trong cùng Judge JVM. Thread do student tạo có thể sống
+      qua check hiện tại và thay đổi trạng thái JVM-wide; classloader mới không
+      phải process isolation. Nếu cần bảo đảm cách ly thread/global state, cần
+      đánh giá process-per-check ở phase sau và đo performance trước khi đổi.
+      Judge result đi qua protocol channel riêng, không qua stdout của student.
   → Server đọc JSON, tính điểm, lưu bài nộp, trả về theo quyền hiển thị
   → Luôn xóa thư mục tạm trong finally (trừ chế độ debug giữ lại để xem)
 ```
+
+`ReflectionJudge.java` được biên dịch lazy ở lần chạy hợp lệ đầu tiên. Cache nằm ngoài workspace của từng submission, dùng key từ SHA-256 source cùng đường dẫn/version của `javac`; các class file được kiểm hash trước khi reuse. Build mới được biên dịch trong staging directory rồi publish bằng rename nguyên tử. Lock theo key ngăn các request đồng thời biên dịch trùng; cache hỏng sẽ bị loại bỏ và build lại. Không commit `.class` vào repository. Cache không tạo ranh giới filesystem: process student vẫn chạy dưới cùng Windows account và chỉ được bảo vệ theo giới hạn đã mô tả ở mục 10.
 
 ### Điều kiện tiên quyết trên máy giảng viên Windows
 

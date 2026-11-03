@@ -1,3 +1,4 @@
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 import json
 import os
@@ -6,6 +7,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from unittest.mock import patch
 
@@ -670,6 +672,150 @@ class ReflectionVerticalSliceTests(unittest.TestCase):
             **options,
         )
 
+    @staticmethod
+    def is_judge_source_compile(command):
+        return "-encoding" in command and Path(command[-1]).name == "ReflectionJudge.java"
+
+    def test_reflection_judge_build_is_compiled_once_then_reused(self):
+        actual_run_process = run_process
+        commands = []
+
+        def record_command(command, **kwargs):
+            commands.append(list(command))
+            return actual_run_process(command, **kwargs)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            cache_root = Path(temp_dir) / "judge_cache"
+            with patch("app.java_runner._REFLECTION_JUDGE_CACHE_ROOT", cache_root):
+                with patch("app.java_runner.run_process", side_effect=record_command):
+                    first = self.run_sample(workspace_parent=temp_dir)
+                    second = self.run_sample(workspace_parent=temp_dir)
+
+            self.assertEqual((first.verdict, first.score), ("AC", 100))
+            self.assertEqual((second.verdict, second.score), ("AC", 100))
+            judge_compiles = [command for command in commands if self.is_judge_source_compile(command)]
+            self.assertEqual(len(judge_compiles), 1)
+            cache_entries = [path for path in cache_root.iterdir() if path.is_dir()]
+            self.assertEqual(len(cache_entries), 1)
+            self.assertTrue((cache_entries[0] / "manifest.json").is_file())
+            self.assertTrue((cache_entries[0] / "classes" / "ReflectionJudge.class").is_file())
+            self.assertFalse(any(path.name.endswith(".tmp") for path in cache_root.iterdir()))
+
+    def test_reflection_judge_source_change_selects_a_new_cache_entry(self):
+        actual_run_process = run_process
+        commands = []
+
+        def record_command(command, **kwargs):
+            commands.append(list(command))
+            return actual_run_process(command, **kwargs)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source_path = Path(temp_dir) / "source" / "ReflectionJudge.java"
+            source_path.parent.mkdir()
+            source_path.write_bytes((REPO_ROOT / "judge" / "ReflectionJudge.java").read_bytes())
+            cache_root = Path(temp_dir) / "judge_cache"
+            with patch("app.java_runner._REFLECTION_JUDGE_SOURCE", source_path):
+                with patch("app.java_runner._REFLECTION_JUDGE_CACHE_ROOT", cache_root):
+                    with patch("app.java_runner.run_process", side_effect=record_command):
+                        first = self.run_sample(workspace_parent=temp_dir)
+                        source_path.write_bytes(source_path.read_bytes() + b"\n// cache version change\n")
+                        second = self.run_sample(workspace_parent=temp_dir)
+
+            self.assertEqual((first.verdict, second.verdict), ("AC", "AC"))
+            self.assertEqual(
+                sum(self.is_judge_source_compile(command) for command in commands), 2
+            )
+            self.assertEqual(len([path for path in cache_root.iterdir() if path.is_dir()]), 2)
+
+    def test_corrupted_reflection_judge_cache_is_rebuilt(self):
+        actual_run_process = run_process
+        commands = []
+
+        def record_command(command, **kwargs):
+            commands.append(list(command))
+            return actual_run_process(command, **kwargs)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            cache_root = Path(temp_dir) / "judge_cache"
+            with patch("app.java_runner._REFLECTION_JUDGE_CACHE_ROOT", cache_root):
+                with patch("app.java_runner.run_process", side_effect=record_command):
+                    first = self.run_sample(workspace_parent=temp_dir)
+                    class_file = next(cache_root.glob("*/classes/ReflectionJudge.class"))
+                    class_file.write_bytes(class_file.read_bytes() + b"corrupt")
+                    second = self.run_sample(workspace_parent=temp_dir)
+
+            self.assertEqual((first.verdict, second.verdict), ("AC", "AC"))
+            self.assertEqual(
+                sum(self.is_judge_source_compile(command) for command in commands), 2
+            )
+
+    def test_concurrent_first_use_compiles_only_one_cache_entry(self):
+        actual_run_process = run_process
+        commands = []
+        command_lock = threading.Lock()
+
+        def record_command(command, **kwargs):
+            with command_lock:
+                commands.append(list(command))
+            return actual_run_process(command, **kwargs)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            cache_root = Path(temp_dir) / "judge_cache"
+            with patch("app.java_runner._REFLECTION_JUDGE_CACHE_ROOT", cache_root):
+                with patch("app.java_runner.run_process", side_effect=record_command):
+                    with ThreadPoolExecutor(max_workers=2) as executor:
+                        futures = [
+                            executor.submit(self.run_sample, workspace_parent=temp_dir)
+                            for _ in range(2)
+                        ]
+                        results = [future.result(timeout=45) for future in futures]
+
+            self.assertEqual([(result.verdict, result.score) for result in results], [("AC", 100)] * 2)
+            self.assertEqual(
+                sum(self.is_judge_source_compile(command) for command in commands), 1
+            )
+            self.assertEqual(len([path for path in cache_root.iterdir() if path.is_dir()]), 1)
+            self.assertFalse(any(path.name.endswith(".tmp") for path in cache_root.iterdir()))
+
+    def test_compile_failure_leaves_no_cache_and_later_use_recovers(self):
+        actual_run_process = run_process
+        commands = []
+
+        def fail_first_judge_compile(command, **kwargs):
+            commands.append(list(command))
+            if self.is_judge_source_compile(command) and sum(
+                self.is_judge_source_compile(item) for item in commands
+            ) == 1:
+                return ProcessResult(
+                    status=ProcessStatus.EXITED,
+                    exit_code=1,
+                    duration_ms=1,
+                    stdout="",
+                    stderr="synthetic ReflectionJudge compile failure",
+                    stdout_bytes=0,
+                    stderr_bytes=42,
+                    stdout_truncated=False,
+                    stderr_truncated=False,
+                )
+            return actual_run_process(command, **kwargs)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            cache_root = Path(temp_dir) / "judge_cache"
+            with patch("app.java_runner._REFLECTION_JUDGE_CACHE_ROOT", cache_root):
+                with patch("app.java_runner.run_process", side_effect=fail_first_judge_compile):
+                    failed = self.run_sample(workspace_parent=temp_dir)
+                    self.assertEqual(failed.verdict, "JUDGE_INFRA_ERROR")
+                    self.assertIn("synthetic ReflectionJudge compile failure", failed.error)
+                    self.assertFalse(any(cache_root.iterdir()))
+                    recovered = self.run_sample(workspace_parent=temp_dir)
+                    reused = self.run_sample(workspace_parent=temp_dir)
+
+            self.assertEqual((recovered.verdict, recovered.score), ("AC", 100))
+            self.assertEqual((reused.verdict, reused.score), ("AC", 100))
+            self.assertEqual(
+                sum(self.is_judge_source_compile(command) for command in commands), 2
+            )
+
     def test_correct_submission_scores_100_and_cleans_workspace(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             result = self.run_sample(workspace_parent=temp_dir)
@@ -886,7 +1032,8 @@ class ReflectionVerticalSliceTests(unittest.TestCase):
         )
         result = self.run_sample(source=source, student_stdout_limit_bytes=1024)
         self.assertEqual(result.verdict, "OLE")
-        self.assertLessEqual(result.process_result.stdout_bytes, 65536)
+        self.assertLessEqual(len(result.process_result.stdout.encode("utf-8")), 1024)
+        self.assertTrue(result.process_result.stdout_truncated)
         self.assertEqual(result.error_category, None)
 
     def test_student_stderr_has_an_independent_output_limit(self):

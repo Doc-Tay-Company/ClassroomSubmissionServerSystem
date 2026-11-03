@@ -228,24 +228,37 @@ public final class ReflectionJudge {
             String targetClassName, Path studentOutput, Spec spec, ProtocolChannel protocol)
             throws IOException, ClassNotFoundException {
         URL studentDirectory = studentOutput.toUri().toURL();
-        try (URLClassLoader loader = new URLClassLoader(
-                new URL[] {studentDirectory}, ClassLoader.getPlatformClassLoader())) {
-            Class<?> target = Class.forName(targetClassName, false, loader);
-            if (target.getClassLoader() != loader) {
-                throw new ClassNotFoundException(
-                        "Target class was resolved by a parent loader, not student output.");
+        List<CheckResult> results = new ArrayList<>();
+        BigDecimal score = BigDecimal.ZERO;
+        int executions = Math.max(1, spec.checks.size());
+        for (int index = 0; index < executions; index++) {
+            // Each check gets a new loader so target classes, static fields,
+            // and student-defined singleton instances start from fresh state.
+            // The Judge itself remains loaded by the system class loader.
+            try (URLClassLoader loader = new URLClassLoader(
+                    new URL[] {studentDirectory}, ClassLoader.getPlatformClassLoader())) {
+                Class<?> target = Class.forName(targetClassName, false, loader);
+                if (target.getClassLoader() != loader) {
+                    throw new ClassNotFoundException(
+                            "Target class was resolved by a parent loader, not student output.");
+                }
+                try {
+                    Class.forName(targetClassName, true, loader);
+                } catch (VirtualMachineError | ThreadDeath fatal) {
+                    protocol.markStudentFatal(fatal);
+                    throw fatal;
+                } catch (ExceptionInInitializerError error) {
+                    rethrowStudentFatal(error);
+                    throw error;
+                }
+                if (!spec.checks.isEmpty()) {
+                    CheckResult result = evaluateCheck(spec.checks.get(index), target, loader);
+                    results.add(result);
+                    score = score.add(result.pointsEarned);
+                }
             }
-            try {
-                Class.forName(targetClassName, true, loader);
-            } catch (VirtualMachineError | ThreadDeath fatal) {
-                protocol.markStudentFatal(fatal);
-                throw fatal;
-            } catch (ExceptionInInitializerError error) {
-                rethrowStudentFatal(error);
-                throw error;
-            }
-            return runChecks(target, loader, spec);
         }
+        return Response.success(score, spec.totalPoints, results);
     }
 
     private static Spec readAndValidateSpec(InputStream input)
@@ -387,17 +400,6 @@ public final class ReflectionJudge {
                     check, check.expectedDescription(), "<target class unavailable>", message));
         }
         return results;
-    }
-
-    private static Response runChecks(Class<?> target, ClassLoader loader, Spec spec) {
-        List<CheckResult> results = new ArrayList<>();
-        BigDecimal score = BigDecimal.ZERO;
-        for (SpecCheck check : spec.checks) {
-            CheckResult result = evaluateCheck(check, target, loader);
-            results.add(result);
-            score = score.add(result.pointsEarned);
-        }
-        return Response.success(score, spec.totalPoints, results);
     }
 
     private static CheckResult evaluateCheck(SpecCheck check, Class<?> target, ClassLoader loader) {

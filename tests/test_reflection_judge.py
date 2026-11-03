@@ -373,6 +373,135 @@ class ReflectionJudgeTests(unittest.TestCase):
         self.assertEqual([check["passed"] for check in result["checks"]], [True] * 4)
         self.assertTrue(all(check["error"] is None for check in result["checks"]))
 
+    def test_student_interface_type_resolves_inside_each_check_loader(self):
+        output = self.compile_student(
+            "package model; interface StudentContract { String id(); } "
+            "public class Student implements StudentContract { "
+            "public String id() { return \"student\"; } }"
+        )
+        result = self.run_judge(
+            "model.Student",
+            output,
+            self.spec_for(
+                self.make_check("implements-contract", "implements", **{"interface": "StudentContract"}),
+                self.make_check(
+                    "method-contract", "method", name="id", return_type="String",
+                    parameter_types=[], modifier="public",
+                ),
+            ),
+        )
+        self.assertEqual([check["passed"] for check in result["checks"]], [True, True])
+
+    def test_static_state_is_fresh_for_each_check_in_both_orders(self):
+        output = self.compile_student(
+            "package model; public class Student { private static int value = 0; "
+            "public int mutate() { value = 41; return value; } "
+            "public int current() { return value; } }"
+        )
+        mutate = self.make_check(
+            "mutate", "behavior", method="mutate", args=[], expect_return=41
+        )
+        initial = self.make_check(
+            "initial", "behavior", method="current", args=[], expect_return=0
+        )
+        for ordered_checks in ((mutate, initial), (initial, mutate)):
+            with self.subTest(order=[check["id"] for check in ordered_checks]):
+                result = self.run_judge("model.Student", output, self.spec_for(*ordered_checks))
+                self.assertEqual([check["passed"] for check in result["checks"]], [True, True])
+
+    def test_static_initializer_runs_again_for_each_check(self):
+        output = self.compile_student(
+            "package model; public class Student { private static int value; "
+            "static { value = 7; } "
+            "public int mutate() { value = 99; return value; } "
+            "public int current() { return value; } }"
+        )
+        result = self.run_judge(
+            "model.Student",
+            output,
+            self.spec_for(
+                self.make_check(
+                    "mutate", "behavior", method="mutate", args=[], expect_return=99
+                ),
+                self.make_check(
+                    "reinitialized", "behavior", method="current", args=[], expect_return=7
+                ),
+            ),
+        )
+        self.assertEqual([check["passed"] for check in result["checks"]], [True, True])
+
+    def test_mutable_student_singleton_is_fresh_for_each_check(self):
+        output = self.compile_student(
+            "package model; public class Student { private static final Box SINGLETON = new Box(); "
+            "private static final class Box { int value; } "
+            "public int mutate() { SINGLETON.value = 5; return SINGLETON.value; } "
+            "public int current() { return SINGLETON.value; } }"
+        )
+        result = self.run_judge(
+            "model.Student",
+            output,
+            self.spec_for(
+                self.make_check(
+                    "mutate", "behavior", method="mutate", args=[], expect_return=5
+                ),
+                self.make_check(
+                    "singleton-initial", "behavior", method="current", args=[], expect_return=0
+                ),
+            ),
+        )
+        self.assertEqual([check["passed"] for check in result["checks"]], [True, True])
+
+    def test_each_behavior_check_gets_a_fresh_instance(self):
+        output = self.compile_student(
+            "package model; public class Student { private int value; "
+            "public int mutate() { value = 5; return value; } "
+            "public int current() { return value; } }"
+        )
+        result = self.run_judge(
+            "model.Student",
+            output,
+            self.spec_for(
+                self.make_check(
+                    "mutate", "behavior", method="mutate", args=[], expect_return=5
+                ),
+                self.make_check(
+                    "instance-initial", "behavior", method="current", args=[], expect_return=0
+                ),
+            ),
+        )
+        self.assertEqual([check["passed"] for check in result["checks"]], [True, True])
+
+    def test_background_thread_can_change_jvm_wide_state_between_checks(self):
+        output = self.compile_student(
+            "package model; public class Student { "
+            "static { System.clearProperty(\"judge.check.ready\"); "
+            "System.clearProperty(\"judge.check.leaked\"); } "
+            "public void startLeaker() { Thread thread = new Thread(() -> { "
+            "while (System.getProperty(\"judge.check.ready\") == null) Thread.yield(); "
+            "System.setProperty(\"judge.check.leaked\", \"yes\"); }); "
+            "thread.setDaemon(true); thread.start(); } "
+            "public boolean isUncontaminated() { "
+            "System.setProperty(\"judge.check.ready\", \"yes\"); "
+            "while (System.getProperty(\"judge.check.leaked\") == null) Thread.yield(); "
+            "return System.getProperty(\"judge.check.leaked\") == null; } }"
+        )
+        result = self.run_judge(
+            "model.Student",
+            output,
+            self.spec_for(
+                self.make_check(
+                    "start-thread", "behavior", method="startLeaker", args=[], expect_return=None
+                ),
+                self.make_check(
+                    "jvm-wide-state", "behavior", method="isUncontaminated", args=[], expect_return=True
+                ),
+            ),
+        )
+        self.assertTrue(result["checks"][0]["passed"])
+        # Fresh classloaders reset student classes, but cannot isolate state
+        # or threads shared by the containing JVM.
+        self.assertFalse(result["checks"][1]["passed"])
+
     def test_wrong_field_type_reports_expected_and_actual(self):
         output = self.compile_student("package model; public class Student { private int age; }")
         specification = self.spec_for(
