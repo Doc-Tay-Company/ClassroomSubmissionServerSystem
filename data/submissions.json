@@ -10,6 +10,17 @@
       "status": "received",
       "release_id": "e1274b14cff746f896dac72d90658fc1",
       "payload_retained": true
+    },
+    {
+      "filename": "2301040137_20261103-165456-202808.zip",
+      "original_filename": "2301040137_DaoTuanNghia_SAD_Tut6_Main.zip",
+      "size_bytes": 3389463,
+      "submitted_at": "2026-11-03T09:54:56+00:00",
+      "ip": "127.0.0.1",
+      "sha256": "385c927cf86bc6769ac3ffcca2fc8ccc37962aae0022829ad2439b7e86078705",
+      "status": "received",
+      "release_id": "3ce6e5ed055449498a6fd08b55e13caf",
+      "payload_retained": true
     }
   ]
 }

@@ -423,15 +423,15 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"ok":True,"submission":record})
             if path=="/api/student/telemetry":
                 sess=self._auth(req,"student")
-                sessions=read_json("sessions.json"); token=req.cookies.get(SESSION_COOKIE)
-                current=sessions.get(token)
+                sessions=read_json("sessions.json"); token_key=sess["token_key"]
+                current=sessions.get(token_key)
                 if not current: raise ClientError(401,"Phiên đăng nhập không hợp lệ.")
                 def flag(name, default=False):
                     return f.get(name, str(default)).lower() in {"true","1","on","yes"}
                 try: tab_count=max(1,min(20,int(f.get("tab_count","1"))))
                 except ValueError: tab_count=1
                 current["telemetry"]={"visibility":"hidden" if f.get("visibility")=="hidden" else "visible","focused":flag("focused",True),"tab_count":tab_count,"browser":f.get("browser","")[:80],"updated_at":utc_now()}
-                current["last_seen"]=utc_now(); sessions[token]=current; write_json("sessions.json",sessions)
+                current["last_seen"]=utc_now(); sessions[token_key]=current; write_json("sessions.json",sessions)
                 return self._json({"ok":True})
             if path=="/api/admin/admins":
                 sess=self._auth(req,"admin"); username=f.get("username","").strip(); password=f.get("password","")

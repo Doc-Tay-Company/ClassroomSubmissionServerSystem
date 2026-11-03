@@ -12,11 +12,11 @@
   "2301040137": {
     "student_id": "2301040137",
     "full_name": "Đào Tuấn Nghĩa",
-    "password_hash": "scrypt$02e0481d825e7c36ebcbcc49d84dbc63$bd6615214c415879a960bfd7252251f2a55f07f96bb62bfef439c85763bd4fe8",
+    "password_hash": "scrypt$c99f6eefdd1bfd1e673058c11aab4de4$107912f68c2e9a1d32183209752460af3fce8fe7f4df4342f38fd04b744bd3a3",
     "active": true,
     "created_at": "2026-10-30T09:50:03+00:00",
     "last_ip": "127.0.0.1",
-    "last_seen": "2026-10-31T04:53:31+00:00",
+    "last_seen": "2026-11-03T09:52:19+00:00",
     "must_change_password": false
   },
   "21010001": {

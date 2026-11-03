@@ -28,16 +28,16 @@
       "Đề 9.pdf"
     ]
   },
-  "exam_released": false,
-  "exam_release_id": null,
-  "exam_release_at": null,
+  "exam_released": true,
+  "exam_release_id": "3ce6e5ed055449498a6fd08b55e13caf",
+  "exam_release_at": "2026-11-03T09:52:46+00:00",
   "max_upload_bytes": 52428800,
   "allow_late_submission": false,
-  "exam_state": "ended",
+  "exam_state": "started",
   "accepted_submission_extensions": [
     ".zip"
   ],
-  "exam_started_at": "2026-10-31T04:46:27+00:00",
+  "exam_started_at": "2026-11-03T09:52:47+00:00",
   "exam_participants": [
     "2301040137"
   ]
