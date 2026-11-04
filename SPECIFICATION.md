@@ -6,6 +6,8 @@
 
 **Dependency runtime:** chỉ Jinja2 để render HTML. HTTP server, parser form và multipart upload dùng thư viện chuẩn Python. Không sử dụng FastAPI, Pydantic, Uvicorn, Starlette, `python-multipart` hoặc PyYAML.
 
+**Dữ liệu runtime:** Các file JSON trong `data/` chứa dữ liệu cục bộ và bị Git bỏ qua. Checkout mới giữ thư mục bằng `.gitkeep`; `initialize()` tự tạo các file JSON mặc định. Quy tắc ignore không xóa hoặc ghi đè các file hiện có.
+
 ## 1. Quyết định kiến trúc
 
 | Thành phần | Quyết định | Lý do |
@@ -169,7 +171,8 @@ Mỗi dòng là một JSON object độc lập gồm `occurred_at`, `event`, `ac
 - File tài khoản có hash mật khẩu nhưng vẫn chứa thông tin cá nhân như họ tên và IP; cần giới hạn quyền truy cập thư mục trên hệ điều hành.
 - HTTP không mã hóa. Có thể bật HTTPS bằng `CSS_TLS_CERT` và `CSS_TLS_KEY` với chứng chỉ được máy trạm tin cậy; cookie Secure được bật khi dùng TLS.
 - Trình duyệt chỉ cho server biết các hoạt động bên trong ứng dụng, IP kết nối và User-Agent; không cho phép theo dõi toàn bộ desktop/ứng dụng khác.
-- Không có endpoint tự động chạy code nộp bài; ZIP chỉ được kiểm tra và lưu.
+- Các JSON runtime trong `data/` và audit/submission data là dữ liệu riêng tư; không commit chúng. Sao lưu `data/`, `logs/`, `submissions/` riêng với Git khi server đã dừng.
+- Code grading có API riêng; các route đó chạy student source trên Windows Job Objects. Đây là giới hạn process/RAM/time, không phải sandbox hoàn chỉnh.
 
 ## 7. Tiêu chí nghiệm thu bản đầu
 

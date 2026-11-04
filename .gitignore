@@ -7,4 +7,6 @@ static/css/tailwind.css
 logs/*.jsonl
 submissions/*
 !submissions/.gitkeep
+data/*
+!data/.gitkeep
 data/*.bak

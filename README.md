@@ -158,7 +158,7 @@ ClassroomSubmissionServer/
 │   ├── css/                 # Pre-built CSS (Tailwind output)
 │   ├── js/                  # Client-side JavaScript
 │   └── vendor/fontawesome/  # Font Awesome 4.7.0 (local copy + license)
-├── data/                    # Runtime JSON data (auto-created)
+├── data/                    # Local runtime JSON data (ignored by Git; auto-created)
 ├── logs/                    # audit.jsonl (auto-created)
 ├── de-thi/                  # Place exam files here (PDF, TXT, PNG, JPG, JPEG, GIF, WEBP)
 ├── submissions/             # Student ZIP submissions (auto-created)
@@ -391,7 +391,7 @@ The server is **fully offline after the one-time Jinja2 installation**:
 
 | Path | Contents |
 |---|---|
-| `data/*.json` | Accounts, sessions, settings, assignments, submission metadata, lockout state |
+| `data/*.json` | Local-only accounts, sessions, settings, assignments, questions, and submission data; ignored by Git and initialized automatically |
 | `logs/audit.jsonl` | Append-only event log |
 | `de-thi/` | Exam source files |
 | `submissions/` | Student ZIP payloads |
@@ -399,6 +399,7 @@ The server is **fully offline after the one-time Jinja2 installation**:
 **Always stop the server before backing up.** Copy all four directories above to a safe location.
 
 - Do **not** edit JSON files manually while the server is running.
+- Runtime files in `data/` are intentionally ignored by Git to keep account, session, exam, and submission data out of future commits. A clean checkout keeps the folder via `.gitkeep`; the server creates missing JSON files with empty/default values at startup. Existing local JSON files are not deleted when the ignore rule is added.
 - Run only **one** server instance against the same data directory. The JSON-file locking model is single-process only *(SQLite migration planned — see [Roadmap](#2-roadmap))*.
 
 ---
