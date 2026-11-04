@@ -27,6 +27,10 @@ from types import SimpleNamespace
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from .config import BASE_DIR, DATA_DIR, LOG_DIR, EXAM_DIR, UPLOAD_DIR, STATIC_DIR, TEMPLATE_DIR, HOST, PORT, SESSION_COOKIE, MAX_REQUEST_SIZE
+
+# Override OS-provided (e.g. Windows registry) types so scripts/styles pass nosniff checks.
+mimetypes.add_type("text/javascript", ".js")
+mimetypes.add_type("text/css", ".css")
 from .accounts import parse_accounts
 from .http import inline_filename_header
 from .storage import initialize, read_json, write_json, audit, utc_now
