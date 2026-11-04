@@ -15,7 +15,7 @@ from typing import Mapping
 from .code_runner import run_stdio
 from .grading import GradingError, grade_exam, grade_reflection, grade_stdio
 from .java_runner import run_reflection_judge
-from .questions import QuestionError, get_question
+from .questions import QuestionError, compute_spec_hash, get_question
 from .storage import audit, read_json, update_json, utc_now
 from .windows_job import DEFAULT_JOB_LIMITS, MIN_JAVA_JOB_MEMORY_MB, JobLimits
 
@@ -342,13 +342,54 @@ def public_question(question: Mapping) -> dict:
 
 
 def get_student_code_exam(student_id: str) -> dict:
-    _, assignment, exam = _active_context(student_id)
+    settings = read_json("settings.json")
+    assignment = read_json("assignments.json").get(student_id)
+    if (
+        not assignment
+        or not assignment.get("code_exam_id")
+        or not assignment.get("started_at")
+    ):
+        raise CodeExamError("No started code exam is assigned", 403)
+    exam = get_code_exam(assignment["code_exam_id"])
+    if (
+        not exam
+        or exam.get("release_id") != assignment.get("release_id")
+        or exam.get("status") not in {"started", "ended"}
+        or (
+            assignment.get("release_id") != settings.get("exam_release_id")
+            and not (settings.get("exam_state") == "ended" and exam.get("status") == "ended")
+        )
+    ):
+        raise CodeExamError("No matching code exam is available", 403)
+
+    deadline = assignment.get("ends_at")
+    expired = True
+    if deadline:
+        try:
+            parsed_deadline = datetime.fromisoformat(deadline)
+            if parsed_deadline.tzinfo is None:
+                parsed_deadline = parsed_deadline.replace(tzinfo=timezone.utc)
+            expired = datetime.now(timezone.utc) >= parsed_deadline
+        except (TypeError, ValueError):
+            expired = True
+    read_only = (
+        settings.get("exam_state") != "started"
+        or not settings.get("exam_released")
+        or exam.get("status") != "started"
+        or assignment.get("status") in {"expired", "ended"}
+        or bool(assignment.get("forced_submit"))
+        or expired
+    )
     return {
         "exam_id": exam["id"],
         "title": exam["title"],
         "release_id": exam["release_id"],
         "ends_at": assignment["ends_at"],
         "show_final_score_immediately": exam["show_final_score_immediately"],
+        "allow_pretest": exam.get("allow_pretest", True),
+        "submission_policy": exam.get("submission_policy"),
+        "max_submissions": exam.get("max_submissions"),
+        "read_only": read_only,
         "questions": [public_question(question) for question in exam["questions"]],
     }
 
@@ -393,12 +434,90 @@ def _job_limits(question: Mapping) -> JobLimits:
     )
 
 
+def _reflection_judge_checks(checks: list[Mapping]) -> list[dict]:
+    """Translate the earlier question-bank check shape to ReflectionJudge's input schema."""
+    normalized = []
+    for raw in checks:
+        check = dict(raw)
+        kind = check.get("kind")
+        if kind == "field":
+            check["name"] = check.get("name", check.get("field_name"))
+            check["type"] = check.get("type", check.get("expected_type"))
+            modifiers = check.get("modifier", check.get("expected_modifiers", []))
+            check["modifier"] = " ".join(modifiers) if isinstance(modifiers, list) else modifiers
+            for key in ("field_name", "expected_type", "expected_modifiers"):
+                check.pop(key, None)
+        elif kind == "constructor":
+            check["parameter_types"] = check.get("parameter_types", check.get("param_types", []))
+            modifiers = check.get("modifier", check.get("expected_modifiers", []))
+            check["modifier"] = " ".join(modifiers) if isinstance(modifiers, list) else modifiers
+            check.pop("param_types", None)
+            check.pop("expected_modifiers", None)
+        elif kind == "method":
+            check["name"] = check.get("name", check.get("method_name"))
+            check["return_type"] = check.get("return_type", check.get("expected_return_type"))
+            check["parameter_types"] = check.get("parameter_types", check.get("param_types", []))
+            modifiers = check.get("modifier", check.get("expected_modifiers", []))
+            check["modifier"] = " ".join(modifiers) if isinstance(modifiers, list) else modifiers
+            for key in ("method_name", "expected_return_type", "param_types", "expected_modifiers"):
+                check.pop(key, None)
+        elif kind == "implements":
+            check["interface"] = check.get("interface", check.get("expected_interface"))
+            check.pop("expected_interface", None)
+        elif kind == "behavior":
+            setup = check.get("setup")
+            invoke = check.get("invoke")
+            if isinstance(setup, Mapping):
+                check["constructor_parameter_types"] = setup.get(
+                    "constructor_parameter_types", setup.get("constructor_param_types", [])
+                )
+                check["constructor_args"] = setup.get("constructor_args", [])
+                check["setup"] = []
+            if isinstance(invoke, Mapping):
+                check["method"] = check.get("method", invoke.get("method"))
+                check["parameter_types"] = check.get(
+                    "parameter_types", invoke.get("parameter_types", invoke.get("param_types", []))
+                )
+                check["args"] = check.get("args", invoke.get("args", []))
+                check.pop("invoke", None)
+            state = check.get("expect_state")
+            if isinstance(state, Mapping) and "getter" not in state and "field" not in state:
+                getter, value = next(iter(state.items()), ("", None))
+                check["expect_state"] = {"getter": getter, "value": value}
+        elif kind == "toString":
+            check["template"] = check.get("template", check.get("expected_template", ""))
+            check.pop("expected_template", None)
+            setup = check.get("setup")
+            if isinstance(setup, Mapping):
+                check["constructor_parameter_types"] = setup.get(
+                    "constructor_parameter_types", setup.get("constructor_param_types", [])
+                )
+                check["constructor_args"] = setup.get("constructor_args", [])
+                check["setup"] = []
+        elif kind == "comparable" and isinstance(check.get("cases"), list):
+            parameter_types = check.get("constructor_parameter_types", check.get("constructor_param_types", []))
+            instances = []
+            comparisons = []
+            for case in check["cases"]:
+                left = len(instances)
+                instances.append({"constructor_parameter_types": parameter_types, "constructor_args": case.get("a", [])})
+                right = len(instances)
+                instances.append({"constructor_parameter_types": parameter_types, "constructor_args": case.get("b", [])})
+                comparisons.append({"left": left, "right": right, "expected_sign": case.get("expected_sign")})
+            check["instances"] = instances
+            check["comparisons"] = comparisons
+            check.pop("cases", None)
+            check.pop("constructor_param_types", None)
+        normalized.append(check)
+    return normalized
+
+
 def execute_question(
     question: Mapping, source_code: str, *, visible_only: bool = False
 ) -> dict:
     limits = _job_limits(question)
     if question["grading_mode"] == "reflection":
-        checks = question["checks"]
+        checks = _reflection_judge_checks(question["checks"])
         total_points = question["total_points"]
         if visible_only:
             checks = [check for check in checks if check.get("is_visible") is True]
@@ -1081,25 +1200,13 @@ def regrade_submission(
     )
 
 
-def publish_question(question_id: str, sample_source: str, actor: str, ip: str) -> tuple[dict, dict]:
-    from .questions import save_question
-
-    question = get_question(question_id)
-    if not question:
-        raise QuestionError("question not found", 404)
-    if question.get("status") == "published":
-        raise QuestionError("question is already published", 409)
-    source_hash = _validate_source(sample_source)
-    if not _RUN_SLOTS.acquire(blocking=False):
-        raise QuestionError("Code execution capacity is busy; retry shortly", 429)
+def _sample_passes(question: Mapping, execution: Mapping) -> tuple[bool, str | None]:
+    """Whether a sample solution earned every configured point; second item is a reason when it did not."""
+    reflection = question["grading_mode"] == "reflection"
+    configured = question["checks"] if reflection else question["tests"]
+    returned = execution.get("checks" if reflection else "tests", [])
     try:
-        execution = execute_question(question, sample_source)
-    finally:
-        _RUN_SLOTS.release()
-    configured = question["checks"] if question["grading_mode"] == "reflection" else question["tests"]
-    returned = execution.get("checks" if question["grading_mode"] == "reflection" else "tests", [])
-    try:
-        if question["grading_mode"] == "reflection":
+        if reflection:
             verified = grade_reflection(
                 question["checks"],
                 {"score": execution.get("score"), "total_points": execution.get("total_points"), "checks": returned},
@@ -1107,25 +1214,130 @@ def publish_question(question_id: str, sample_source: str, actor: str, ip: str) 
                 verdict=execution.get("verdict"),
             )
         else:
-            verified = grade_stdio(
-                question["tests"],
-                returned,
-                question["total_points"],
-                verdict=execution.get("verdict"),
-            )
+            verified = grade_stdio(question["tests"], returned, question["total_points"], verdict=execution.get("verdict"))
     except GradingError as exc:
-        raise QuestionError(f"Sample solution returned an invalid result: {exc}", 422) from exc
+        return False, f"Sample solution returned an invalid result: {exc}"
     all_checks_passed = len(returned) == len(configured) and all(item.get("passed") is True for item in returned)
     if (
         execution.get("verdict") != "AC"
         or not all_checks_passed
         or verified.score != _decimal(question["total_points"], "total_points")
     ):
-        raise QuestionError("Sample solution must pass every configured check/test before publishing", 422)
-    question["status"] = "published"
-    question["source"]["updated_by"] = actor
-    question["source"]["updated_at"] = utc_now()
-    question["version"] = int(question.get("version", 1)) + 1
-    save_question(question)
-    audit("code.question_published", actor, ip, {"question_id": question_id, "source_sha256": source_hash})
-    return question, execution
+        return False, "Sample solution must pass every configured check/test"
+    return True, None
+
+
+_INFRA_CATEGORIES = {"INVALID_REQUEST", "JDK_NOT_FOUND", "JUDGE_INFRA_ERROR", "PROTOCOL_ERROR"}
+
+
+def validate_question_sample(question_id: str, sample_source: str, actor: str, ip: str) -> dict:
+    """Run a sample solution against the current draft spec and record the outcome bound to its spec hash.
+
+    Never changes the question status. A record is stored only when the spec is unchanged
+    when the run finishes, so a concurrent edit cannot be marked as validated.
+    """
+    question = get_question(question_id)
+    if not question:
+        raise QuestionError("question not found", 404)
+    if question.get("status") != "draft":
+        raise QuestionError("Only draft questions can be validated", 409, "QUESTION_NOT_DRAFT")
+    source_hash = _validate_source(sample_source)
+    spec_hash = compute_spec_hash(question)
+    if not _RUN_SLOTS.acquire(blocking=False):
+        raise QuestionError("Code execution capacity is busy; retry shortly", 429)
+    try:
+        try:
+            execution = execute_question(question, sample_source)
+        except Exception as exc:
+            execution = {
+                "verdict": "JUDGE_INFRA_ERROR",
+                "score": 0,
+                "total_points": question["total_points"],
+                "duration_ms": 0,
+                "error": f"{type(exc).__name__}: {exc}",
+                "error_category": "JUDGE_INFRA_ERROR",
+                "checks": [],
+                "tests": [],
+            }
+    finally:
+        _RUN_SLOTS.release()
+
+    infra_error = execution.get("error_category") in _INFRA_CATEGORIES
+    passed, reason = (False, execution.get("error")) if infra_error else _sample_passes(question, execution)
+    record = {
+        "spec_hash": spec_hash,
+        "passed": passed,
+        "validated_at": utc_now(),
+        "validated_by": actor,
+        "sample_sha256": source_hash,
+        "verdict": execution.get("verdict"),
+        "score": execution.get("score"),
+        "total_points": execution.get("total_points"),
+    }
+    state = {"stale": False}
+
+    def store(questions):
+        current = questions.get(question_id)
+        if (
+            not current
+            or current.get("status") != "draft"
+            or compute_spec_hash(current) != spec_hash
+        ):
+            state["stale"] = True
+            return
+        if infra_error:
+            return
+        current["validation"] = record
+
+    update_json("questions.json", store)
+    audit(
+        "code.question_validated",
+        actor,
+        ip,
+        {"question_id": question_id, "spec_hash": spec_hash, "passed": passed, "stale": state["stale"], "sample_sha256": source_hash},
+    )
+    return {
+        "validation": {**record, "current": passed and not state["stale"], "stale": state["stale"], "reason": reason},
+        "verdict": execution.get("verdict"),
+        "score": execution.get("score"),
+        "total_points": execution.get("total_points"),
+        "duration_ms": execution.get("duration_ms", 0),
+        "error": execution.get("error"),
+        "error_category": execution.get("error_category"),
+        "compile_result": _compiler_summary(execution),
+        "results": _normalized_results(question, execution, visible_only=False),
+    }
+
+
+def publish_question(question_id: str, actor: str, ip: str) -> dict:
+    """Publish a draft question only if its exact current spec has a successful server-side validation."""
+
+    def publish(questions):
+        question = questions.get(question_id)
+        if not question:
+            raise QuestionError("question not found", 404)
+        if question.get("status") == "published":
+            raise QuestionError("question is already published", 409, "ALREADY_PUBLISHED")
+        if question.get("status") != "draft":
+            raise QuestionError("Only draft questions can be published", 409, "QUESTION_NOT_DRAFT")
+        record = question.get("validation")
+        if not isinstance(record, Mapping):
+            raise QuestionError("The question must pass sample validation before publishing", 409, "VALIDATION_REQUIRED")
+        if record.get("spec_hash") != compute_spec_hash(question):
+            raise QuestionError("The question changed after its last validation; validate it again", 409, "VALIDATION_OUTDATED")
+        if record.get("passed") is not True:
+            raise QuestionError("The last sample validation failed; fix the question and validate again", 409, "VALIDATION_FAILED")
+        question["status"] = "published"
+        question["source"]["updated_by"] = actor
+        question["source"]["updated_at"] = utc_now()
+        question["version"] = int(question.get("version", 1)) + 1
+        return deepcopy(question)
+
+    question = update_json("questions.json", publish)
+    audit(
+        "code.question_published",
+        actor,
+        ip,
+        {"question_id": question_id, "spec_hash": question["validation"]["spec_hash"], "version": question["version"]},
+    )
+    return question

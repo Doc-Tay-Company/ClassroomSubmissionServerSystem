@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Admin Dashboard · Classroom Submission Server{% endblock %}
 {% block body %}
+<link rel="stylesheet" href="/static/css/admin-questions.css">
 <div class="admin-shell" data-admin-section="{{ section|default('dashboard') }}">
     <aside class="main-sidebar" aria-label="Điều hướng quản trị">
         <a class="sidebar-brand" href="/admin?section=dashboard"><span class="brand-mark"><i
@@ -17,6 +18,13 @@
                     class="fa fa-desktop"></i><span>Giám sát</span></a>
             <a class="{{ 'active' if section == 'notifications' else '' }}" href="/admin?section=notifications"><i
                     class="fa fa-bullhorn"></i><span>Thông báo</span><span class="sidebar-badge">Mới</span></a>
+            <p class="sidebar-label">QUẢN LÝ ĐỀ THI</p>
+            <a class="{{ 'active' if section == 'exam-management' and tab == 'questions' else '' }}" href="/admin?section=exam-management&tab=questions"><i
+                    class="fa fa-database"></i><span>Ngân hàng câu hỏi</span></a>
+            <a class="{{ 'active' if section == 'exam-management' and tab == 'exams' else '' }}" href="/admin?section=exam-management&tab=exams"><i
+                    class="fa fa-file-code-o"></i><span>Đề thi code</span></a>
+            <a class="{{ 'active' if section == 'exam-management' and tab == 'results' else '' }}" href="/admin?section=exam-management&tab=results"><i
+                    class="fa fa-bar-chart"></i><span>Kết quả code</span></a>
             <p class="sidebar-label">KỲ THI</p>
             <a class="{{ 'active' if section == 'exam' else '' }}" href="/admin?section=exam"><i
                     class="fa fa-sliders"></i><span>Cấu hình kỳ thi</span></a>
@@ -50,7 +58,7 @@
                     <h1>{% if section == 'dashboard' %}Dashboard{% elif section == 'monitor' %}Giám sát sinh viên{% elif
                         section == 'notifications' %}Trung tâm thông báo{% elif section == 'exam' %}Cấu hình kỳ thi{%
                         elif section == 'accounts' %}Tài khoản sinh viên{% elif section == 'submissions' %}Quản lý bài
-                        nộp{% elif section == 'server' %}Địa chỉ LAN{% else %}Tài khoản Admin{% endif %}</h1>
+                        nộp{% elif section == 'server' %}Địa chỉ LAN{% elif section == 'exam-management' %}Quản lý đề thi{% else %}Tài khoản Admin{% endif %}</h1>
                     <p class="muted">Quản lý tài khoản, phân phối đề, thời gian thi và bài nộp.</p></div>
                 <div class="server-chip"><span class="live-dot"></span> Server hoạt động <span id="live-status">Đang kết nối...</span>
                 </div>
@@ -245,11 +253,17 @@
                         </fieldset>
                         <textarea id="last-digit-map" name="last_digit_map" class="hidden"
                                   aria-hidden="true"></textarea></div>
+                    <fieldset>
+                        <legend>Đề code (tùy chọn)</legend>
+                        <label for="code-exam-select">Đề code gán kèm</label>
+                        <select id="code-exam-select" name="code_exam_select_ui"><option value="">Không dùng đề code</option></select>
+                        <label class="checkbox-row"><input type="checkbox" id="code-only"> Chỉ phát đề code (không cần file ZIP/PDF)</label>
+                        <p class="fine-print">Danh sách đề code lấy từ mục Quản lý đề thi → Đề thi.</p>
+                    </fieldset>
                     <div class="alert alert-warning">Phát đề là thao tác không thể hoàn tác trong lượt thi. Hãy kiểm tra
                         tài khoản và file đề trước khi xác nhận.
                     </div>
-                    <button class="btn btn-primary" type="submit" {% if settings.exam_released or not exam_files
-                            %}disabled{% endif %}><i class="fa fa-paper-plane"></i> Phát đề ngay
+                    <button class="btn btn-primary" type="submit" {% if settings.exam_released %}disabled{% endif %}><i class="fa fa-paper-plane"></i> Phát đề ngay
                     </button>
                 </form>
                 <div id="distribution-result" class="notice hidden"></div>
@@ -474,9 +488,66 @@
                 <div id="settings-result" class="notice hidden"></div>
             </section>
             {% endif %}
+            {% if section == 'exam-management' %}
+            <section class="panel" id="exam-management" data-tab="{{ tab|default('questions') }}">
+                <nav class="tab-bar" aria-label="Quản lý đề thi">
+                    <a class="tab-link {{ 'active' if tab == 'questions' else '' }}" href="/admin?section=exam-management&tab=questions">Ngân hàng câu hỏi</a>
+                    <a class="tab-link {{ 'active' if tab == 'exams' else '' }}" href="/admin?section=exam-management&tab=exams">Đề thi code</a>
+                    <a class="tab-link {{ 'active' if tab == 'results' else '' }}" href="/admin?section=exam-management&tab=results">Kết quả code</a>
+                </nav>
+                {% if tab == 'exams' %}
+                <div id="code-exams-view">
+                    <div class="panel-heading"><h2>Đề thi code</h2>
+                        <button type="button" class="btn btn-primary btn-small" id="ce-new"><i class="fa fa-plus"></i> Tạo đề thi</button></div>
+                    <div id="ce-form-host" class="hidden"></div>
+                    <div id="ce-notice" class="notice hidden"></div>
+                    <div id="ce-list" class="table-scroll"></div>
+                </div>
+                {% elif tab == 'results' %}
+                <div id="code-results-view">
+                    <div class="panel-heading"><div><h2>Kết quả bài code</h2>
+                        <p class="muted">Dữ liệu lấy từ bài nộp đã được máy chủ chấm; chi tiết quản trị có thể gồm check ẩn.</p></div></div>
+                    <div class="filter-row">
+                        <label for="cr-exam">Đề thi</label><select id="cr-exam"><option value="">Đang tải đề thi...</option></select>
+                        <label for="cr-student">Sinh viên</label><select id="cr-student"><option value="">Tất cả sinh viên</option></select>
+                        <label for="cr-question">Câu hỏi</label><select id="cr-question"><option value="">Tất cả câu hỏi</option></select>
+                        <button type="button" class="btn btn-primary btn-small" id="cr-refresh"><i class="fa fa-refresh"></i> Tải kết quả</button>
+                    </div>
+                    <div id="cr-notice" class="notice hidden"></div>
+                    <div id="cr-list" class="table-scroll"></div>
+                    <div id="cr-detail" class="code-result-detail hidden"></div>
+                </div>
+                {% else %}
+                <div id="questions-view">
+                    <div id="q-list-view">
+                        <div class="panel-heading"><h2>Ngân hàng câu hỏi</h2>
+                            <div class="form-actions">
+                                <button type="button" class="btn btn-ghost btn-small" id="q-import"><i class="fa fa-upload"></i> Nhập JSON</button>
+                                <input type="file" id="q-import-file" accept=".json,application/json" class="hidden">
+                                <button type="button" class="btn btn-primary btn-small" id="q-new"><i class="fa fa-plus"></i> Tạo câu hỏi</button>
+                            </div></div>
+                        <div class="filter-row">
+                            <input type="search" id="q-filter-search" placeholder="Tìm theo tiêu đề / tag">
+                            <select id="q-filter-language"><option value="">Mọi ngôn ngữ</option><option value="java">Java</option><option value="python">Python</option></select>
+                            <select id="q-filter-mode"><option value="">Mọi kiểu chấm</option><option value="reflection">reflection</option><option value="stdio">stdio</option></select>
+                            <select id="q-filter-status"><option value="">Mọi trạng thái</option><option value="draft">Nháp</option><option value="published">Đã xuất bản</option><option value="archived">Lưu trữ</option></select>
+                            <input type="text" id="q-filter-category" placeholder="Danh mục">
+                        </div>
+                        <div id="q-notice" class="notice hidden"></div>
+                        <div id="q-list" class="table-scroll"></div>
+                    </div>
+                    <div id="q-detail-view" class="hidden"></div>
+                    <div id="q-editor-view" class="hidden"></div>
+                </div>
+                {% endif %}
+            </section>
+            {% endif %}
         </main>
         <footer class="page-footer">Classroom Submission Server · Local LAN · JSON/JSONL storage</footer>
     </div>
 </div>
 <script defer src="/static/js/admin.js"></script>
+<script defer src="/static/js/questions.js"></script>
+<script defer src="/static/js/code-exams.js"></script>
+<script defer src="/static/js/code-results.js"></script>
 {% endblock %}

@@ -216,8 +216,12 @@
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     form.set("exam_files", [...document.querySelectorAll('input[name="exam-choice"]:checked')].map((input) => input.value).join(","));
-    if (!form.get("exam_files")) return window.cssToast("Hãy chọn ít nhất một đề.", "error");
-    if (form.get("mode") === "custom") { updateRemainderMap(); form.set("last_digit_map", $("last-digit-map").value); form.set("custom_modulus", $("custom-modulus").value); }
+    const codeExamId = $("code-exam-select")?.value || "";
+    const codeOnly = Boolean(codeExamId) && Boolean($("code-only")?.checked);
+    if (codeExamId) form.set("code_exam_id", codeExamId);
+    if (codeOnly) { form.set("code_only", "true"); form.set("mode", "selected"); form.set("exam_files", ""); }
+    else if (!form.get("exam_files")) return window.cssToast("Hãy chọn ít nhất một đề.", "error");
+    if (!codeOnly && form.get("mode") === "custom") { updateRemainderMap(); form.set("last_digit_map", $("last-digit-map").value); form.set("custom_modulus", $("custom-modulus").value); }
     try { const data = await window.cssRequest("/api/admin/distribute", { method: "POST", body: form }); show("distribution-result", `Đã phát đề cho ${data.assigned_count} tài khoản.`); if ($("start-exam-admin")) $("start-exam-admin").disabled = false; } catch (error) { show("distribution-result", error.message, true); toastError(error); }
   });
   $("settings-form")?.addEventListener("submit", async (event) => {

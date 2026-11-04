@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from decimal import Decimal, InvalidOperation, localcontext
+import hashlib
 import json
 import re
 import uuid
@@ -20,9 +21,21 @@ from .windows_job import MIN_JAVA_JOB_MEMORY_MB
 class QuestionError(ValueError):
     """A question request is invalid or conflicts with stored data."""
 
-    def __init__(self, message: str, status: int = 400) -> None:
+    def __init__(self, message: str, status: int = 400, code: str | None = None) -> None:
         super().__init__(message)
         self.status = status
+        self.code = code
+
+
+# Lifecycle/bookkeeping fields that do not describe what the judge executes.
+_SPEC_HASH_EXCLUDED = frozenset({"id", "status", "source", "usage_count", "version", "validation"})
+
+
+def compute_spec_hash(question: Mapping) -> str:
+    """SHA-256 of the canonical question specification (everything except lifecycle fields)."""
+    spec = {key: value for key, value in question.items() if key not in _SPEC_HASH_EXCLUDED}
+    canonical = json.dumps(spec, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 _ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,80}$")
@@ -48,6 +61,8 @@ def _validate_question(payload: Mapping, *, question_id: str, actor: str) -> dic
         question = json.loads(json.dumps(dict(payload), ensure_ascii=False, allow_nan=False))
     except (TypeError, ValueError, UnicodeEncodeError) as exc:
         raise QuestionError("Question must contain valid JSON values") from exc
+    # Validation records are server-owned and must never be accepted from a client.
+    question.pop("validation", None)
 
     title = question.get("title")
     statement = question.get("statement", "")
@@ -192,7 +207,8 @@ def update_question(question_id: str, payload: Mapping, actor: str, ip: str) -> 
     updated = _validate_question(payload, question_id=question_id, actor=actor)
     updated.update(
         {
-            "status": current.get("status", "draft"),
+            # Editing always returns the question to draft (a published question must be re-validated and re-published).
+            "status": "draft",
             "source": {
                 **current.get("source", {}),
                 "updated_by": actor,
@@ -214,7 +230,7 @@ def duplicate_question(question_id: str, actor: str, ip: str) -> dict:
     duplicate = {
         key: value
         for key, value in question.items()
-        if key not in {"id", "status", "source", "usage_count", "version"}
+        if key not in {"id", "status", "source", "usage_count", "version", "validation"}
     }
     return create_question(duplicate, actor, ip)
 
