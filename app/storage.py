@@ -38,8 +38,8 @@ DEFAULTS = {
     "code_runs.json": [],
     "sessions.json": {},
     "login_attempts.json": {},
-    "machines.json": {}
-    ,"notifications.json": []
+    "machines.json": {},
+    "notifications.json": [],
 }
 
 def utc_now() -> str:

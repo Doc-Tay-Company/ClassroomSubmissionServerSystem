@@ -1,0 +1,68 @@
+{
+  "f9c829dc09854af2a0f272197e2602a6": {
+    "id": "f9c829dc09854af2a0f272197e2602a6",
+    "title": "Code exam",
+    "status": "ended",
+    "release_id": "04a892fd243345718b836923caaad7d7",
+    "created_by": "admin-1",
+    "created_at": "2026-11-03T14:49:43+00:00",
+    "updated_at": "2026-11-03T14:49:43+00:00",
+    "show_final_score_immediately": false,
+    "allow_pretest": true,
+    "max_pretest_runs": 20,
+    "pretest_cooldown_seconds": 0.0,
+    "submission_policy": "configurable",
+    "max_submissions": 2,
+    "questions": [
+      {
+        "id": "echo-question",
+        "title": "Echo",
+        "statement": "Print the input.",
+        "language": "python",
+        "grading_mode": "stdio",
+        "starter_code": "",
+        "time_limit_seconds": 1.0,
+        "memory_limit_mb": 128,
+        "max_output_bytes": 4096,
+        "allow_pretest": true,
+        "max_pretest_runs": 20,
+        "total_points": 10,
+        "tests": [
+          {
+            "id": "visible",
+            "stdin": "hello\n",
+            "expected_stdout": "hello\n",
+            "is_visible": true,
+            "points": 8,
+            "compare_mode": "exact"
+          },
+          {
+            "id": "hidden",
+            "stdin": "secret-input\n",
+            "expected_stdout": "secret-expected\n",
+            "is_visible": false,
+            "points": 2,
+            "compare_mode": "exact"
+          }
+        ],
+        "target_file": "solution.py",
+        "status": "published",
+        "source": {
+          "created_by": "admin-1",
+          "created_at": "2026-11-03T14:49:43+00:00",
+          "updated_at": "2026-11-03T14:49:43+00:00",
+          "updated_by": "admin-1"
+        },
+        "usage_count": 0,
+        "version": 2,
+        "question_id": "echo-question",
+        "snapshot_version": 2,
+        "snapshot_at": "2026-11-03T14:49:43+00:00",
+        "order": 0
+      }
+    ],
+    "distributed_at": "2026-11-03T14:49:43+00:00",
+    "started_at": "2026-11-03T14:49:43+00:00",
+    "ended_at": "2026-11-03T14:49:43+00:00"
+  }
+}

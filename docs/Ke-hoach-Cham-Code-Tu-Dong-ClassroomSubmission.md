@@ -41,6 +41,8 @@
 | 12 | Dùng lại câu hỏi bằng **snapshot, không phải link sống**: khi thêm câu hỏi vào đề, server copy nguyên bản câu hỏi lúc đó vào đề, kèm `source_question_id` và phiên bản. Sửa ngân hàng sau đó không làm thay đổi đề đã phát. Đề còn ở trạng thái nháp thì admin bấm “cập nhật từ ngân hàng” mới lấy bản mới nhất. |
 | 13 | Giới hạn mặc định (admin sửa được theo từng câu hỏi/đề): pretest tối đa 20 lần/câu hỏi/kỳ thi, timeout judge theo spec, output cắt ngắn. Số lần nộp code dùng lại chính sách nộp sẵn có của kỳ thi (`submission_policy`, `max_submissions`). |
 
+`target_class` và package được server kiểm tra theo classroom identifier subset: Unicode start/continuation categories của Python, cho phép `$`, nhưng loại các ký tự identifier-ignorable mà Java cho phép. Đây không phải parser đầy đủ của Java Language Specification; javac vẫn xác thực tên khai báo trong source.
+
 ## 3. Mục tiêu
 
 1. Sinh viên làm bài code ngay trên web, không cần nộp ZIP rồi chờ.
@@ -95,6 +97,10 @@ Nguyên tắc: code chấm không bao giờ chạy trong process của server we
 
 Mỗi câu hỏi có: `id`, `title`, `statement`, `language`, `grading_mode`, `category` (chủ đề để lọc, ví dụ OOP, mảng, vòng lặp — khác với `grading_mode`), `tags`, `difficulty` (tùy chọn), `starter_code`, `time_limit_seconds`, `memory_limit_mb`, `max_output_bytes`, `allow_pretest`, `max_pretest_runs`, `total_points` (phải bằng tổng điểm các check/test), `status` (`draft` / `published`), `source` (người tạo, thời gian tạo/sửa), `usage_count`.
 
+`memory_limit_mb` là giới hạn **tổng committed memory của một Job Object cho một execution phase**, tính theo MiB (1 MiB = 1024 × 1024 bytes) và áp dụng cho toàn process tree trong Job. Job Object `JOB_MEMORY` đo commit, không đo resident working set. `PROCESS_MEMORY` cũng là commit limit nhưng áp dụng riêng cho từng process; runner đặt nó bằng cùng budget để một process đơn không vượt question limit. Với Python, interpreter và student code đều nằm trong budget. Với Java Reflection, JVM dùng chung cho ReflectionJudge và student class; heap và native JVM memory đều chịu tổng Job limit. Với Java STDIO, mỗi lần chạy test có Job riêng. Java question cần ít nhất 256 MiB để JVM có đủ native startup headroom; giá trị thấp hơn bị từ chối như cấu hình không hợp lệ.
+
+Java `-Xmx` được suy ra từ budget hiệu dụng: tối đa một nửa tổng Job/process limit, làm tròn xuống MiB. Phần còn lại là headroom cho native JVM memory, class metadata, thread stacks, code cache và harness. `-Xmx` chỉ giới hạn Java heap, không phải tổng memory. Student compile và runtime chạy trong các Job riêng, mỗi Job chịu cùng `memory_limit_mb` của question. JDK version probes là thao tác hạ tầng và dùng budget riêng 512 MiB. `MLE` chỉ được trả khi Windows Job Object phát thông báo vượt process/job commit limit; Java `OutOfMemoryError`, exit code bất thường hoặc working set cao tự thân không đủ bằng chứng để gọi `MLE`.
+
 Trường riêng theo dạng chấm:
 
 - **Java reflection:** `target_class`, `target_package` (bắt buộc), `target_file`, danh sách `checks[]`.
@@ -105,7 +111,7 @@ Trường riêng theo dạng chấm:
 
 - **Java reflection:** mỗi check có `id`, `kind`, `points`, `is_visible`, cộng trường riêng theo kind (xem mục 8).
 - **Stdio (cả Java và Python):** mỗi test có `id`, `stdin`, `expected_stdout`, `is_visible`, `points`, `compare_mode` (xem mục 9).
-- `total_points` phải bằng tổng điểm. Bản tích hợp web phải tự kiểm tra và báo lỗi nếu lệch, không tự sửa điểm.
+- `total_points` phải bằng tổng điểm. Với Java stdio, server chia đều `total_points` cho tất cả test cases và ghi nhận phần dư biểu diễn số ở test cuối; với Python stdio và reflection, cấu hình điểm từng test/check phải tự cộng đúng bằng `total_points`.
 
 ### Đề thi code (`data/code_exams.json`)
 
@@ -160,13 +166,22 @@ Sinh viên nộp Student.java (1 file, 1 public class, đúng package)
       <temp>\src\model\Student.java
   → javac -encoding UTF-8 -d <temp>\out <temp>\src\model\Student.java
       Lỗi biên dịch → verdict CE, 0 điểm, kèm output javac cắt ngắn, dừng
-  → java -Xmx256m -cp <judge_out> ReflectionJudge <temp>\out
+  → java -Xmx<derived-from-memory_limit_mb> -cp <judge_build_cache>/<key>/classes ReflectionJudge <temp>\out
       Spec đã lọc (pretest: chỉ visible) được đưa qua stdin pipe, KHÔNG qua file
-      Harness load class bằng URLClassLoader riêng, parent là platform classloader
-      Harness kiểm tra từng check độc lập, in JSON kết quả ra stdout
+      Mỗi check dùng một URLClassLoader mới, parent là platform classloader;
+      target class được load và khởi tạo lại từ student output directory.
+      Behavior check tạo fixture mới; static state và singleton của student không
+      được chia sẻ giữa các check.
+      Các check vẫn chạy trong cùng Judge JVM. Thread do student tạo có thể sống
+      qua check hiện tại và thay đổi trạng thái JVM-wide; classloader mới không
+      phải process isolation. Nếu cần bảo đảm cách ly thread/global state, cần
+      đánh giá process-per-check ở phase sau và đo performance trước khi đổi.
+      Judge result đi qua protocol channel riêng, không qua stdout của student.
   → Server đọc JSON, tính điểm, lưu bài nộp, trả về theo quyền hiển thị
   → Luôn xóa thư mục tạm trong finally (trừ chế độ debug giữ lại để xem)
 ```
+
+`ReflectionJudge.java` được biên dịch lazy ở lần chạy hợp lệ đầu tiên. Cache nằm ngoài workspace của từng submission, dùng key từ SHA-256 source cùng đường dẫn/version của `javac`; các class file được kiểm hash trước khi reuse. Build mới được biên dịch trong staging directory rồi publish bằng rename nguyên tử. Lock theo key ngăn các request đồng thời biên dịch trùng; cache hỏng sẽ bị loại bỏ và build lại. Không commit `.class` vào repository. Cache không tạo ranh giới filesystem: process student vẫn chạy dưới cùng Windows account và chỉ được bảo vệ theo giới hạn đã mô tả ở mục 10.
 
 ### Điều kiện tiên quyết trên máy giảng viên Windows
 
@@ -196,7 +211,7 @@ Sinh viên nộp Student.java (1 file, 1 public class, đúng package)
 ### Các lớp bảo vệ của MVP trên Windows (bắt buộc)
 
 1. **Process riêng, không `exec`/`eval` trong server.** Code sinh viên chỉ chạy trong process con (`python.exe` hoặc `java.exe` riêng), server chỉ điều phối.
-2. **Thư mục tạm riêng cho từng lần chấm.** Tạo thư mục tạm riêng (ví dụ dưới thư mục tạm của Windows hoặc thư mục tạm của project), copy code sinh viên vào đó, chạy xong xóa sạch trong `finally`. Code không bao giờ được chạy trực tiếp trong thư mục project.
+2. **Workspace riêng cho mỗi lần chấm.** Tạo root duy nhất theo `run_id`, xử lý code trong workspace riêng và cleanup trong `finally`. Production mặc định cleanup; debug có thể truyền `keep_temp=True`. Cleanup Windows bỏ thuộc tính read-only khi cần và retry tối đa 3 lần có giới hạn. Không đi theo symlink, junction hoặc reparse point. Nếu lock/quyền truy cập vẫn cản cleanup, lỗi được ghi log nội bộ, không làm crash server và không thay verdict đã có. Code không chạy trực tiếp trong thư mục project.
 3. **Không truyền test/check qua file.** Với stdio, input đưa qua stdin pipe, output kỳ vọng so sánh ở phía server. Với reflection, spec đã lọc được đưa qua stdin pipe cho harness. Như vậy code sinh viên không có file test nào trên đĩa để đọc trộm trong lần chạy đó.
 4. **Timeout cứng.** Timeout cho từng test (stdio) và cho toàn bộ lần chạy judge (reflection, Phase 1). Hết timeout thì kill process và cây process con nếu có thể, verdict `TLE`, server vẫn sống.
 5. **Cắt output và giới hạn dung lượng.** Cắt stdout/stderr (mặc định 64 KiB cho stdio, theo spec cho reflection), giới hạn độ dài code nộp, giới hạn số lần chạy thử và số lần chấm chạy cùng lúc, kèm cooldown ngắn chống spam nút Run.

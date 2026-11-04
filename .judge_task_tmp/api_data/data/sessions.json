@@ -1,0 +1,20 @@
+{
+  "39aab38408a374f58e2fa416b5c292203eaa4b6757062c7e3e75534a8a182181": {
+    "user_id": "admin-1",
+    "role": "admin",
+    "created_at": "2026-11-03T14:49:43+00:00",
+    "expires_at": 1793760583.6026888,
+    "ip": "127.0.0.1",
+    "user_agent": "test",
+    "last_seen": "2026-11-03T14:49:43+00:00"
+  },
+  "de375e983eee581c2194e5812bb3c37d48ed551db76d0b494fcb9dfdfbce255a": {
+    "user_id": "student-1",
+    "role": "student",
+    "created_at": "2026-11-03T14:49:43+00:00",
+    "expires_at": 1793760583.6127026,
+    "ip": "127.0.0.1",
+    "user_agent": "test",
+    "last_seen": "2026-11-03T14:49:43+00:00"
+  }
+}
