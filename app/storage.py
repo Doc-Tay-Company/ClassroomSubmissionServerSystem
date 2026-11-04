@@ -32,6 +32,10 @@ DEFAULTS = {
     },
     "assignments.json": {},
     "submissions.json": {},
+    "questions.json": {},
+    "code_exams.json": {},
+    "code_submissions.json": {},
+    "code_runs.json": [],
     "sessions.json": {},
     "login_attempts.json": {},
     "machines.json": {}

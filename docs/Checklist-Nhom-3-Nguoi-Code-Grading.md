@@ -1,4 +1,4 @@
-# Checklist chia task — Nhóm 3 người làm tính năng chấm code tự động
+﻿# Checklist chia task — Nhóm 3 người làm tính năng chấm code tự động
 
 > **Phiên bản:** v2 — bản tạo lại, đã gộp toàn bộ quyết định mới nhất
 > **Cập nhật:** 02/11/2026, cùng đợt với kế hoạch v3
@@ -76,11 +76,11 @@
 - [ ] Judge kiểm tra được: `Comparable` — dấu `compareTo` đúng, thứ tự sort đúng (gpa giảm dần, bằng nhau thì name tăng dần, theo spec mẫu).
 - [ ] Judge xử lý đúng: overload (match theo tên + tham số, không match theo tên riêng), primitive vs Wrapper (`int` khác `Integer`), exception bị bọc trong `InvocationTargetException` phải mở ra mới so sánh.
 - [ ] Mỗi check chạy độc lập: một check lỗi không làm sập cả bài, kết quả từng check ghi rõ `expected` vs `actual`.
-- [ ] Hoàn thiện `run_java.py` thành `app/java_runner.py`: thư mục tạm riêng đúng cấu trúc package, `javac -encoding UTF-8`, timeout, `-Xmx256m`, cắt output, luôn xóa thư mục tạm (trừ chế độ debug `--keep-temp`).
+- [ ] Hoàn thiện `run_java.py` thành `app/java_runner.py`: thư mục tạm riêng đúng cấu trúc package, `javac -encoding UTF-8`, timeout, `-Xmx suy ra từ memory_limit_mb, chừa headroom cho native JVM`, cắt output, luôn xóa thư mục tạm (trừ chế độ debug `--keep-temp`).
 - [ ] Runner tạo một Job Object riêng cho mỗi lần chấm và gán process con vào job đó, bằng `ctypes` (Python stdlib, không thêm pywin32).
 - [ ] Bật `JOBOBJECT_LIMIT_KILL_ON_JOB_CLOSE`: đóng job là kill toàn bộ process trong job, chống process con sống sót sau khi runner thoát.
 - [ ] Bật `JOBOBJECT_LIMIT_ACTIVE_PROCESS`: giới hạn số process con, chống fork/process bomb ở mức cơ bản.
-- [ ] Bật `JOBOBJECT_LIMIT_PROCESS_MEMORY` / `JOBOBJECT_LIMIT_JOB_MEMORY`: giới hạn RAM theo spec (ví dụ 256 MB).
+- [ ] Bật `JOBOBJECT_LIMIT_PROCESS_MEMORY` / `JOBOBJECT_LIMIT_JOB_MEMORY`: memory_limit_mb là tổng committed memory của Job (không phải working set), PROCESS_MEMORY là ceiling từng process.
 - [ ] Nếu tạo Job Object thất bại trên máy đó: runner báo rõ, và **không lặng lẽ chạy không giới hạn** — admin phải biết máy đó đang chạy ở mức bảo vệ thấp hơn.
 - [ ] Xử lý verdict: `CE` khi lỗi biên dịch (kèm output `javac` cắt ngắn), `TLE` khi quá timeout, `RE` khi JVM chết giữa chừng (ví dụ `System.exit()`), không làm sập runner.
 - [ ] Chạy thử bằng dòng lệnh với spec mẫu `student-oop-spec.json` và ghi kết quả vào checklist kiểm thử ở Giai đoạn 1 (bên dưới).

@@ -7,6 +7,7 @@ from datetime import datetime, timezone, timedelta
 from .config import EXAM_DIR, ALLOWED_EXAM_EXTENSIONS
 from .storage import read_json, write_json, utc_now, audit
 from .security import hash_password, verify_password
+from .code_exams import attach_code_exam_to_release, prepare_code_exam_distribution, transition_code_exam
 
 
 def list_exam_files() -> list[dict]:
@@ -37,9 +38,12 @@ def distribute_exams(mode: str, config: dict | None = None) -> dict:
     files = [x["name"] for x in list_exam_files()]
     if not students:
         raise ValueError("Chưa có tài khoản sinh viên.")
-    if not files:
-        raise ValueError("Thư mục de-thi chưa có file đề hợp lệ.")
     config = config or {}
+    code_exam_id = config.get("code_exam_id")
+    if not files and not code_exam_id:
+        raise ValueError("Thư mục de-thi chưa có file đề hợp lệ.")
+    if code_exam_id:
+        prepare_code_exam_distribution(code_exam_id)
     if mode not in {"random", "selected", "parity", "custom"}:
         raise ValueError("Chế độ phân phối không hợp lệ.")
     assignments = {}
@@ -48,7 +52,9 @@ def distribute_exams(mode: str, config: dict | None = None) -> dict:
     eligible = [(sid, students[sid]) for sid in participant_ids if sid in students and students[sid].get("active", True)] if participant_ids else [(sid, data) for sid, data in students.items() if data.get("active", True)]
     if not eligible:
         raise ValueError("Không có tài khoản sinh viên đang hoạt động để phát đề.")
-    if mode == "selected":
+    if code_exam_id and (config.get("code_only") is True or not files):
+        assignments = {sid: None for sid, _ in eligible}
+    elif mode == "selected":
         selected_files = config.get("exam_files") or []
         if isinstance(selected_files, str):
             selected_files = [selected_files]
@@ -120,7 +126,7 @@ def distribute_exams(mode: str, config: dict | None = None) -> dict:
                 assignments[sid] = order[index % len(order)]
     release_id = uuid.uuid4().hex
     created_at = utc_now()
-    persisted = {sid: {"exam_file": filename, "release_id": release_id, "assigned_at": created_at, "started_at": None, "ends_at": None, "status": "assigned", "ip_at_assignment": None} for sid, filename in assignments.items()}
+    persisted = {sid: {"exam_file": filename, "release_id": release_id, "assigned_at": created_at, "started_at": None, "ends_at": None, "status": "assigned", "ip_at_assignment": None, **({"code_exam_id": code_exam_id} if code_exam_id else {})} for sid, filename in assignments.items()}
     # A release can be replaced while waiting to start. Once started, assignments
     # and the active release must remain immutable.
     old_settings = read_json("settings.json")
@@ -135,6 +141,8 @@ def distribute_exams(mode: str, config: dict | None = None) -> dict:
     write_json("assignments.json", persisted)
     old_settings.update({"distribution_mode": mode, "distribution_config": config, "exam_state": "distributed", "exam_released": False, "exam_release_id": release_id, "exam_release_at": created_at})
     write_json("settings.json", old_settings)
+    if code_exam_id:
+        attach_code_exam_to_release(code_exam_id, release_id)
     audit("exam.distributed", "admin", None, {"release_id": release_id, "mode": mode, "student_count": len(persisted), "exam_count": len(set(assignments.values()))})
     return {"release_id": release_id, "assigned_count": len(assignments), "distribution": assignments}
 
@@ -169,8 +177,10 @@ def start_exam_session() -> dict:
     settings = read_json("settings.json")
     if settings.get("exam_state") != "distributed":
         raise ValueError("Cần phân phối đề trước khi bắt đầu kỳ thi.")
+    release_id = settings.get("exam_release_id")
     settings.update({"exam_state": "started", "exam_released": True, "exam_started_at": utc_now()})
     write_json("settings.json", settings)
+    transition_code_exam(release_id, "started")
     audit("exam.started_by_admin", "admin", None, {"release_id": settings.get("exam_release_id")})
     return settings
 

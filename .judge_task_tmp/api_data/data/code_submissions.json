@@ -1,0 +1,55 @@
+{
+  "student-1": [
+    {
+      "id": "36825859362b46e1b96214cf14c96c36",
+      "exam_id": "f9c829dc09854af2a0f272197e2602a6",
+      "release_id": "04a892fd243345718b836923caaad7d7",
+      "question_id": "echo-question",
+      "language": "python",
+      "grading_mode": "stdio",
+      "source_code": "print(input())\n",
+      "source_sha256": "689469c7cc406e8b591437c527cb14f4b52b76512c371df4e5aa4ef16d10bbf1",
+      "submitted_at": "2026-11-03T14:49:43+00:00",
+      "status": "graded",
+      "score": 10,
+      "total_points": 10,
+      "results": [
+        {
+          "id": "visible",
+          "is_visible": true,
+          "verdict": "AC",
+          "passed": true,
+          "duration_ms": 5,
+          "error": null,
+          "points_earned": 8,
+          "expected": "hello\n",
+          "actual": "hello\n",
+          "stderr": ""
+        },
+        {
+          "id": "hidden",
+          "is_visible": false,
+          "verdict": "AC",
+          "passed": true,
+          "duration_ms": 7,
+          "error": "hidden mismatch",
+          "points_earned": 2,
+          "expected": "secret-expected\n",
+          "actual": "secret-expected\n",
+          "stderr": ""
+        }
+      ],
+      "attempt": 1,
+      "verdict": "AC",
+      "duration_ms": 17,
+      "error": null,
+      "error_category": null,
+      "compile_result": null,
+      "graded_at": "2026-11-03T14:49:43+00:00",
+      "exam_score": 10,
+      "exam_total_points": 10,
+      "all_questions_submitted": true,
+      "exam_ended": false
+    }
+  ]
+}

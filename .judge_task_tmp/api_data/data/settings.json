@@ -1,0 +1,17 @@
+{
+  "exam_state": "ended",
+  "exam_released": false,
+  "exam_release_id": null,
+  "exam_duration_minutes": 90,
+  "submission_policy": "configurable",
+  "max_submissions": 2,
+  "exam_participants": [],
+  "distribution_mode": "random",
+  "distribution_config": {
+    "exam_files": [],
+    "code_exam_id": "f9c829dc09854af2a0f272197e2602a6",
+    "code_only": true
+  },
+  "exam_release_at": null,
+  "exam_started_at": "2026-11-03T14:49:43+00:00"
+}
