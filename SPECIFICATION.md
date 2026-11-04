@@ -6,6 +6,10 @@
 
 **Dependency runtime:** chỉ Jinja2 để render HTML. HTTP server, parser form và multipart upload dùng thư viện chuẩn Python. Không sử dụng FastAPI, Pydantic, Uvicorn, Starlette, `python-multipart` hoặc PyYAML.
 
+**Code grading Phase 1 (backend API):** chỉ hỗ trợ chạy trên Windows có Windows Job Objects và JDK 17+ (`java`/`javac` thuộc cùng một JDK). Trên Windows, server kiểm tra JDK trước khi mở cổng; trên macOS/Linux chỉ luồng ZIP cũ được hỗ trợ và code grading không khả dụng. Giao diện web cho code grading chưa được tích hợp.
+
+**Dữ liệu runtime:** Các file JSON trong `data/` chứa dữ liệu cục bộ và bị Git bỏ qua. Checkout mới giữ thư mục bằng `.gitkeep`; `initialize()` tự tạo các file JSON mặc định. Quy tắc ignore không xóa hoặc ghi đè các file hiện có.
+
 ## 1. Quyết định kiến trúc
 
 | Thành phần | Quyết định | Lý do |
@@ -132,6 +136,15 @@ Mỗi dòng là một JSON object độc lập gồm `occurred_at`, `event`, `ac
 - Chính sách `once`: chỉ một lần. `configurable`: theo `max_submissions` từ 1–20.
 - Nếu bật `overwrite_previous`, payload cũ bị xóa nhưng metadata lịch sử giữ lại; lần nộp vẫn được tính vào giới hạn.
 
+### 4.6 Chấm code (API backend)
+
+- Ngân hàng câu hỏi lưu trong `questions.json`; bài nộp và lịch sử pretest lưu riêng trong `code_submissions.json` và `code_runs.json`.
+- Chỉ tổ hợp Java + Reflection, Java + STDIO, và Python + STDIO được chấp nhận. Câu hỏi phải được publish sau khi đáp án mẫu vượt qua toàn bộ test/check.
+- Code exam lưu snapshot question đã publish. Cập nhật ngân hàng không sửa snapshot của đề đã phát.
+- Pretest chỉ chạy check/test visible, có quota/cooldown; submission cuối chạy toàn bộ check/test và tuân theo release, exam state, deadline, số lần nộp và chính sách hiển thị điểm.
+- Chỉ admin xem kết quả đầy đủ/test ẩn. Sau khi đề kết thúc, admin có thể chấm lại từng submission; mặc định dùng snapshot gốc, `use_latest_spec=true` chọn phiên bản mới nhất đã publish. Kết quả chấm trước được giữ trong lịch sử.
+- Xóa câu hỏi chỉ được phép khi chưa được tham chiếu bởi code exam, bài nộp hoặc pretest; câu hỏi đã dùng phải archive.
+
 ## 5. HTTP API
 
 | Method | Endpoint | Vai trò | Mục đích |
@@ -157,6 +170,22 @@ Mỗi dòng là một JSON object độc lập gồm `occurred_at`, `event`, `ac
 | POST | `/api/admin/end-exam` | Admin | Kết thúc lượt thi |
 | GET | `/api/admin/submissions` | Admin | Danh sách metadata bài nộp |
 | GET | `/admin/submissions/{id}/{filename}` | Admin | Tải file ZIP còn được lưu |
+| GET | `/api/admin/questions` | Admin | Danh sách câu hỏi |
+| GET | `/api/admin/questions/{id}` | Admin | Chi tiết câu hỏi |
+| POST | `/api/admin/questions` | Admin | Tạo câu hỏi |
+| POST | `/api/admin/questions/{id}/update` | Admin | Cập nhật, tạo version mới |
+| POST | `/api/admin/questions/{id}/duplicate` | Admin | Nhân bản thành draft |
+| POST | `/api/admin/questions/{id}/archive` | Admin | Lưu trữ câu hỏi đã dùng |
+| POST | `/api/admin/questions/{id}/delete` | Admin | Xóa câu hỏi chưa sử dụng |
+| POST | `/api/admin/questions/{id}/publish` | Admin | Xác thực đáp án mẫu và publish |
+| GET | `/api/admin/code-exams` | Admin | Danh sách đề code |
+| POST | `/api/admin/code-exams` | Admin | Tạo đề và snapshot câu hỏi |
+| GET | `/api/admin/code-results?exam_id=...` | Admin | Kết quả bài code |
+| POST | `/api/admin/code-results/{exam_id}/regrade` | Admin | Chấm lại một submission sau khi kỳ thi kết thúc |
+| POST | `/api/student/code/run` | Sinh viên | Chạy pretest visible |
+| POST | `/api/student/code/submit` | Sinh viên | Nộp và chấm toàn bộ test/check |
+| GET | `/api/student/code-exam` | Sinh viên | Lấy snapshot đề đã giao, lọc test/check ẩn |
+| GET | `/api/student/code/submission?question_id=...` | Sinh viên | Xem submission theo quyền hiển thị điểm |
 | POST | `/api/student/start` | Sinh viên | Bắt đầu thi |
 | GET | `/api/student/exam` | Sinh viên | Mở đề đã được giao sau khi bắt đầu |
 | GET | `/api/student/status` | Sinh viên | Trạng thái/countdown server |
@@ -169,7 +198,8 @@ Mỗi dòng là một JSON object độc lập gồm `occurred_at`, `event`, `ac
 - File tài khoản có hash mật khẩu nhưng vẫn chứa thông tin cá nhân như họ tên và IP; cần giới hạn quyền truy cập thư mục trên hệ điều hành.
 - HTTP không mã hóa. Có thể bật HTTPS bằng `CSS_TLS_CERT` và `CSS_TLS_KEY` với chứng chỉ được máy trạm tin cậy; cookie Secure được bật khi dùng TLS.
 - Trình duyệt chỉ cho server biết các hoạt động bên trong ứng dụng, IP kết nối và User-Agent; không cho phép theo dõi toàn bộ desktop/ứng dụng khác.
-- Không có endpoint tự động chạy code nộp bài; ZIP chỉ được kiểm tra và lưu.
+- Các JSON runtime trong `data/` và audit/submission data là dữ liệu riêng tư; không commit chúng. Sao lưu `data/`, `logs/`, `submissions/` riêng với Git khi server đã dừng.
+- Code grading có API riêng; các route đó chạy student source trên Windows Job Objects. Đây là giới hạn process/RAM/time, không phải sandbox hoàn chỉnh.
 
 ## 7. Tiêu chí nghiệm thu bản đầu
 

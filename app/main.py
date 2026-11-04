@@ -33,7 +33,16 @@ from .storage import initialize, read_json, write_json, audit, utc_now
 from .security import hash_password, verify_password, new_session, get_session, require_user, client_ip, login_allowed, record_login_failure, clear_login_failures, logout_session, SecurityError
 from .exams import list_exam_files, distribute_exams, start_exam, start_exam_session, remaining_seconds
 from .submissions import accept_submission
-from .questions import QuestionError, create_question, list_questions
+from .questions import (
+    QuestionError,
+    archive_question,
+    create_question,
+    delete_question,
+    duplicate_question,
+    get_question,
+    list_questions,
+    update_question,
+)
 from .code_exams import (
     CodeExamError,
     create_code_exam,
@@ -42,10 +51,12 @@ from .code_exams import (
     get_admin_code_results,
     list_code_exams,
     publish_question,
+    regrade_submission,
     run_pretest,
     submit_code,
     transition_code_exam,
 )
+from .java_runner import JDKConfigurationError, JDKNotFoundError, verify_jdk_configuration
 
 initialize()
 TEMPLATES = Environment(loader=FileSystemLoader(str(TEMPLATE_DIR)), autoescape=select_autoescape(["html", "xml"]))
@@ -74,6 +85,7 @@ def current_exam_for(student_id: str):
 def monitoring_snapshot() -> dict:
     students, sessions = read_json("students.json"), read_json("sessions.json")
     assignments, submissions = read_json("assignments.json"), read_json("submissions.json")
+    code_submissions = read_json("code_submissions.json")
     latest = {}; now = datetime.now(timezone.utc)
     for token, sess in sessions.items():
         if sess.get("role") != "student": continue
@@ -87,12 +99,38 @@ def monitoring_snapshot() -> dict:
             try: online=(now-datetime.fromisoformat(sess["last_seen"])).total_seconds() <= 45
             except (ValueError, TypeError): pass
         records=submissions.get(sid, [])
+        code_records = [
+            item
+            for item in code_submissions.get(sid, [])
+            if item.get("release_id") == assignment.get("release_id")
+        ]
         telemetry=sess.get("telemetry",{}) if sess else {}
         alerts=[]
         if telemetry.get("visibility") == "hidden": alerts.append("tab_hidden")
         if telemetry.get("focused") is False: alerts.append("window_unfocused")
         if int(telemetry.get("tab_count",1) or 1)>1: alerts.append("multiple_tabs")
-        result.append({"student_id":sid,"full_name":student.get("full_name",""),"active":student.get("active",True),"logged_in":online,"ip":sess.get("ip") if sess else student.get("last_ip"),"user_agent":sess.get("user_agent","") if sess else "","last_seen":sess.get("last_seen") if sess else student.get("last_seen"),"exam_file":assignment.get("exam_file"),"exam_status":assignment.get("status","not_assigned"),"started_at":assignment.get("started_at"),"ends_at":assignment.get("ends_at"),"remaining_seconds":remaining_seconds(assignment) if assignment.get("started_at") else None,"submission_count":len(records),"latest_submission":records[-1] if records else None,"telemetry":telemetry,"alerts":alerts})
+        latest_code = code_records[-1] if code_records else None
+        code_summary = (
+            {
+                key: latest_code.get(key)
+                for key in (
+                    "exam_id",
+                    "question_id",
+                    "status",
+                    "submitted_at",
+                    "graded_at",
+                    "verdict",
+                    "score",
+                    "total_points",
+                    "exam_score",
+                    "exam_total_points",
+                )
+                if key in latest_code
+            }
+            if latest_code
+            else None
+        )
+        result.append({"student_id":sid,"full_name":student.get("full_name",""),"active":student.get("active",True),"logged_in":online,"ip":sess.get("ip") if sess else student.get("last_ip"),"user_agent":sess.get("user_agent","") if sess else "","last_seen":sess.get("last_seen") if sess else student.get("last_seen"),"exam_file":assignment.get("exam_file"),"exam_status":assignment.get("status","not_assigned"),"started_at":assignment.get("started_at"),"ends_at":assignment.get("ends_at"),"remaining_seconds":remaining_seconds(assignment) if assignment.get("started_at") else None,"submission_count":len(records),"latest_submission":records[-1] if records else None,"code_submission_count":len(code_records),"latest_code_submission":code_summary,"telemetry":telemetry,"alerts":alerts})
     abnormal_count=sum(1 for row in result if row["alerts"])
     return {"occurred_at":utc_now(),"students":result,"online_count":sum(1 for row in result if row["logged_in"]),"abnormal_count":abnormal_count}
 
@@ -239,6 +277,15 @@ class Handler(BaseHTTPRequestHandler):
                 self._auth(req,"admin"); return self._json({"admins":[{"username":n,"active":d.get("active",True),"created_at":d.get("created_at"),"created_by":d.get("created_by")} for n,d in read_json("admins.json").items()]})
             if path=="/api/admin/questions":
                 self._auth(req,"admin"); return self._json({"questions":list_questions()})
+            if path.startswith("/api/admin/questions/"):
+                self._auth(req,"admin")
+                question_id = urllib.parse.unquote(path[len("/api/admin/questions/"):]).strip("/")
+                if not question_id or "/" in question_id:
+                    raise ClientError(404, "Question was not found.")
+                question = get_question(question_id)
+                if not question:
+                    raise ClientError(404, "Question was not found.")
+                return self._json({"question":question})
             if path=="/api/admin/code-exams":
                 self._auth(req,"admin"); return self._json({"code_exams":list_code_exams()})
             if path=="/api/admin/code-results":
@@ -323,11 +370,48 @@ class Handler(BaseHTTPRequestHandler):
                 sess=self._auth(req,"admin"); payload=self._json_body(req)
                 question=create_question(payload,sess["user_id"],client_ip(req))
                 return self._json({"ok":True,"question":question},201)
+            if path.startswith("/api/admin/questions/") and path.endswith("/update"):
+                sess=self._auth(req,"admin")
+                question_id=urllib.parse.unquote(path[len("/api/admin/questions/"):-len("/update")].strip("/"))
+                if not question_id or "/" in question_id: raise ClientError(404,"Question was not found.")
+                question=update_question(question_id,self._json_body(req),sess["user_id"],client_ip(req))
+                return self._json({"ok":True,"question":question})
+            if path.startswith("/api/admin/questions/") and path.endswith("/duplicate"):
+                sess=self._auth(req,"admin")
+                question_id=urllib.parse.unquote(path[len("/api/admin/questions/"):-len("/duplicate")].strip("/"))
+                if not question_id or "/" in question_id: raise ClientError(404,"Question was not found.")
+                question=duplicate_question(question_id,sess["user_id"],client_ip(req))
+                return self._json({"ok":True,"question":question},201)
+            if path.startswith("/api/admin/questions/") and path.endswith("/archive"):
+                sess=self._auth(req,"admin")
+                question_id=urllib.parse.unquote(path[len("/api/admin/questions/"):-len("/archive")].strip("/"))
+                if not question_id or "/" in question_id: raise ClientError(404,"Question was not found.")
+                question=archive_question(question_id,sess["user_id"],client_ip(req))
+                return self._json({"ok":True,"question":question})
+            if path.startswith("/api/admin/questions/") and path.endswith("/delete"):
+                sess=self._auth(req,"admin")
+                question_id=urllib.parse.unquote(path[len("/api/admin/questions/"):-len("/delete")].strip("/"))
+                if not question_id or "/" in question_id: raise ClientError(404,"Question was not found.")
+                delete_question(question_id,sess["user_id"],client_ip(req))
+                return self._json({"ok":True})
             if path.startswith("/api/admin/questions/") and path.endswith("/publish"):
                 sess=self._auth(req,"admin"); question_id=urllib.parse.unquote(path[len("/api/admin/questions/"):-len("/publish")].strip("/")); payload=self._json_body(req)
                 if not question_id: raise ClientError(400,"question id is required.")
                 question,validation=publish_question(question_id,payload.get("sample_source"),sess["user_id"],client_ip(req))
                 return self._json({"ok":True,"question":question,"validation":validation},200)
+            if path.startswith("/api/admin/code-results/") and path.endswith("/regrade"):
+                sess=self._auth(req,"admin")
+                exam_id=urllib.parse.unquote(path[len("/api/admin/code-results/"):-len("/regrade")].strip("/"))
+                if not exam_id or "/" in exam_id: raise ClientError(404,"Code exam was not found.")
+                payload=self._json_body(req)
+                submission_id=payload.get("submission_id")
+                if not isinstance(submission_id,str) or not submission_id:
+                    raise ClientError(400,"submission_id is required.")
+                use_latest_spec=payload.get("use_latest_spec",False)
+                if not isinstance(use_latest_spec,bool):
+                    raise ClientError(400,"use_latest_spec must be a boolean.")
+                result=regrade_submission(exam_id,submission_id,sess["user_id"],client_ip(req),use_latest_spec=use_latest_spec)
+                return self._json({"ok":True,"submission":result})
             if path=="/api/admin/code-exams":
                 sess=self._auth(req,"admin"); exam=create_code_exam(self._json_body(req),sess["user_id"],client_ip(req))
                 return self._json({"ok":True,"code_exam":exam},201)
@@ -499,7 +583,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"ok":True,"submission":record})
             if path=="/api/student/telemetry":
                 sess=self._auth(req,"student")
-                sessions=read_json("sessions.json"); token_key=sess["token_key"]
+                sessions=read_json("sessions.json"); token_key=sess.get("token_key")
                 current=sessions.get(token_key)
                 if not current: raise ClientError(401,"Phiên đăng nhập không hợp lệ.")
                 def flag(name, default=False):
@@ -545,12 +629,22 @@ class Handler(BaseHTTPRequestHandler):
         return addresses
 
 def main():
+    jdk = None
+    if os.name == "nt":
+        try:
+            jdk = verify_jdk_configuration()
+        except (JDKConfigurationError, JDKNotFoundError) as exc:
+            raise SystemExit(f"ERROR: Java grading requires a working JDK 17 or newer: {exc}") from exc
     cert,key=os.getenv("CSS_TLS_CERT"),os.getenv("CSS_TLS_KEY")
     scheme="https" if cert and key else "http"
     print("="*66); print("CLASSROOM SUBMISSION SERVER (Python standard-library HTTP server)"); print("="*66)
     print(f"Local URL : {scheme}://127.0.0.1:{PORT}")
     for ip in sorted(Handler._lan_addresses()): print(f"LAN URL   : {scheme}://{ip}:{PORT}")
     if not (cert and key): print("WARNING   : HTTP mode; LAN traffic is not encrypted. Use trusted TLS certs for HTTPS.")
+    if jdk:
+        print(f"Java JDK  : {jdk.java_version} ({jdk.home})")
+    else:
+        print("WARNING   : Code grading is unavailable outside Windows; ZIP submission remains enabled.")
     print(f"Exam dir  : {EXAM_DIR}"); print(f"Upload dir: {UPLOAD_DIR}"); print("Ctrl+C to stop. Keep this terminal open during the exam."); print("="*66)
     server=ThreadingHTTPServer((HOST,PORT),Handler); server.daemon_threads=True
     if cert and key:

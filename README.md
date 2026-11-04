@@ -132,6 +132,12 @@ This is where CSS goes beyond a typical LMS. The admin dashboard gives live visi
 - **`custom`** — maps each last digit (0–9) to a specific exam file.
 - Distribution is a **locked, one-way action** per session — prevents re-distribution mid-exam.
 
+### Automatic code grading (backend API)
+- Admin APIs manage question drafts, publishing, versioned updates, duplication, archiving, and safe deletion; code exams snapshot published questions.
+- Student APIs support visible-only pretests, final submissions, and score visibility governed by exam state.
+- Admin APIs expose full results and regrade completed submissions after an exam ends. Regrading can use the original exam snapshot or an explicitly selected latest published question version; prior grades are retained.
+- Code grading runs only on Windows under Job Objects. It is currently an API/backend feature; the teacher and student web interfaces are not yet integrated.
+
 ### Submission validation
 - Only `.zip` files accepted; magic bytes verified.
 - Max upload: **50 MiB**. Max ZIP entries: **3,000**. Max uncompressed size: **250 MiB**.
@@ -158,7 +164,7 @@ ClassroomSubmissionServer/
 │   ├── css/                 # Pre-built CSS (Tailwind output)
 │   ├── js/                  # Client-side JavaScript
 │   └── vendor/fontawesome/  # Font Awesome 4.7.0 (local copy + license)
-├── data/                    # Runtime JSON data (auto-created)
+├── data/                    # Local runtime JSON data (ignored by Git; auto-created)
 ├── logs/                    # audit.jsonl (auto-created)
 ├── de-thi/                  # Place exam files here (PDF, TXT, PNG, JPG, JPEG, GIF, WEBP)
 ├── submissions/             # Student ZIP submissions (auto-created)
@@ -180,6 +186,7 @@ ClassroomSubmissionServer/
 - **Jinja2 ≥ 3.1, < 4** — the only runtime dependency outside the standard library.
 - No database server, Node.js, or internet connection is needed once Jinja2 is installed.
 - Place the project folder in a location where the running user has **write access** (e.g. `C:\ClassroomSubmissionServer\` on Windows). Avoid `Program Files` or cloud-synced folders during exams.
+- **Automatic code grading (backend API, not yet integrated into the web UI): Windows with Windows Job Objects and JDK 17+ (`java` and `javac` from the same JDK).** On Windows, startup validates the JDK and stops with a clear error if it is missing or unusable. The existing ZIP submission workflow remains separate and can still run on macOS/Linux; code grading is unavailable there.
 
 ---
 
@@ -391,7 +398,7 @@ The server is **fully offline after the one-time Jinja2 installation**:
 
 | Path | Contents |
 |---|---|
-| `data/*.json` | Accounts, sessions, settings, assignments, submission metadata, lockout state |
+| `data/*.json` | Local-only accounts, sessions, settings, assignments, questions, and submission data; ignored by Git and initialized automatically |
 | `logs/audit.jsonl` | Append-only event log |
 | `de-thi/` | Exam source files |
 | `submissions/` | Student ZIP payloads |
@@ -399,6 +406,7 @@ The server is **fully offline after the one-time Jinja2 installation**:
 **Always stop the server before backing up.** Copy all four directories above to a safe location.
 
 - Do **not** edit JSON files manually while the server is running.
+- Runtime files in `data/` are intentionally ignored by Git to keep account, session, exam, and submission data out of future commits. A clean checkout keeps the folder via `.gitkeep`; the server creates missing JSON files with empty/default values at startup. Existing local JSON files are not deleted when the ignore rule is added.
 - Run only **one** server instance against the same data directory. The JSON-file locking model is single-process only *(SQLite migration planned — see [Roadmap](#2-roadmap))*.
 
 ---

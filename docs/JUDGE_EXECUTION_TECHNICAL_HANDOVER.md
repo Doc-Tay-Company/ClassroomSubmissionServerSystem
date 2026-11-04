@@ -263,20 +263,29 @@ Không có tolerance business mặc định ngầm. Các test comparator trong `
 | `POST /api/student/code/run` | Student | Body `{ "question_id": "...", "source_code": "..." }`; chạy visible cases/checks, không tạo bài nộp/điểm cuối. |
 | `POST /api/student/code/submit` | Student | Cùng body; chấm toàn bộ cases, lưu source/result và metadata, tuân deadline/lifecycle. |
 | `GET /api/admin/questions` | Admin | Danh sách câu hỏi. |
+| `GET /api/admin/questions/{id}` | Admin | Lấy chi tiết câu hỏi. |
 | `POST /api/admin/questions` | Admin | Tạo câu hỏi. |
+| `POST /api/admin/questions/{id}/update` | Admin | Cập nhật câu hỏi và tăng version; snapshot đề đã phát không đổi. |
+| `POST /api/admin/questions/{id}/duplicate` | Admin | Tạo bản nháp từ câu hỏi hiện có. |
+| `POST /api/admin/questions/{id}/archive` | Admin | Archive, giữ nguyên tham chiếu và snapshot lịch sử. |
+| `POST /api/admin/questions/{id}/delete` | Admin | Chỉ xóa câu hỏi chưa được sử dụng. |
 | `POST /api/admin/questions/{id}/publish` | Admin | Publish với `{ "sample_source": "..." }`. |
 | `GET /api/admin/code-exams` | Admin | Danh sách code exams. |
 | `POST /api/admin/code-exams` | Admin | Tạo code exam/snapshot. |
 | `GET /api/admin/code-results?exam_id=...` | Admin | Kết quả; có thể lọc student/question. |
+| `POST /api/admin/code-results/{exam_id}/regrade` | Admin | Chấm lại một submission sau khi kỳ thi kết thúc; tùy chọn `use_latest_spec: true`; lịch sử điểm cũ được lưu. |
+| `GET /api/admin/monitor` | Admin | Có thêm summary bài code mới nhất, không trả source code. |
 | `POST /api/student/submit` | Student | ZIP submission cũ, tách khỏi code-runner. |
 
 `code_exams.py` kiểm tra exam đã bắt đầu, trạng thái, thời hạn server-side, question membership và policy pretest trước khi gọi runner. Pretest có attempt/cooldown history và concurrency semaphore. Submit lưu `data/code_submissions.json`; full student source được lưu trong submission record. Audit ghi metadata/hash, không ghi full source hoặc hidden expected data. Hidden tests/checks được giữ trong snapshot phía server và lọc khỏi response sinh viên.
+
+Trên Windows, server gọi `verify_jdk_configuration()` trước khi bind cổng; `JAVA_HOME` được ưu tiên hơn `PATH`. Thiếu JDK 17+, `java`/`javac` không cùng JDK, hoặc không chạy được JDK probe làm server dừng với lỗi khởi động rõ ràng. JDK 21 cũng được kiểm thử trực tiếp bằng build/run STDIO. Trên macOS/Linux, server hiện vẫn có thể chạy luồng ZIP cũ nhưng cảnh báo rằng code grading không khả dụng. Regrade mặc định dùng spec snapshot của kỳ thi; chỉ dùng question version mới nhất đã publish khi admin truyền `use_latest_spec: true`. Mỗi lần regrade thêm kết quả trước đó vào `grading_history` (tối đa 100 phiên bản gần nhất).
 
 ## 15. Grading và điểm
 
 `grading.py` chỉ xử lý dữ liệu kết quả đã có; không gọi subprocess, javac/java/python hay Job API. Nó validate dạng list, ID không trùng, points không âm/không vượt configured points, total/score nằm trong giới hạn, field types và verdict hợp lệ. Mismatch giữa declared total và tổng cấu hình checks/tests là invalid result/spec, không tự sửa total.
 
-Reflection: điểm check hợp lệ cộng thành question score. STDIO: điểm test đạt cộng thành question score. Exam: question score cộng theo snapshot/total. Decimal parsing dùng để tránh lỗi cộng floating point trong tính điểm; output được chuyển về JSON number phù hợp.
+Reflection: điểm check hợp lệ cộng thành question score. STDIO: điểm test đạt cộng thành question score. Java STDIO chia đều `total_points` cho tất cả test cases; nếu phép chia cần làm tròn khi biểu diễn bằng JSON number, test cuối nhận phần dư để tổng vẫn khớp tuyệt đối. Python STDIO tiếp tục dùng điểm từng test được cấu hình. Exam: question score cộng theo snapshot/total. Decimal parsing dùng để tránh lỗi cộng floating point trong tính điểm; output được chuyển về JSON number phù hợp.
 
 Infrastructure result được giữ riêng để route/API không biến lỗi hạ tầng thành WA hoặc điểm 0 âm thầm. Khi mở rộng scoring, giữ boundary runner → validated result → grading → persistence.
 

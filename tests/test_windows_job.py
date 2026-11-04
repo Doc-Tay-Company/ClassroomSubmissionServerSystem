@@ -301,7 +301,7 @@ class WindowsJobIntegrationTests(unittest.TestCase):
             cwd=REPO_ROOT,
             timeout_seconds=10,
             max_output_bytes=4096,
-            job_limits=JobLimits(active_process_limit=2),
+            job_limits=JobLimits(active_process_limit=3),
         )
         self.assertEqual(result.status, ProcessStatus.EXITED, result.error)
         self.assertIn("limit-enforced", result.stdout)

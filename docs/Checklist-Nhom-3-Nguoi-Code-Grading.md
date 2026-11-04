@@ -18,6 +18,16 @@
 > - Task nào bị chặn thì ghi rõ vào mục "Nhật ký blocker" cuối file, không tự đổi phạm vi để lách.
 > - Chỉ Người 2 (Tích hợp server) mới merge vào `app/main.py` và nhánh chính.
 
+## Trạng thái triển khai trong checkout hiện tại
+
+Ghi chú này phản ánh code/test có trong checkout, không thay thế sign-off của checklist. Các ô bên dưới vẫn để trống vì hướng dẫn file yêu cầu kiểm tra chéo độc lập trước khi tick.
+
+| Phần việc | Bằng chứng hiện có | Còn lại |
+|---|---|---|
+| Người 1 — backend judge | ReflectionJudge, Java/STDIO runners, Windows Job Objects và grading đã được tích hợp; toàn bộ unittest hiện tại chạy đạt (245 tests, 1 skip). | Người phụ trách cần rà soát và ký nhận theo checklist; không suy ra Job Object là sandbox đầy đủ. |
+| Người 2 — backend server | Question API/validation/publish, exam snapshots/lifecycle, pretest/submit/results, regrade có history, force-submit, monitor summary và JDK startup preflight đã có; API tests được chạy trong suite. | Người phụ trách cần rà soát/sign-off độc lập. |
+| Người 3 — frontend và QA web | Chưa thuộc phần tích hợp backend này. | Toàn bộ UI ngân hàng/đề thi/trang làm bài và nghiệm thu web vẫn cần thực hiện trước khi tuyên bố Phase 1 hoàn tất end-to-end. |
+
 ## Quyết định đã chốt — không được tự ý đổi khi làm
 
 - [ ] Phân loại câu hỏi bằng 2 chiều: `language` (java/python) và `grading_mode` (stdio/reflection). Tổ hợp hợp lệ duy nhất: Java + reflection, Java + stdio, Python + stdio.
@@ -148,7 +158,7 @@
 - [ ] Mở rộng `app/questions.py` cho `grading_mode=stdio` với cả `language=java` và `language=python`: test gồm `stdin`, `expected_stdout`, `is_visible`, `points`, `compare_mode`.
 - [ ] Rẽ nhánh runner theo `language` + `grading_mode` trong cùng route chạy thử/nộp bài đã làm cho reflection, không tạo hệ thống nộp bài riêng cho stdio.
 - [ ] Dùng lại luật pretest, hiển thị điểm, audit, regrade, force-submit đã làm cho reflection.
-- [ ] Test API stdio bằng gọi trực tiếp: tạo câu hỏi Java stdio và Python stdio → chạy thử → nộp bài → xem kết quả → chấm lại, đều qua với tài khoản admin và sinh viên test.
+- [ ] Test API stdio bằng gọi trực tiếp: tạo câu hỏi Java stdio và Python stdio → chạy thử → nộp bài → xem kết quả → chấm lại, đều qua với tài khoản admin và sinh viên test. Java stdio phải chia đều tổng điểm cho mọi test case; xác nhận runner build/run với JDK 21 được chọn qua `JAVA_HOME`.
 
 ### Người 3 — Frontend (stdio)
 

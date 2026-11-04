@@ -143,6 +143,13 @@ def create_code_exam(payload: Mapping, actor: str, ip: str) -> dict:
         exams[exam_id] = exam
 
     update_json("code_exams.json", insert)
+    def record_usage(questions):
+        for question_id in question_ids:
+            question = questions.get(question_id)
+            if question:
+                question["usage_count"] = int(question.get("usage_count", 0)) + 1
+
+    update_json("questions.json", record_usage)
     audit("code.exam_created", actor, ip, {"exam_id": exam_id, "question_count": len(snapshots)})
     return exam
 
@@ -549,7 +556,17 @@ def _reserve_submission(student_id: str, exam: dict, question: dict, source_code
     return record
 
 
-def _complete_submission(student_id: str, submission_id: str, question: dict, execution: Mapping, ip: str) -> dict:
+def _complete_submission(
+    student_id: str,
+    submission_id: str,
+    question: dict,
+    execution: Mapping,
+    ip: str,
+    *,
+    audit_actor: str | None = None,
+    audit_event: str = "code.graded",
+    preserve_history: bool = False,
+) -> dict:
     verdict = execution.get("verdict", "JUDGE_INFRA_ERROR")
     infrastructure = verdict in {"INVALID_REQUEST", "JDK_NOT_FOUND", "JUDGE_INFRA_ERROR", "PROTOCOL_ERROR"}
     if verdict not in {"AC", "WA", "CE", "TLE", "MLE", "RE", "OLE", "INVALID_REQUEST", "JDK_NOT_FOUND", "JUDGE_INFRA_ERROR", "PROTOCOL_ERROR"}:
@@ -600,11 +617,41 @@ def _complete_submission(student_id: str, submission_id: str, question: dict, ex
             execution = {**dict(execution), "error": str(exc), "error_category": exc.category}
     results = _normalized_results(question, execution, visible_only=False)
     updated = None
+    regrade_failure = None
 
     def complete(submissions):
-        nonlocal updated
+        nonlocal updated, regrade_failure
         for item in submissions.get(student_id, []):
             if item.get("id") == submission_id:
+                if preserve_history and infrastructure:
+                    updated = deepcopy(item)
+                    regrade_failure = {
+                        "error_category": execution.get("error_category") or verdict,
+                        "question_id": question["question_id"],
+                    }
+                    break
+                if preserve_history and item.get("status") in {"graded", "error"}:
+                    history_fields = (
+                        "graded_at",
+                        "grading_spec_version",
+                        "verdict",
+                        "score",
+                        "total_points",
+                        "duration_ms",
+                        "error",
+                        "error_category",
+                        "compile_result",
+                        "results",
+                    )
+                    history = item.setdefault("grading_history", [])
+                    history.append(
+                        {
+                            key: deepcopy(item.get(key))
+                            for key in history_fields
+                            if key in item
+                        }
+                    )
+                    del history[:-100]
                 item.update(
                     {
                         "status": "error" if infrastructure else "graded",
@@ -617,6 +664,9 @@ def _complete_submission(student_id: str, submission_id: str, question: dict, ex
                         "compile_result": _compiler_summary(execution),
                         "results": results,
                         "graded_at": utc_now(),
+                        "grading_spec_version": question.get(
+                            "snapshot_version", question.get("version", 1)
+                        ),
                     }
                 )
                 updated = deepcopy(item)
@@ -625,9 +675,23 @@ def _complete_submission(student_id: str, submission_id: str, question: dict, ex
     update_json("code_submissions.json", complete)
     if updated is None:
         raise CodeExamError("Submission reservation was lost", 503)
+    if regrade_failure:
+        audit(
+            "code.regrade_failed",
+            audit_actor or student_id,
+            ip,
+            {
+                "submission_id": submission_id,
+                **regrade_failure,
+            },
+        )
+        raise CodeExamError(
+            "Regrading failed because the judge is unavailable; the previous result was retained",
+            503,
+        )
     audit(
-        "code.graded",
-        student_id,
+        audit_event,
+        audit_actor or student_id,
         ip,
         {"submission_id": submission_id, "question_id": question["question_id"], "verdict": verdict, "score": updated["score"], "total_points": updated["total_points"], "error_category": execution.get("error_category")},
     )
@@ -684,6 +748,19 @@ def _refresh_exam_score(student_id: str, submission: dict) -> dict:
                 break
 
     update_json("code_submissions.json", persist)
+    if all_questions_submitted:
+        def finish_code_only_assignment(assignments):
+            assignment = assignments.get(student_id)
+            if (
+                assignment
+                and assignment.get("release_id") == exam.get("release_id")
+                and assignment.get("exam_file") is None
+                and assignment.get("status") == "in_progress"
+                and not assignment.get("forced_submit")
+            ):
+                assignment.update({"status": "submitted", "submitted_at": utc_now()})
+
+        update_json("assignments.json", finish_code_only_assignment)
     return submission
 
 
@@ -799,6 +876,85 @@ def get_admin_code_results(
         "release_id": exam.get("release_id"),
         "submissions": rows,
     }
+
+
+def regrade_submission(
+    exam_id: str,
+    submission_id: str,
+    actor: str,
+    ip: str,
+    *,
+    use_latest_spec: bool = False,
+) -> dict:
+    exam = get_code_exam(exam_id)
+    if not exam:
+        raise CodeExamError("Code exam was not found", 404)
+    if exam.get("status") != "ended":
+        raise CodeExamError("Only ended code exams can be regraded", 409)
+
+    owner_id = None
+    record = None
+    for student_id, records in read_json("code_submissions.json").items():
+        for candidate in records:
+            if candidate.get("id") == submission_id:
+                owner_id, record = student_id, candidate
+                break
+        if record:
+            break
+    if (
+        record is None
+        or owner_id is None
+        or record.get("exam_id") != exam_id
+        or record.get("release_id") != exam.get("release_id")
+    ):
+        raise CodeExamError("Submission was not found for this code exam", 404)
+    if record.get("status") not in {"graded", "error"}:
+        raise CodeExamError("Only completed submissions can be regraded", 409)
+    source_code = record.get("source_code")
+    if not isinstance(source_code, str):
+        raise CodeExamError("Submission source is unavailable for regrading", 409)
+
+    question_id = record.get("question_id")
+    question = _question_snapshot(exam, question_id)
+    if use_latest_spec:
+        latest = get_question(question_id)
+        if not latest or latest.get("status") != "published":
+            raise CodeExamError("A published question version is required for regrading", 409)
+        question = {
+            **deepcopy(latest),
+            "question_id": question_id,
+            "snapshot_version": latest.get("version", 1),
+        }
+
+    _validate_source(source_code)
+    if not _RUN_SLOTS.acquire(blocking=False):
+        raise CodeExamError("Code execution capacity is busy; retry shortly", 429)
+    try:
+        try:
+            execution = execute_question(question, source_code)
+        except Exception as exc:
+            execution = {
+                "verdict": "JUDGE_INFRA_ERROR",
+                "score": 0,
+                "total_points": question["total_points"],
+                "duration_ms": 0,
+                "error": f"{type(exc).__name__}: {exc}",
+                "error_category": "JUDGE_INFRA_ERROR",
+                "checks": [],
+                "tests": [],
+            }
+    finally:
+        _RUN_SLOTS.release()
+    return _complete_submission(
+        owner_id,
+        submission_id,
+        question,
+        execution,
+        ip,
+        audit_actor=actor,
+        audit_event="code.regraded",
+        preserve_history=True,
+    )
 
 
 def publish_question(question_id: str, sample_source: str, actor: str, ip: str) -> tuple[dict, dict]:

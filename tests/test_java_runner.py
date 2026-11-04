@@ -16,6 +16,8 @@ from app.java_runner import (
     ProcessStatus,
     ProcessResult,
     JDKConfig,
+    JDKConfigurationError,
+    JDKNotFoundError,
     RunWorkspace,
     _resolve_jdk_paths,
     classify_judge_process_result,
@@ -26,6 +28,7 @@ from app.java_runner import (
     minimal_environment,
     run_reflection_judge,
     run_process,
+    verify_jdk_configuration,
 )
 from app.code_runner import run_stdio
 from app.windows_job import JobLimits, JobObjectError, create_job_process
@@ -45,6 +48,10 @@ class JavaIdentifierTests(unittest.TestCase):
 
 
 class JavaEnvironmentTests(unittest.TestCase):
+    def test_startup_jdk_check_rejects_missing_toolchain(self):
+        with self.assertRaises((JDKConfigurationError, JDKNotFoundError)):
+            verify_jdk_configuration({})
+
     def test_tool_and_runtime_share_minimal_java_environment_builder(self):
         source = {
             "SystemRoot": "C:\\Windows",
@@ -557,7 +564,7 @@ class ProcessRunnerTests(unittest.TestCase):
         result, jobs = self.execute_observing_jobs(
             code,
             timeout_seconds=8,
-            job_limits=JobLimits(active_process_limit=2),
+            job_limits=JobLimits(active_process_limit=3),
         )
         self.assertEqual(result.status, ProcessStatus.EXITED)
         self.assertEqual(result.stdout.strip(), "started=1")

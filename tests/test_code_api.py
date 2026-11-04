@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 from http.server import ThreadingHTTPServer
 import http.client
 import json
@@ -29,6 +30,7 @@ storage.LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 from app import main
 from app.security import new_session
+from app.java_runner import JDKConfigurationError
 
 
 _VISIBLE = {
@@ -223,9 +225,48 @@ class CodeApiTests(unittest.TestCase):
         self.assertEqual([item["id"] for item in question["tests"]], ["visible"])
         self.assertNotIn("total_points", question)
         self.assertNotIn("secret-input", json.dumps(response))
+        self.assertEqual(storage.read_json("questions.json")["echo-question"]["usage_count"], 1)
         assignment = storage.read_json("assignments.json")["student-1"]
         self.assertIsNone(assignment["exam_file"])
         self.assertEqual(assignment["status"], "in_progress")
+
+    def test_java_stdio_question_api_distributes_total_points_equally(self):
+        question = {
+            "id": "java-equal-points",
+            "title": "Java equal points",
+            "statement": "Echo each input.",
+            "language": "java",
+            "grading_mode": "stdio",
+            "target_class": "Main",
+            "time_limit_seconds": 2,
+            "memory_limit_mb": 256,
+            "max_output_bytes": 4096,
+            "total_points": 1,
+            "tests": [
+                {
+                    "id": f"case-{index}",
+                    "stdin": f"{index}\n",
+                    "expected_stdout": f"{index}\n",
+                    "is_visible": index % 2 == 0,
+                    "compare_mode": "exact",
+                }
+                for index in range(10)
+            ],
+        }
+
+        status, response = self.request(
+            "POST",
+            "/api/admin/questions",
+            cookie=self.admin_cookie,
+            payload=question,
+        )
+        self.assertEqual(status, 201, response)
+        points = [test["points"] for test in response["question"]["tests"]]
+        self.assertEqual(points, [0.1] * 10)
+        self.assertEqual(
+            sum((Decimal(str(point)) for point in points), Decimal(0)),
+            Decimal(str(response["question"]["total_points"])),
+        )
 
     def test_pretest_filters_hidden_data_and_does_not_return_score(self):
         self.create_started_code_exam()
@@ -310,6 +351,7 @@ class CodeApiTests(unittest.TestCase):
         record = storage.read_json("code_submissions.json")["student-1"][0]
         self.assertEqual(record["status"], "graded")
         self.assertEqual(record["score"], 10)
+        self.assertEqual(storage.read_json("assignments.json")["student-1"]["status"], "submitted")
         self.assertNotIn("secret-expected", json.dumps(submitted))
 
     def test_submit_keeps_score_private_until_exam_ends_and_keeps_zip_route(self):
@@ -383,6 +425,183 @@ class CodeApiTests(unittest.TestCase):
 
         status, denied = self.request("GET", path, cookie=self.student_cookie)
         self.assertEqual(status, 403, denied)
+
+    def test_question_crud_preserves_versions_and_blocks_deleting_used_questions(self):
+        question = {
+            "id": "draft-question",
+            "title": "Draft",
+            "language": "python",
+            "grading_mode": "stdio",
+            "total_points": 10,
+            "tests": [_VISIBLE, _HIDDEN],
+        }
+        status, created = self.request(
+            "POST", "/api/admin/questions", cookie=self.admin_cookie, payload=question
+        )
+        self.assertEqual(status, 201, created)
+
+        status, loaded = self.request(
+            "GET", "/api/admin/questions/draft-question", cookie=self.admin_cookie
+        )
+        self.assertEqual(status, 200, loaded)
+        updated_payload = dict(loaded["question"])
+        updated_payload["statement"] = "Updated statement."
+        status, updated = self.request(
+            "POST",
+            "/api/admin/questions/draft-question/update",
+            cookie=self.admin_cookie,
+            payload=updated_payload,
+        )
+        self.assertEqual(status, 200, updated)
+        self.assertEqual(updated["question"]["version"], 2)
+        self.assertEqual(updated["question"]["status"], "draft")
+
+        status, duplicate = self.request(
+            "POST",
+            "/api/admin/questions/draft-question/duplicate",
+            cookie=self.admin_cookie,
+            raw_body=b"",
+        )
+        self.assertEqual(status, 201, duplicate)
+        duplicate_id = duplicate["question"]["id"]
+        self.assertNotEqual(duplicate_id, "draft-question")
+        status, deleted = self.request(
+            "POST",
+            f"/api/admin/questions/{duplicate_id}/delete",
+            cookie=self.admin_cookie,
+            raw_body=b"",
+        )
+        self.assertEqual(status, 200, deleted)
+
+        exam_id = self.create_started_code_exam()
+        status, blocked = self.request(
+            "POST",
+            "/api/admin/questions/echo-question/delete",
+            cookie=self.admin_cookie,
+            raw_body=b"",
+        )
+        self.assertEqual(status, 409, blocked)
+        status, archived = self.request(
+            "POST",
+            "/api/admin/questions/echo-question/archive",
+            cookie=self.admin_cookie,
+            raw_body=b"",
+        )
+        self.assertEqual(status, 200, archived)
+        self.assertEqual(archived["question"]["status"], "archived")
+        self.assertEqual(storage.read_json("code_exams.json")[exam_id]["status"], "started")
+        status, rejected = self.request(
+            "POST",
+            "/api/admin/questions/echo-question/update",
+            cookie=self.admin_cookie,
+            payload=archived["question"],
+        )
+        self.assertEqual(status, 409, rejected)
+
+    def test_admin_can_regrade_after_question_update_and_history_is_retained(self):
+        exam_id = self.create_started_code_exam()
+        with patch("app.code_exams.execute_question", return_value=_execution()):
+            status, submitted = self.request(
+                "POST",
+                "/api/student/code/submit",
+                cookie=self.student_cookie,
+                payload={"question_id": "echo-question", "source_code": "print(input())\n"},
+            )
+        self.assertEqual(status, 201, submitted)
+        submission_id = storage.read_json("code_submissions.json")["student-1"][0]["id"]
+
+        status, _ = self.request(
+            "POST", "/api/admin/end-exam", cookie=self.admin_cookie, raw_body=b""
+        )
+        self.assertEqual(status, 200)
+        current = storage.read_json("questions.json")["echo-question"]
+        current["statement"] = "Corrected statement."
+        status, updated = self.request(
+            "POST",
+            "/api/admin/questions/echo-question/update",
+            cookie=self.admin_cookie,
+            payload=current,
+        )
+        self.assertEqual(status, 200, updated)
+        new_version = updated["question"]["version"]
+
+        with patch(
+            "app.code_exams.execute_question",
+            return_value=_execution(visible_passed=False, verdict="WA"),
+        ) as execute:
+            status, regraded = self.request(
+                "POST",
+                f"/api/admin/code-results/{exam_id}/regrade",
+                cookie=self.admin_cookie,
+                payload={"submission_id": submission_id, "use_latest_spec": True},
+            )
+        self.assertEqual(status, 200, regraded)
+        execute.assert_called_once()
+        record = storage.read_json("code_submissions.json")["student-1"][0]
+        self.assertEqual(record["grading_spec_version"], new_version)
+        self.assertEqual(record["grading_history"][0]["score"], 10)
+        self.assertNotEqual(record["score"], 10)
+        retained_score = record["score"]
+        with patch(
+            "app.code_exams.execute_question",
+            return_value=_execution(verdict="JUDGE_INFRA_ERROR"),
+        ):
+            status, failed = self.request(
+                "POST",
+                f"/api/admin/code-results/{exam_id}/regrade",
+                cookie=self.admin_cookie,
+                payload={"submission_id": submission_id, "use_latest_spec": True},
+            )
+        self.assertEqual(status, 503, failed)
+        retained = storage.read_json("code_submissions.json")["student-1"][0]
+        self.assertEqual(retained["score"], retained_score)
+        self.assertEqual(len(retained["grading_history"]), 1)
+
+    def test_monitor_reports_admin_only_code_submission_summary(self):
+        self.create_started_code_exam()
+        with patch("app.code_exams.execute_question", return_value=_execution()):
+            self.request(
+                "POST",
+                "/api/student/code/submit",
+                cookie=self.student_cookie,
+                payload={"question_id": "echo-question", "source_code": "print(input())\n"},
+            )
+        status, response = self.request(
+            "GET", "/api/admin/monitor", cookie=self.admin_cookie
+        )
+        self.assertEqual(status, 200, response)
+        summary = response["students"][0]["latest_code_submission"]
+        self.assertEqual(summary["score"], 10)
+        self.assertNotIn("source_code", summary)
+
+    @unittest.skipUnless(os.name == "nt", "code-grading startup preflight is Windows-only")
+    def test_server_startup_reports_missing_jdk_clearly(self):
+        with patch(
+            "app.main.verify_jdk_configuration",
+            side_effect=JDKConfigurationError("javac was not found"),
+        ):
+            with self.assertRaisesRegex(SystemExit, "JDK 17 or newer"):
+                main.main()
+
+    def test_force_submit_closes_code_exam_submission_path(self):
+        self.create_started_code_exam()
+        status, response = self.request(
+            "POST",
+            "/api/admin/students/student-1/force-submit",
+            cookie=self.admin_cookie,
+            raw_body=b"",
+        )
+        self.assertEqual(status, 200, response)
+        assignment = storage.read_json("assignments.json")["student-1"]
+        self.assertEqual(assignment["status"], "submitted")
+        self.assertTrue(assignment["forced_submit"])
+        status, rejected = self.request(
+            "POST",
+            "/api/student/code/submit",
+            cookie=self.student_cookie,
+            payload={"question_id": "echo-question", "source_code": "print(input())\n"},
+        )
+        self.assertEqual(status, 403, rejected)
 
     def test_routes_require_student_role_and_enforce_server_deadline(self):
         self.create_started_code_exam()

@@ -1170,6 +1170,22 @@ def _detect_jdk(
     )
 
 
+def verify_jdk_configuration(
+    environment: Mapping[str, str] | None = None,
+) -> JDKConfig:
+    """Validate the configured Java toolchain before starting the server."""
+    if os.name != "nt":
+        raise JDKConfigurationError(
+            "Java code grading requires Windows Job Objects on this server."
+        )
+    jdk, _ = _detect_jdk(
+        os.environ if environment is None else environment,
+        cwd=Path.cwd(),
+        job_limits=DEFAULT_JAVA_COMPILE_LIMITS,
+    )
+    return jdk
+
+
 def _validated_source_path(source_path: str | Path) -> tuple[Path, str]:
     if not isinstance(source_path, (str, Path)):
         raise ValueError("source_path must be a relative .java path")

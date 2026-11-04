@@ -1,13 +1,18 @@
 """Question bank validation and persistence for code grading."""
 from __future__ import annotations
 
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, localcontext
 import json
 import re
 import uuid
 from typing import Mapping
 
-from .grading import GradingError, sum_configured_points
+from .grading import (
+    GradingError,
+    parse_nonnegative_decimal,
+    plain_number,
+    sum_configured_points,
+)
 from .storage import audit, read_json, update_json, utc_now
 from .windows_job import MIN_JAVA_JOB_MEMORY_MB
 
@@ -119,11 +124,21 @@ def _validate_question(payload: Mapping, *, question_id: str, actor: str) -> dic
             question.setdefault("target_file", "solution.py")
 
     try:
+        declared = parse_nonnegative_decimal(question.get("total_points"), "total_points")
+        if language == "java" and grading_mode == "stdio":
+            with localcontext() as context:
+                context.prec = max(28, len(declared.as_tuple().digits) + 20)
+                points_per_test = declared / Decimal(len(tests))
+            allocated = Decimal("0")
+            for test in tests[:-1]:
+                test["points"] = plain_number(points_per_test)
+                allocated += Decimal(str(test["points"]))
+            tests[-1]["points"] = plain_number(declared - allocated)
+
         configured_total = sum_configured_points(items, item_name=item_name)
-        declared = Decimal(str(question.get("total_points")))
     except (GradingError, InvalidOperation, TypeError, ValueError) as exc:
         raise QuestionError(str(exc)) from exc
-    if not declared.is_finite() or declared < 0 or declared != configured_total:
+    if declared != configured_total:
         raise QuestionError("total_points must equal the sum of configured check/test points")
 
     question.update(
@@ -165,6 +180,87 @@ def get_question(question_id: str) -> dict | None:
 
 def list_questions() -> list[dict]:
     return list(read_json("questions.json").values())
+
+
+def update_question(question_id: str, payload: Mapping, actor: str, ip: str) -> dict:
+    current = get_question(question_id)
+    if not current:
+        raise QuestionError("question not found", 404)
+    if current.get("status") == "archived":
+        raise QuestionError("archived questions cannot be edited", 409)
+
+    updated = _validate_question(payload, question_id=question_id, actor=actor)
+    updated.update(
+        {
+            "status": current.get("status", "draft"),
+            "source": {
+                **current.get("source", {}),
+                "updated_by": actor,
+                "updated_at": utc_now(),
+            },
+            "usage_count": current.get("usage_count", 0),
+            "version": int(current.get("version", 1)) + 1,
+        }
+    )
+    save_question(updated)
+    audit("code.question_updated", actor, ip, {"question_id": question_id, "version": updated["version"]})
+    return updated
+
+
+def duplicate_question(question_id: str, actor: str, ip: str) -> dict:
+    question = get_question(question_id)
+    if not question:
+        raise QuestionError("question not found", 404)
+    duplicate = {
+        key: value
+        for key, value in question.items()
+        if key not in {"id", "status", "source", "usage_count", "version"}
+    }
+    return create_question(duplicate, actor, ip)
+
+
+def archive_question(question_id: str, actor: str, ip: str) -> dict:
+    question = get_question(question_id)
+    if not question:
+        raise QuestionError("question not found", 404)
+    if question.get("status") == "archived":
+        return question
+    question["status"] = "archived"
+    question.setdefault("source", {}).update(
+        {"updated_by": actor, "updated_at": utc_now()}
+    )
+    save_question(question)
+    audit("code.question_archived", actor, ip, {"question_id": question_id})
+    return question
+
+
+def delete_question(question_id: str, actor: str, ip: str) -> None:
+    question = get_question(question_id)
+    if not question:
+        raise QuestionError("question not found", 404)
+    code_exam_used = any(
+        any(item.get("question_id") == question_id for item in exam.get("questions", []))
+        for exam in read_json("code_exams.json").values()
+    )
+    submission_used = any(
+        item.get("question_id") == question_id
+        for records in read_json("code_submissions.json").values()
+        for item in records
+    )
+    run_used = any(
+        item.get("question_id") == question_id
+        for item in read_json("code_runs.json", [])
+    )
+    if code_exam_used or submission_used or run_used:
+        raise QuestionError("question is in use; archive it instead of deleting", 409)
+
+    def remove(questions):
+        if question_id not in questions:
+            raise QuestionError("question not found", 404)
+        del questions[question_id]
+
+    update_json("questions.json", remove)
+    audit("code.question_deleted", actor, ip, {"question_id": question_id})
 
 
 def save_question(question: dict) -> None:
