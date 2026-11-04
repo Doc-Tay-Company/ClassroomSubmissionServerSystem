@@ -12,5 +12,12 @@
     "active": true,
     "created_at": "2026-10-31T04:42:32+00:00",
     "created_by": "windows-start"
+  },
+  "nghia": {
+    "username": "nghia",
+    "password_hash": "scrypt$5284f1161b7c8dc87970af98836d59d8$12b65c56d94ef8b1d7104adafa75a49e6f358caca90edf96b18bd49028467ba5",
+    "active": true,
+    "created_at": "2026-11-04T04:39:03+00:00",
+    "created_by": "windows-start"
   }
 }

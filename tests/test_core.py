@@ -113,6 +113,7 @@ class CoreTests(unittest.TestCase):
             "students.json": {"21010001": {"full_name": "Test Student"}},
             "assignments.json": {},
             "submissions.json": {},
+            "code_submissions.json": {},
         }
         request = SimpleNamespace(
             path="/api/student/telemetry",

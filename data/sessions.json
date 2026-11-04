@@ -43,5 +43,14 @@
     "ip": "127.0.0.1",
     "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:159.0) Gecko/20100101 Firefox/159.0",
     "last_seen": "2026-11-03T10:06:34+00:00"
+  },
+  "12949bd15defb9b1c4c7a5ccc02895408fb2245837fe4d39294371307944b333": {
+    "user_id": "nghia",
+    "role": "admin",
+    "created_at": "2026-11-04T04:39:30+00:00",
+    "expires_at": 1793810370.2840195,
+    "ip": "127.0.0.1",
+    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:159.0) Gecko/20100101 Firefox/159.0",
+    "last_seen": "2026-11-04T04:40:52+00:00"
   }
 }

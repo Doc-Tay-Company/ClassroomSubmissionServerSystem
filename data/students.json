@@ -28,5 +28,15 @@
     "last_ip": null,
     "last_seen": null,
     "must_change_password": false
+  },
+  "2301040138": {
+    "student_id": "2301040138",
+    "full_name": "Dao Tuan Nghia",
+    "password_hash": "scrypt$43fabd0e7141207ee7fb88556ca01b4f$4d5787c91c2329aebd53095ba79d3df635b7295d335250c11ad34f39feb596f2",
+    "active": true,
+    "created_at": "2026-11-04T04:39:55+00:00",
+    "last_ip": null,
+    "last_seen": null,
+    "must_change_password": false
   }
 }

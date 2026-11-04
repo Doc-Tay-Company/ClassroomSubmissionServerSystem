@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import time
 from typing import Mapping, Sequence
 
 
@@ -18,18 +19,44 @@ class JobObjectError(OSError):
     category = "JUDGE_INFRA_ERROR"
 
 
+# Java needs committed memory for JVM native structures in addition to its heap.
+MIN_JAVA_JOB_MEMORY_MB = 256
+
+
 @dataclass(frozen=True)
 class JobLimits:
-    """Per-run Job Object limits; values are configurable by the trusted caller."""
+    """Per-run Job Object limits configured by the trusted caller.
+
+    Both memory limits count committed memory, not resident working set.
+    ``process_memory_limit_bytes`` caps each process independently;
+    ``job_memory_limit_bytes`` caps committed memory across the whole Job.
+    Question-level ``memory_limit_mb`` configures both to the same value, so
+    the aggregate Job limit is the authoritative budget for the full process tree.
+    """
 
     active_process_limit: int = 16
     process_memory_limit_bytes: int = 256 * 1024 * 1024
+    job_memory_limit_bytes: int = 256 * 1024 * 1024
 
     def __post_init__(self) -> None:
-        if self.active_process_limit < 1:
+        if (
+            isinstance(self.active_process_limit, bool)
+            or not isinstance(self.active_process_limit, int)
+            or self.active_process_limit < 1
+        ):
             raise ValueError("active_process_limit must be at least 1")
-        if self.process_memory_limit_bytes < 1:
+        if (
+            isinstance(self.process_memory_limit_bytes, bool)
+            or not isinstance(self.process_memory_limit_bytes, int)
+            or self.process_memory_limit_bytes < 1
+        ):
             raise ValueError("process_memory_limit_bytes must be positive")
+        if (
+            isinstance(self.job_memory_limit_bytes, bool)
+            or not isinstance(self.job_memory_limit_bytes, int)
+            or self.job_memory_limit_bytes < 1
+        ):
+            raise ValueError("job_memory_limit_bytes must be positive")
 
 
 DEFAULT_JOB_LIMITS = JobLimits()
@@ -40,15 +67,18 @@ _EXTENDED_STARTUPINFO_PRESENT = 0x00080000
 _STARTF_USESTDHANDLES = 0x00000100
 _HANDLE_FLAG_INHERIT = 0x00000001
 _GENERIC_READ = 0x80000000
+_GENERIC_WRITE = 0x40000000
 _FILE_SHARE_READ = 0x00000001
 _FILE_SHARE_WRITE = 0x00000002
 _OPEN_EXISTING = 3
 _FILE_ATTRIBUTE_NORMAL = 0x00000080
 _JOB_OBJECT_EXTENDED_LIMIT_INFORMATION = 9
+_JOB_OBJECT_BASIC_ACCOUNTING_INFORMATION = 1
 _JOB_OBJECT_ASSOCIATE_COMPLETION_PORT_INFORMATION = 7
 _JOB_OBJECT_LIMIT_ACTIVE_PROCESS = 0x00000008
 _JOB_OBJECT_LIMIT_PROCESS_MEMORY = 0x00000100
 _JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x00002000
+_JOB_OBJECT_LIMIT_JOB_MEMORY = 0x00000200
 _PROC_THREAD_ATTRIBUTE_HANDLE_LIST = 0x00020002
 _WAIT_OBJECT_0 = 0x00000000
 _WAIT_TIMEOUT = 0x00000102
@@ -57,6 +87,9 @@ _ERROR_TIMEOUT = 258
 _INFINITE = 0xFFFFFFFF
 _INVALID_HANDLE_VALUE = ctypes.c_void_p(-1).value
 _JOB_OBJECT_MSG_PROCESS_MEMORY_LIMIT = 9
+_JOB_OBJECT_MSG_JOB_MEMORY_LIMIT = 10
+_JOB_OBJECT_MSG_ACTIVE_PROCESS_ZERO = 4
+_JOB_EMPTY_WAIT_SECONDS = 2.0
 
 
 if os.name == "nt":
@@ -77,6 +110,18 @@ if os.name == "nt":
             ("ReadTransferCount", ctypes.c_ulonglong),
             ("WriteTransferCount", ctypes.c_ulonglong),
             ("OtherTransferCount", ctypes.c_ulonglong),
+        ]
+
+    class _BasicAccountingInformation(ctypes.Structure):
+        _fields_ = [
+            ("TotalUserTime", ctypes.c_longlong),
+            ("TotalKernelTime", ctypes.c_longlong),
+            ("ThisPeriodTotalUserTime", ctypes.c_longlong),
+            ("ThisPeriodTotalKernelTime", ctypes.c_longlong),
+            ("TotalPageFaultCount", wintypes.DWORD),
+            ("TotalProcesses", wintypes.DWORD),
+            ("ActiveProcesses", wintypes.DWORD),
+            ("TotalTerminatedProcesses", wintypes.DWORD),
         ]
 
     class _BasicLimitInformation(ctypes.Structure):
@@ -153,6 +198,14 @@ if os.name == "nt":
         wintypes.DWORD,
     ]
     _kernel32.SetInformationJobObject.restype = wintypes.BOOL
+    _kernel32.QueryInformationJobObject.argtypes = [
+        wintypes.HANDLE,
+        ctypes.c_int,
+        wintypes.LPVOID,
+        wintypes.DWORD,
+        ctypes.POINTER(wintypes.DWORD),
+    ]
+    _kernel32.QueryInformationJobObject.restype = wintypes.BOOL
     _kernel32.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
     _kernel32.AssignProcessToJobObject.restype = wintypes.BOOL
     _kernel32.TerminateJobObject.argtypes = [wintypes.HANDLE, wintypes.UINT]
@@ -247,9 +300,10 @@ def _handle_value(handle) -> int | None:
     return handle if isinstance(handle, int) else handle.value
 
 
-def _close_handle(handle) -> None:
+def _close_handle(handle) -> bool:
     if os.name == "nt" and _handle_value(handle) not in (None, 0, _INVALID_HANDLE_VALUE):
-        _kernel32.CloseHandle(handle)
+        return bool(_kernel32.CloseHandle(handle))
+    return True
 
 
 def _check_win32(ok: bool, action: str) -> None:
@@ -266,6 +320,8 @@ def _configure_job(job_handle, limits: JobLimits) -> None:
     )
     info.BasicLimitInformation.ActiveProcessLimit = limits.active_process_limit
     info.ProcessMemoryLimit = limits.process_memory_limit_bytes
+    info.BasicLimitInformation.LimitFlags |= _JOB_OBJECT_LIMIT_JOB_MEMORY
+    info.JobMemoryLimit = limits.job_memory_limit_bytes
     _check_win32(
         _kernel32.SetInformationJobObject(
             job_handle,
@@ -330,6 +386,44 @@ def _make_pipe():
         raise
 
 
+def _make_stdin_pipe():
+    security = _SecurityAttributes()
+    security.nLength = ctypes.sizeof(security)
+    security.bInheritHandle = True
+    read_handle = wintypes.HANDLE()
+    write_handle = wintypes.HANDLE()
+    _check_win32(
+        _kernel32.CreatePipe(
+            ctypes.byref(read_handle), ctypes.byref(write_handle), ctypes.byref(security), 0
+        ),
+        "CreatePipe(stdin)",
+    )
+    fd = None
+    try:
+        _check_win32(
+            _kernel32.SetHandleInformation(write_handle, _HANDLE_FLAG_INHERIT, 0),
+            "SetHandleInformation(stdin)",
+        )
+        import msvcrt
+
+        fd = msvcrt.open_osfhandle(
+            int(_handle_value(write_handle)), os.O_WRONLY | os.O_BINARY
+        )
+        write_handle.value = None
+        stream = os.fdopen(fd, "wb", buffering=0)
+        fd = None
+        return read_handle, stream
+    except Exception:
+        if fd is not None:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+        _close_handle(read_handle)
+        _close_handle(write_handle)
+        raise
+
+
 def _create_stdin_handle():
     security = _SecurityAttributes()
     security.nLength = ctypes.sizeof(security)
@@ -380,10 +474,16 @@ def _create_attribute_list(handles):
 
 
 class WindowsJobProcess:
-    """A process assigned to a Job before its primary thread is resumed."""
+    """A Job-contained process with parent-owned pipe readers.
+
+    When enabled, ``protocol`` is the parent's read endpoint. Its child write
+    handle is explicitly allowlisted for inheritance and the parent's copy is
+    closed after process creation; ``close()`` releases the read endpoint.
+    """
 
     def __init__(
-        self, args, process_handle, job_handle, completion_port, pid, stdout, stderr, limits
+        self, args, process_handle, job_handle, completion_port, pid,
+        stdout, stderr, stdin, limits, protocol=None, protocol_handle_value=None
     ):
         self.args = list(args)
         self._process_handle = process_handle
@@ -392,9 +492,14 @@ class WindowsJobProcess:
         self.pid = pid
         self.stdout = stdout
         self.stderr = stderr
+        self.stdin = stdin
+        self.protocol = protocol
+        self.protocol_handle_value = protocol_handle_value
         self.limits = limits
         self.returncode: int | None = None
         self._closed = False
+        self._memory_limit_detected = False
+        self._job_empty_on_close: bool | None = None
 
     def poll(self) -> int | None:
         if self.returncode is not None:
@@ -441,9 +546,12 @@ class WindowsJobProcess:
     def kill(self) -> None:
         self.terminate()
 
-    def memory_limit_hit(self) -> bool:
-        if self._job_handle is None or self.limits.process_memory_limit_bytes <= 0:
-            return False
+    def memory_limit_hit(self, wait_ms: int = 0) -> bool:
+        if self._job_handle is None:
+            return self._memory_limit_detected
+        if self._memory_limit_detected:
+            return True
+        first_wait = max(0, wait_ms)
         while True:
             message = wintypes.DWORD()
             completion_key = ctypes.c_size_t()
@@ -453,14 +561,73 @@ class WindowsJobProcess:
                 ctypes.byref(message),
                 ctypes.byref(completion_key),
                 ctypes.byref(overlapped),
-                0,
+                first_wait,
+            )
+            first_wait = 0
+            if not received:
+                error = ctypes.get_last_error()
+                if error == _ERROR_TIMEOUT:
+                    return False
+                raise JobObjectError(_error_message("GetQueuedCompletionStatus"))
+            if message.value in (
+                _JOB_OBJECT_MSG_PROCESS_MEMORY_LIMIT,
+                _JOB_OBJECT_MSG_JOB_MEMORY_LIMIT,
+            ):
+                self._memory_limit_detected = True
+                return True
+
+    def active_process_count(self) -> int:
+        if self._job_handle is None:
+            return 0 if self._job_empty_on_close else -1
+        info = _BasicAccountingInformation()
+        returned = wintypes.DWORD()
+        _check_win32(
+            _kernel32.QueryInformationJobObject(
+                self._job_handle,
+                _JOB_OBJECT_BASIC_ACCOUNTING_INFORMATION,
+                ctypes.byref(info),
+                ctypes.sizeof(info),
+                ctypes.byref(returned),
+            ),
+            "QueryInformationJobObject",
+        )
+        return int(info.ActiveProcesses)
+
+    def _wait_for_job_empty(self, timeout: float) -> bool:
+        if self.active_process_count() == 0:
+            return True
+        # Job completion notifications are queued by the kernel. Wait for the
+        # active-zero event instead of repeatedly querying the accounting API.
+        return self._wait_for_active_zero_message(timeout)
+
+    def _wait_for_active_zero_message(self, timeout: float) -> bool:
+        deadline = time.monotonic() + timeout
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return False
+            message = wintypes.DWORD()
+            completion_key = ctypes.c_size_t()
+            overlapped = wintypes.LPVOID()
+            wait_ms = max(1, math.ceil(remaining * 1000))
+            received = _kernel32.GetQueuedCompletionStatus(
+                self._completion_port,
+                ctypes.byref(message),
+                ctypes.byref(completion_key),
+                ctypes.byref(overlapped),
+                wait_ms,
             )
             if not received:
                 error = ctypes.get_last_error()
                 if error == _ERROR_TIMEOUT:
                     return False
                 raise JobObjectError(_error_message("GetQueuedCompletionStatus"))
-            if message.value == _JOB_OBJECT_MSG_PROCESS_MEMORY_LIMIT:
+            if message.value in (
+                _JOB_OBJECT_MSG_PROCESS_MEMORY_LIMIT,
+                _JOB_OBJECT_MSG_JOB_MEMORY_LIMIT,
+            ):
+                self._memory_limit_detected = True
+            if message.value == _JOB_OBJECT_MSG_ACTIVE_PROCESS_ZERO:
                 return True
 
     def close(self) -> None:
@@ -468,43 +635,88 @@ class WindowsJobProcess:
             return
         failure = None
         if self._job_handle is not None:
-            if not _kernel32.CloseHandle(self._job_handle):
-                failure = _error_message("CloseHandle(Job Object)")
+            try:
+                active = self.active_process_count()
+            except Exception as exc:
+                active = None
+                failure = f"Could not inspect Job Object during cleanup: {type(exc).__name__}: {exc}"
+
+            if active == 0:
+                self._job_empty_on_close = True
+            else:
+                if not _kernel32.TerminateJobObject(self._job_handle, 1):
+                    failure = failure or _error_message("TerminateJobObject during cleanup")
                 try:
-                    _check_win32(
-                        _kernel32.TerminateJobObject(self._job_handle, 1),
-                        "TerminateJobObject during cleanup",
+                    self._job_empty_on_close = self._wait_for_job_empty(
+                        _JOB_EMPTY_WAIT_SECONDS
                     )
-                except JobObjectError as exc:
-                    failure += f"; {exc}"
-                if not _kernel32.CloseHandle(self._job_handle):
-                    failure += f"; {_error_message('CloseHandle(Job Object) during cleanup')}"
-            self._job_handle = None
+                except Exception as exc:
+                    failure = failure or (
+                        f"Could not wait for Job Object cleanup: {type(exc).__name__}: {exc}"
+                    )
+                if not self._job_empty_on_close:
+                    failure = failure or "Job Object still had active processes after termination."
+
+            if not _kernel32.CloseHandle(self._job_handle):
+                failure = failure or _error_message("CloseHandle(Job Object)")
+            else:
+                self._job_handle = None
+
+            if not self._job_empty_on_close:
+                try:
+                    self._job_empty_on_close = self._wait_for_active_zero_message(
+                        _JOB_EMPTY_WAIT_SECONDS
+                    )
+                except Exception as exc:
+                    failure = failure or (
+                        f"Could not confirm Job Object process exit: {type(exc).__name__}: {exc}"
+                    )
+                if not self._job_empty_on_close:
+                    failure = failure or "Job Object process exit was not confirmed after closing the job."
 
         if self._process_handle is not None:
             wait_result = _kernel32.WaitForSingleObject(self._process_handle, 2000)
             if wait_result == _WAIT_TIMEOUT:
-                if not _kernel32.TerminateProcess(self._process_handle, 1):
-                    failure = failure or _error_message("TerminateProcess after job close")
+                if self._job_handle is not None:
+                    terminated = _kernel32.TerminateJobObject(self._job_handle, 1)
+                    terminate_action = "TerminateJobObject after process wait timeout"
+                else:
+                    terminated = _kernel32.TerminateProcess(self._process_handle, 1)
+                    terminate_action = "TerminateProcess after job close"
+                if not terminated:
+                    failure = failure or _error_message(terminate_action)
                 wait_result = _kernel32.WaitForSingleObject(self._process_handle, 2000)
             if wait_result != _WAIT_OBJECT_0:
                 if wait_result == _WAIT_FAILED:
                     failure = failure or _error_message("WaitForSingleObject after job close")
                 else:
                     failure = failure or "Process remained active after job close and termination."
-            if not _kernel32.CloseHandle(self._process_handle):
-                failure = failure or _error_message("CloseHandle(Process)")
-            self._process_handle = None
+            else:
+                try:
+                    self.poll()
+                except JobObjectError as exc:
+                    failure = failure or f"Could not reap process after job close: {exc}"
+                if not _kernel32.CloseHandle(self._process_handle):
+                    failure = failure or _error_message("CloseHandle(Process)")
+                else:
+                    self._process_handle = None
         if self._completion_port is not None:
             if not _kernel32.CloseHandle(self._completion_port):
                 failure = failure or _error_message("CloseHandle(completion port)")
-            self._completion_port = None
-        for stream in (self.stdout, self.stderr):
+            else:
+                self._completion_port = None
+        for stream in (self.stdin, self.stdout, self.stderr, self.protocol):
+            if stream is None:
+                continue
             try:
                 stream.close()
             except OSError as exc:
                 failure = failure or f"Could not close process output stream: {exc}"
-        self._closed = True
+        self._closed = (
+            self._job_handle is None
+            and self._process_handle is None
+            and self._completion_port is None
+        )
         if failure:
             raise JobObjectError(failure)
 
@@ -515,13 +727,20 @@ def create_job_process(
     cwd: str | Path,
     env: Mapping[str, str],
     limits: JobLimits = DEFAULT_JOB_LIMITS,
+    stdin_pipe: bool = False,
+    protocol_pipe: bool = False,
 ) -> WindowsJobProcess:
     """Create suspended, assign to a configured Job, then resume the primary thread."""
     if os.name != "nt":
         raise JobObjectError("Windows Job Objects are only available on Windows.")
     if not command or any(not isinstance(arg, str) for arg in command):
         raise ValueError("command must be a non-empty sequence of strings")
-    limits = limits or DEFAULT_JOB_LIMITS
+    if not isinstance(stdin_pipe, bool) or not isinstance(protocol_pipe, bool):
+        raise ValueError("stdin_pipe and protocol_pipe must be booleans")
+    if limits is None:
+        limits = DEFAULT_JOB_LIMITS
+    elif not isinstance(limits, JobLimits):
+        raise ValueError("limits must be a JobLimits value")
 
     environment = dict(env)
     if any("\0" in key or "\0" in value or "=" in key for key, value in environment.items()):
@@ -536,7 +755,9 @@ def create_job_process(
     job_handle = None
     completion_port = None
     process_info = _ProcessInformation()
-    stdout_stream = stderr_stream = None
+    stdout_stream = stderr_stream = stdin_stream = None
+    protocol_stream = protocol_writer = None
+    protocol_handle_value = None
     stdout_writer = stderr_writer = stdin_handle = None
     attribute_pointer = None
     assigned = False
@@ -555,9 +776,16 @@ def create_job_process(
 
         stdout_stream, stdout_writer = _make_pipe()
         stderr_stream, stderr_writer = _make_pipe()
-        stdin_handle = _create_stdin_handle()
+        if protocol_pipe:
+            protocol_stream, protocol_writer = _make_pipe()
+            protocol_handle_value = int(_handle_value(protocol_writer))
+        if stdin_pipe:
+            stdin_handle, stdin_stream = _make_stdin_pipe()
+        else:
+            stdin_handle = _create_stdin_handle()
         attribute_buffer, attribute_pointer = _create_attribute_list(
             [stdin_handle, stdout_writer, stderr_writer]
+            + ([protocol_writer] if protocol_writer is not None else [])
         )
 
         startup = _StartupInfoExW()
@@ -602,8 +830,13 @@ def create_job_process(
         if resume_result == 0xFFFFFFFF:
             raise JobObjectError(_error_message("ResumeThread"))
 
-        _close_handle(process_info.hThread)
+        if not _close_handle(process_info.hThread):
+            raise JobObjectError(_error_message("CloseHandle(primary thread)"))
         process_info.hThread = None
+        if stdin_pipe:
+            if not _close_handle(stdin_handle):
+                raise JobObjectError(_error_message("CloseHandle(stdin pipe)"))
+            stdin_handle = None
         process = WindowsJobProcess(
             command,
             process_info.hProcess,
@@ -612,12 +845,15 @@ def create_job_process(
             int(process_info.dwProcessId),
             stdout_stream,
             stderr_stream,
+            stdin_stream,
             limits,
+            protocol_stream,
+            protocol_handle_value,
         )
         process_info.hProcess = None
         job_handle = None
         completion_port = None
-        stdout_stream = stderr_stream = None
+        stdout_stream = stderr_stream = stdin_stream = protocol_stream = None
         transferred = True
         return process
     except JobObjectError:
@@ -629,6 +865,7 @@ def create_job_process(
             _kernel32.DeleteProcThreadAttributeList(attribute_pointer)
         _close_handle(stdout_writer)
         _close_handle(stderr_writer)
+        _close_handle(protocol_writer)
         _close_handle(stdin_handle)
         _close_handle(process_info.hThread)
         if not transferred:
@@ -645,3 +882,7 @@ def create_job_process(
                 stdout_stream.close()
             if stderr_stream:
                 stderr_stream.close()
+            if stdin_stream:
+                stdin_stream.close()
+            if protocol_stream:
+                protocol_stream.close()
