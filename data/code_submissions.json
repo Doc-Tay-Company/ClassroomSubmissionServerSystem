@@ -1,0 +1,56 @@
+{
+  "code_submissions": {
+    "2301040137": [
+      {
+        "id": "mock-submission-001",
+        "exam_id": "mock-code-exam-001",
+        "release_id": "mock-release-001",
+        "question_id": "mock-echo-question-001",
+        "language": "python",
+        "grading_mode": "stdio",
+        "source_code": "print(input())\n",
+        "source_sha256": "c0ae1d00292a83e934a6af8a2cc4c62e47c2b9e8e899d63cd7d0f455a47afcc0",
+        "submitted_at": "2026-11-04T12:10:00+00:00",
+        "status": "graded",
+        "score": 10,
+        "total_points": 10,
+        "attempt": 1,
+        "verdict": "AC",
+        "duration_ms": 24,
+        "error": null,
+        "error_category": null,
+        "compile_result": null,
+        "results": [
+          {
+            "id": "visible-echo",
+            "verdict": "AC",
+            "passed": true,
+            "points": 8,
+            "points_earned": 8,
+            "is_visible": true,
+            "expected_stdout": "hello\n",
+            "actual_stdout": "hello\n",
+            "stderr": "",
+            "duration_ms": 12,
+            "error": null
+          },
+          {
+            "id": "hidden-echo",
+            "verdict": "AC",
+            "passed": true,
+            "points": 2,
+            "points_earned": 2,
+            "is_visible": false,
+            "expected_stdout": "hidden case\n",
+            "actual_stdout": "hidden case\n",
+            "stderr": "",
+            "duration_ms": 12,
+            "error": null
+          }
+        ],
+        "graded_at": "2026-11-04T12:10:01+00:00",
+        "grading_spec_version": 1
+      }
+    ]
+  }
+}

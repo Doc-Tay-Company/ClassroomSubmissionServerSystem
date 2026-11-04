@@ -470,7 +470,15 @@ class ProcessRunnerTests(unittest.TestCase):
         result, jobs = self.execute_observing_jobs(
             "while True: pass", timeout_seconds=0.2
         )
-        self.assertEqual(result.status, ProcessStatus.TIMEOUT)
+        self.assertEqual(
+            result.status,
+            ProcessStatus.TIMEOUT,
+            (
+                f"status={result.status.value}, error={result.error!r}, "
+                f"error_category={result.error_category!r}, "
+                f"duration_ms={result.duration_ms}, exit_code={result.exit_code}"
+            ),
+        )
         self.assertLess(result.duration_ms, 1500)
         self.assert_jobs_reaped(jobs)
 
