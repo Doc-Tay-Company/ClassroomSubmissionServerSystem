@@ -55,29 +55,27 @@ def _positive_int(value, field: str, minimum: int, maximum: int) -> int:
     return value
 
 
-def _json_copy(value):
-    try:
-        return json.loads(json.dumps(value, ensure_ascii=False, allow_nan=False))
-    except (TypeError, ValueError, UnicodeEncodeError) as exc:
-        raise CodeExamError("Request must contain valid JSON values") from exc
-
-
-def create_code_exam(payload: Mapping, actor: str, ip: str) -> dict:
+def _validate_code_exam_payload(payload: Mapping) -> tuple[dict, list[dict]]:
     if not isinstance(payload, Mapping):
-        raise CodeExamError("Code exam must be a JSON object")
+        raise CodeExamError("Code exam must be a JSON object", 422)
+
     title = payload.get("title")
     question_ids = payload.get("question_ids")
     if not isinstance(title, str) or not title.strip() or len(title) > 200:
-        raise CodeExamError("title must contain 1 to 200 characters")
-    if not isinstance(question_ids, list) or not question_ids or any(not isinstance(value, str) for value in question_ids):
-        raise CodeExamError("question_ids must be a non-empty array of question ids")
+        raise CodeExamError("title must contain 1 to 200 characters", 422)
+    if (
+        not isinstance(question_ids, list)
+        or not question_ids
+        or any(not isinstance(value, str) or not value for value in question_ids)
+    ):
+        raise CodeExamError("question_ids must be a non-empty array of question ids", 422)
     if len(set(question_ids)) != len(question_ids):
-        raise CodeExamError("A question may appear only once in a code exam")
+        raise CodeExamError("A question may appear only once in a code exam", 422)
 
     settings = read_json("settings.json")
     policy = payload.get("submission_policy", settings.get("submission_policy", "configurable"))
     if policy not in {"once", "configurable"}:
-        raise CodeExamError("submission_policy must be once or configurable")
+        raise CodeExamError("submission_policy must be once or configurable", 422)
     max_submissions = _positive_int(
         payload.get("max_submissions", settings.get("max_submissions", 1)),
         "max_submissions",
@@ -87,11 +85,13 @@ def create_code_exam(payload: Mapping, actor: str, ip: str) -> dict:
     show_score = payload.get("show_final_score_immediately", False)
     allow_pretest = payload.get("allow_pretest", True)
     if not isinstance(show_score, bool) or not isinstance(allow_pretest, bool):
-        raise CodeExamError("show_final_score_immediately and allow_pretest must be booleans")
+        raise CodeExamError("show_final_score_immediately and allow_pretest must be booleans", 422)
     cooldown = payload.get("pretest_cooldown_seconds", 2)
     if isinstance(cooldown, bool) or not isinstance(cooldown, (int, float)) or not 0 <= cooldown <= 3600:
-        raise CodeExamError("pretest_cooldown_seconds must be between 0 and 3600")
-    max_pretest_runs = _positive_int(payload.get("max_pretest_runs", 20), "max_pretest_runs", 1, 1000)
+        raise CodeExamError("pretest_cooldown_seconds must be between 0 and 3600", 422)
+    max_pretest_runs = _positive_int(
+        payload.get("max_pretest_runs", 20), "max_pretest_runs", 1, 1000
+    )
 
     snapshots = []
     for order, question_id in enumerate(question_ids):
@@ -100,10 +100,9 @@ def create_code_exam(payload: Mapping, actor: str, ip: str) -> dict:
             raise CodeExamError(f"Question '{question_id}' was not found", 404)
         if question.get("status") != "published":
             raise CodeExamError(f"Question '{question_id}' is not published", 409)
-        question_snapshot = _json_copy(question)
         snapshots.append(
             {
-                **question_snapshot,
+                **_json_copy(question),
                 "question_id": question_id,
                 "snapshot_version": question.get("version", 1),
                 "snapshot_at": utc_now(),
@@ -117,41 +116,113 @@ def create_code_exam(payload: Mapping, actor: str, ip: str) -> dict:
                 for item in snapshots
             ]
         )
-    except GradingError as exc:
-        raise CodeExamError(f"Question snapshots have invalid points: {exc}") from exc
+    except (GradingError, KeyError) as exc:
+        raise CodeExamError(f"Question snapshots have invalid points: {exc}", 422) from exc
+
+    return (
+        {
+            "title": title.strip(),
+            "show_final_score_immediately": show_score,
+            "allow_pretest": allow_pretest,
+            "max_pretest_runs": max_pretest_runs,
+            "pretest_cooldown_seconds": float(cooldown),
+            "submission_policy": policy,
+            "max_submissions": max_submissions,
+            "questions": snapshots,
+        },
+        snapshots,
+    )
+
+
+def _json_copy(value):
+    try:
+        return json.loads(json.dumps(value, ensure_ascii=False, allow_nan=False))
+    except (TypeError, ValueError, UnicodeEncodeError) as exc:
+        raise CodeExamError("Request must contain valid JSON values") from exc
+
+
+def create_code_exam(payload: Mapping, actor: str, ip: str) -> dict:
+    exam_data, snapshots = _validate_code_exam_payload(payload)
 
     exam_id = uuid.uuid4().hex
     now = utc_now()
     exam = {
         "id": exam_id,
-        "title": title.strip(),
         "status": "draft",
         "release_id": None,
         "created_by": actor,
         "created_at": now,
         "updated_at": now,
-        "show_final_score_immediately": show_score,
-        "allow_pretest": allow_pretest,
-        "max_pretest_runs": max_pretest_runs,
-        "pretest_cooldown_seconds": float(cooldown),
-        "submission_policy": policy,
-        "max_submissions": max_submissions,
-        "questions": snapshots,
+        **exam_data,
     }
 
     def insert(exams):
         exams[exam_id] = exam
 
     update_json("code_exams.json", insert)
+    _increment_question_usage(snapshots)
+    audit("code.exam_created", actor, ip, {"exam_id": exam_id, "question_count": len(snapshots)})
+    return exam
+
+
+def _increment_question_usage(snapshots: list[dict], *, exclude_question_ids: set[str] | None = None) -> None:
     def record_usage(questions):
-        for question_id in question_ids:
-            question = questions.get(question_id)
+        for item in snapshots:
+            question = questions.get(item["question_id"])
             if question:
                 question["usage_count"] = int(question.get("usage_count", 0)) + 1
 
     update_json("questions.json", record_usage)
-    audit("code.exam_created", actor, ip, {"exam_id": exam_id, "question_count": len(snapshots)})
-    return exam
+
+
+def _update_question_usage_for_exam(exam: dict, snapshots: list[dict]) -> None:
+    old_ids = {item["question_id"] for item in exam.get("questions", [])}
+    new_ids = {item["question_id"] for item in snapshots}
+
+    def update_usage(questions):
+        for question_id in old_ids - new_ids:
+            question = questions.get(question_id)
+            if question:
+                question["usage_count"] = max(0, int(question.get("usage_count", 0)) - 1)
+        for question_id in new_ids - old_ids:
+            question = questions.get(question_id)
+            if question:
+                question["usage_count"] = int(question.get("usage_count", 0)) + 1
+
+    update_json("questions.json", update_usage)
+
+
+def update_draft_code_exam(exam_id: str, payload: Mapping, actor: str, ip: str) -> dict:
+    exam = get_code_exam(exam_id)
+    if not exam:
+        raise CodeExamError("Code exam was not found", 404)
+    if exam.get("status") != "draft":
+        raise CodeExamError("Only draft code exams can be updated", 409)
+
+    updated_data, snapshots = _validate_code_exam_payload(payload)
+    updated = {
+        **exam,
+        **updated_data,
+        "updated_at": utc_now(),
+    }
+
+    def replace(exams):
+        current = exams.get(exam_id)
+        if not current:
+            raise CodeExamError("Code exam was not found", 404)
+        if current.get("status") != "draft":
+            raise CodeExamError("Only draft code exams can be updated", 409)
+        exams[exam_id] = updated
+
+    update_json("code_exams.json", replace)
+    _update_question_usage_for_exam(exam, snapshots)
+    audit(
+        "code.exam_updated",
+        actor,
+        ip,
+        {"exam_id": exam_id, "question_ids": [item["question_id"] for item in snapshots]},
+    )
+    return updated
 
 
 def list_code_exams() -> list[dict]:
@@ -207,12 +278,12 @@ def _active_context(student_id: str) -> tuple[dict, dict, dict]:
         or assignment.get("release_id") != settings.get("exam_release_id")
     ):
         raise CodeExamError("No active code exam is assigned", 403)
-    if (
-        not assignment.get("started_at")
-        or assignment.get("status") in {"expired", "ended"}
-        or assignment.get("forced_submit")
-    ):
+    if assignment.get("status") in {"expired", "ended"}:
         raise CodeExamError("The assigned exam is not accepting code", 403)
+    if assignment.get("forced_submit"):
+        raise CodeExamError("The assigned exam was force-submitted", 403)
+    if not assignment.get("started_at"):
+        raise CodeExamError("The assigned exam has not started", 403)
     ends_at = assignment.get("ends_at")
     if not ends_at:
         raise CodeExamError("The assigned exam has no server deadline", 403)
@@ -223,7 +294,7 @@ def _active_context(student_id: str) -> tuple[dict, dict, dict]:
     except (TypeError, ValueError) as exc:
         raise CodeExamError("The assigned exam deadline is invalid", 503) from exc
     if datetime.now(timezone.utc) >= deadline:
-        raise CodeExamError("The server-side exam deadline has passed", 403)
+        raise CodeExamError("The server-side exam deadline has passed", 409)
 
     exam_id = assignment.get("code_exam_id")
     exam = get_code_exam(exam_id) if isinstance(exam_id, str) else None
@@ -825,8 +896,8 @@ def submit_code(student_id: str, question_id: str, source_code: str, ip: str) ->
         _RUN_SLOTS.release()
 
     completed = _complete_submission(student_id, record["id"], question, execution, ip)
-    reveal = exam.get("show_final_score_immediately", False) or exam.get("status") == "ended"
-    reveal_exam = reveal and (completed.get("all_questions_submitted") or exam.get("status") == "ended")
+    reveal = exam.get("show_final_score_immediately", False)
+    reveal_exam = reveal and completed.get("all_questions_submitted")
     return _public_submission(completed, reveal_score=reveal, reveal_exam_score=reveal_exam), completed["status"] != "error"
 
 
@@ -847,8 +918,61 @@ def get_student_submission(student_id: str, question_id: str) -> dict:
         raise CodeExamError("No submission was found for this question", 404)
     latest = matching[-1]
     reveal = exam.get("show_final_score_immediately", False) or exam.get("status") == "ended"
-    reveal_exam = reveal and (latest.get("all_questions_submitted") or exam.get("status") == "ended")
+    reveal_exam = reveal and (
+        latest.get("all_questions_submitted") or exam.get("status") == "ended"
+    )
     return _public_submission(latest, reveal_score=reveal, reveal_exam_score=reveal_exam)
+
+
+def release_student_exam_scores(release_id: str) -> None:
+    exams = read_json("code_exams.json")
+    exam = next(
+        (item for item in exams.values() if item.get("release_id") == release_id),
+        None,
+    )
+    if not exam:
+        return
+
+    def update_scores(submissions):
+        for records in submissions.values():
+            latest_by_question = {}
+            for item in records:
+                if (
+                    item.get("exam_id") == exam.get("id")
+                    and item.get("release_id") == release_id
+                    and item.get("status") == "graded"
+                ):
+                    latest_by_question[item.get("question_id")] = item
+            for record in records:
+                if record.get("exam_id") != exam.get("id") or record.get("release_id") != release_id:
+                    continue
+                question_scores = []
+                all_submitted = True
+                for question in exam.get("questions", []):
+                    latest = latest_by_question.get(question["question_id"])
+                    if latest is None:
+                        all_submitted = False
+                    question_scores.append(
+                        {
+                            "question_id": question["question_id"],
+                            "score": latest.get("score", 0) if latest else 0,
+                            "total_points": question["total_points"],
+                        }
+                    )
+                try:
+                    total = grade_exam(question_scores)
+                except GradingError as exc:
+                    raise CodeExamError(f"Could not aggregate the code exam score: {exc}", 503) from exc
+                record.update(
+                    {
+                        "exam_score": total.score,
+                        "exam_total_points": total.total_points,
+                        "all_questions_submitted": all_submitted,
+                        "exam_ended": True,
+                    }
+                )
+
+    update_json("code_submissions.json", update_scores)
 
 
 def get_admin_code_results(

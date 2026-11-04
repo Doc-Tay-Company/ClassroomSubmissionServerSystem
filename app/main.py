@@ -8,6 +8,7 @@ import html
 import json
 import mimetypes
 import os
+import re
 import secrets
 import socket
 import ssl
@@ -49,12 +50,15 @@ from .code_exams import (
     get_student_code_exam,
     get_student_submission,
     get_admin_code_results,
+    get_code_exam,
     list_code_exams,
     publish_question,
     regrade_submission,
     run_pretest,
     submit_code,
     transition_code_exam,
+    update_draft_code_exam,
+    release_student_exam_scores,
 )
 from .java_runner import JDKConfigurationError, JDKNotFoundError, verify_jdk_configuration
 
@@ -198,13 +202,27 @@ class Handler(BaseHTTPRequestHandler):
                     filename=part.get_filename()
                     if filename is not None: files[name]={"filename":filename,"data":payload,"content_type":part.get_content_type()}
                     else: form[name]=payload.decode(part.get_content_charset() or "utf-8", "replace")
-        elif ctype.lower().startswith("application/json"):
+        code_exam_mutation = (
+            urllib.parse.urlsplit(self.path).path == "/api/admin/code-exams"
+            or (
+                self.command == "PUT"
+                and bool(
+                    re.fullmatch(
+                        r"/api/admin/code-exams/[^/]+",
+                        urllib.parse.urlsplit(self.path).path,
+                    )
+                )
+            )
+        )
+        if ctype.lower().startswith("application/json"):
             try:
                 json_body=json.loads(body.decode("utf-8"))
             except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-                raise ClientError(400,"Body JSON không hợp lệ hoặc không phải UTF-8.") from exc
+                status = 422 if code_exam_mutation else 400
+                raise ClientError(status,"Body JSON không hợp lệ hoặc không phải UTF-8.") from exc
             if not isinstance(json_body, dict):
-                raise ClientError(400,"Body JSON phải là một object.")
+                status = 422 if code_exam_mutation else 400
+                raise ClientError(status,"Body JSON phải là một object.")
         return body, RequestData(self,form,files,json_body)
 
     def _request(self, form=None, files=None): return RequestData(self,form,files)
@@ -220,6 +238,9 @@ class Handler(BaseHTTPRequestHandler):
         except SecurityError as e: raise ClientError(e.status,e.detail)
 
     def do_HEAD(self): self.do_GET()
+
+    def do_PUT(self):
+        self.do_POST()
 
     def do_GET(self):
         try:
@@ -288,6 +309,15 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"question":question})
             if path=="/api/admin/code-exams":
                 self._auth(req,"admin"); return self._json({"code_exams":list_code_exams()})
+            if path.startswith("/api/admin/code-exams/") and req.method == "GET":
+                self._auth(req,"admin")
+                exam_id=urllib.parse.unquote(path[len("/api/admin/code-exams/"):].strip("/"))
+                if not exam_id or "/" in exam_id:
+                    raise ClientError(404,"Code exam was not found.")
+                exam=get_code_exam(exam_id)
+                if not exam:
+                    raise ClientError(404,"Code exam was not found.")
+                return self._json({"code_exam":exam})
             if path=="/api/admin/code-results":
                 self._auth(req,"admin")
                 exam_ids=req.query.get("exam_id",[])
@@ -341,6 +371,19 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         try:
             body,req=self._parse_body(); path=req.path; f=req.form; sess=None
+            if getattr(self, "command", "POST") == "PUT" and path.startswith("/api/admin/code-exams/"):
+                sess=self._auth(req,"admin")
+                exam_id=urllib.parse.unquote(path[len("/api/admin/code-exams/"):].strip("/"))
+                if not exam_id or "/" in exam_id:
+                    raise ClientError(404,"Code exam was not found.")
+                payload=self._json_body(req)
+                try:
+                    exam=update_draft_code_exam(exam_id,payload,sess["user_id"],client_ip(req))
+                except CodeExamError as exc:
+                    if exc.status == 400:
+                        raise ClientError(422,str(exc)) from exc
+                    raise
+                return self._json({"ok":True,"code_exam":exam})
             if path=="/login":
                 username=f.get("username","").strip(); password=f.get("password",""); ip=client_ip(req); key=username.casefold()
                 allowed,seconds=login_allowed(key)
@@ -413,8 +456,27 @@ class Handler(BaseHTTPRequestHandler):
                 result=regrade_submission(exam_id,submission_id,sess["user_id"],client_ip(req),use_latest_spec=use_latest_spec)
                 return self._json({"ok":True,"submission":result})
             if path=="/api/admin/code-exams":
-                sess=self._auth(req,"admin"); exam=create_code_exam(self._json_body(req),sess["user_id"],client_ip(req))
+                sess=self._auth(req,"admin")
+                try:
+                    exam=create_code_exam(self._json_body(req),sess["user_id"],client_ip(req))
+                except CodeExamError as exc:
+                    if exc.status == 400:
+                        raise ClientError(422,str(exc)) from exc
+                    raise
                 return self._json({"ok":True,"code_exam":exam},201)
+            if path.startswith("/api/admin/code-exams/") and req.method == "PUT":
+                sess=self._auth(req,"admin")
+                exam_id=urllib.parse.unquote(path[len("/api/admin/code-exams/"):].strip("/"))
+                if not exam_id or "/" in exam_id:
+                    raise ClientError(404,"Code exam was not found.")
+                payload=self._json_body(req)
+                try:
+                    exam=update_draft_code_exam(exam_id,payload,sess["user_id"],client_ip(req))
+                except CodeExamError as exc:
+                    if exc.status == 400:
+                        raise ClientError(422,str(exc)) from exc
+                    raise
+                return self._json({"ok":True,"code_exam":exam})
             if path=="/api/admin/accounts/import":
                 sess=self._auth(req,"admin"); text=f.get("pasted_text",""); file=req.files.get("account_file")
                 if file and file.get("filename"):
@@ -518,6 +580,7 @@ class Handler(BaseHTTPRequestHandler):
                 if not settings.get("exam_released") or not old:
                     raise ClientError(409, "Hiện không có kỳ thi đang diễn ra.")
                 transition_code_exam(old,"ended")
+                release_student_exam_scores(old)
                 settings.update({"exam_state":"ended","exam_released":False,"exam_release_id":None,"exam_release_at":None}); write_json("settings.json",settings); assignments=read_json("assignments.json"); ended=utc_now()
                 for item in assignments.values():
                     if item.get("release_id")==old and item.get("status")!="submitted": item["status"]="ended"; item["ends_at"]=ended
