@@ -51,6 +51,15 @@
     "expires_at": 1793810370.2840195,
     "ip": "127.0.0.1",
     "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:159.0) Gecko/20100101 Firefox/159.0",
-    "last_seen": "2026-11-04T04:40:52+00:00"
+    "last_seen": "2026-11-04T07:14:05+00:00"
+  },
+  "8cae90d3adb6e93846e4e485d738949f629004986ef911fedca85f11b46e9966": {
+    "user_id": "nghia",
+    "role": "admin",
+    "created_at": "2026-11-04T06:29:50+00:00",
+    "expires_at": 1793816990.7707028,
+    "ip": "127.0.0.1",
+    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:159.0) Gecko/20100101 Firefox/159.0",
+    "last_seen": "2026-11-04T08:15:22+00:00"
   }
 }

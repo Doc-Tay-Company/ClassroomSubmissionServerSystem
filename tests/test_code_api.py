@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 from http.server import ThreadingHTTPServer
 import http.client
 import json
@@ -228,6 +229,44 @@ class CodeApiTests(unittest.TestCase):
         assignment = storage.read_json("assignments.json")["student-1"]
         self.assertIsNone(assignment["exam_file"])
         self.assertEqual(assignment["status"], "in_progress")
+
+    def test_java_stdio_question_api_distributes_total_points_equally(self):
+        question = {
+            "id": "java-equal-points",
+            "title": "Java equal points",
+            "statement": "Echo each input.",
+            "language": "java",
+            "grading_mode": "stdio",
+            "target_class": "Main",
+            "time_limit_seconds": 2,
+            "memory_limit_mb": 256,
+            "max_output_bytes": 4096,
+            "total_points": 1,
+            "tests": [
+                {
+                    "id": f"case-{index}",
+                    "stdin": f"{index}\n",
+                    "expected_stdout": f"{index}\n",
+                    "is_visible": index % 2 == 0,
+                    "compare_mode": "exact",
+                }
+                for index in range(10)
+            ],
+        }
+
+        status, response = self.request(
+            "POST",
+            "/api/admin/questions",
+            cookie=self.admin_cookie,
+            payload=question,
+        )
+        self.assertEqual(status, 201, response)
+        points = [test["points"] for test in response["question"]["tests"]]
+        self.assertEqual(points, [0.1] * 10)
+        self.assertEqual(
+            sum((Decimal(str(point)) for point in points), Decimal(0)),
+            Decimal(str(response["question"]["total_points"])),
+        )
 
     def test_pretest_filters_hidden_data_and_does_not_return_score(self):
         self.create_started_code_exam()

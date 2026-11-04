@@ -182,6 +182,63 @@ class QuestionMemoryLimitTests(unittest.TestCase):
             )
 
 
+class JavaStdioQuestionPointsTests(unittest.TestCase):
+    def test_java_stdio_divides_total_points_equally_across_tests(self):
+        question = _validate_question(
+            {
+                "title": "Ten cases",
+                "statement": "",
+                "language": "java",
+                "grading_mode": "stdio",
+                "target_class": "Main",
+                "total_points": 1,
+                "tests": [
+                    {
+                        "id": f"case-{index}",
+                        "stdin": str(index),
+                        "expected_stdout": f"{index}\n",
+                        "is_visible": True,
+                        "points": 100,
+                    }
+                    for index in range(10)
+                ],
+            },
+            question_id="ten-java-cases",
+            actor="admin",
+        )
+
+        points = [test["points"] for test in question["tests"]]
+        self.assertEqual(points, [0.1] * 10)
+        self.assertEqual(sum((Decimal(str(point)) for point in points), Decimal(0)), Decimal(1))
+
+    def test_java_stdio_remainder_keeps_total_exact_for_repeating_division(self):
+        question = _validate_question(
+            {
+                "title": "Three cases",
+                "statement": "",
+                "language": "java",
+                "grading_mode": "stdio",
+                "target_class": "Main",
+                "total_points": 1,
+                "tests": [
+                    {
+                        "id": f"case-{index}",
+                        "stdin": "",
+                        "expected_stdout": "",
+                        "is_visible": True,
+                    }
+                    for index in range(3)
+                ],
+            },
+            question_id="three-java-cases",
+            actor="admin",
+        )
+
+        points = [Decimal(str(test["points"])) for test in question["tests"]]
+        self.assertEqual(sum(points, Decimal(0)), Decimal(1))
+        self.assertLess(max(points) - min(points), Decimal("0.000000000000001"))
+
+
 class WorkspaceTestCase(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -501,6 +558,39 @@ class JavaStdioIntegrationTests(WorkspaceTestCase):
         self.assertEqual((result.verdict, result.score, result.total_points), ("AC", 2, 2))
         self.assertEqual([test.verdict for test in result.tests], ["AC", "AC"])
 
+    def test_java_21_home_compiles_and_runs_stdio(self):
+        from app.java_runner import (
+            compile_java_in_workspace as real_compile_java_in_workspace,
+            verify_jdk_configuration,
+        )
+
+        jdk = verify_jdk_configuration()
+        if not jdk.java_version.startswith("21.") or not jdk.javac_version.startswith("21."):
+            self.skipTest("JAVA_HOME does not select JDK 21")
+        compiled_jdks = []
+
+        def record_compilation(*args, **kwargs):
+            compilation = real_compile_java_in_workspace(*args, **kwargs)
+            compiled_jdks.append(compilation.jdk)
+            return compilation
+
+        with patch(
+            "app.code_runner.compile_java_in_workspace",
+            side_effect=record_compilation,
+        ):
+            result = run_stdio(
+                "public class Main { public static void main(String[] args) { "
+                "System.out.println(\"java21\"); } }",
+                "java",
+                [make_test("java21", "", "java21\n")],
+                target_class="Main",
+                env=dict(os.environ),
+            )
+        self.assertEqual(result.verdict, "AC")
+        self.assertEqual(len(compiled_jdks), 1)
+        self.assertEqual(compiled_jdks[0].java_version, jdk.java_version)
+        self.assertEqual(compiled_jdks[0].javac_version, jdk.javac_version)
+
     def test_java_compile_error_is_ce(self):
         result = run_stdio(
             "package sample; public class Main { syntax error }",
@@ -630,16 +720,20 @@ class JavaStdioIntegrationTests(WorkspaceTestCase):
             created.append(process)
             return process
 
+        # Keep the second JVM within the default Job memory budget; this test targets cleanup.
         source = (
             "public class Main { public static class Child { public static void main(String[] a) "
             "throws Exception { Thread.sleep(30000); } } public static void main(String[] a) "
             "throws Exception { String java=System.getProperty(\"java.home\")+\"\\\\bin\\\\java.exe\"; "
-            "new ProcessBuilder(java, \"-cp\", System.getProperty(\"java.class.path\"), "
+            "new ProcessBuilder(java, \"-Xms16m\", \"-Xmx32m\", \"-cp\", System.getProperty(\"java.class.path\"), "
             "\"Main$Child\").start(); System.out.println(\"done\"); } }"
         )
         with patch("app.java_runner.create_job_process", side_effect=record_job):
             result = run_stdio(
-                source, "java", [make_test("spawn", "", "done\n")], target_class="Main"
+                source,
+                "java",
+                [make_test("spawn", "", "done\n")],
+                target_class="Main",
             )
         self.assertEqual(result.verdict, "AC")
         self.assertGreaterEqual(len(created), 2)  # JDK probes and runtime process.

@@ -158,7 +158,7 @@ Ghi chú này phản ánh code/test có trong checkout, không thay thế sign-o
 - [ ] Mở rộng `app/questions.py` cho `grading_mode=stdio` với cả `language=java` và `language=python`: test gồm `stdin`, `expected_stdout`, `is_visible`, `points`, `compare_mode`.
 - [ ] Rẽ nhánh runner theo `language` + `grading_mode` trong cùng route chạy thử/nộp bài đã làm cho reflection, không tạo hệ thống nộp bài riêng cho stdio.
 - [ ] Dùng lại luật pretest, hiển thị điểm, audit, regrade, force-submit đã làm cho reflection.
-- [ ] Test API stdio bằng gọi trực tiếp: tạo câu hỏi Java stdio và Python stdio → chạy thử → nộp bài → xem kết quả → chấm lại, đều qua với tài khoản admin và sinh viên test.
+- [ ] Test API stdio bằng gọi trực tiếp: tạo câu hỏi Java stdio và Python stdio → chạy thử → nộp bài → xem kết quả → chấm lại, đều qua với tài khoản admin và sinh viên test. Java stdio phải chia đều tổng điểm cho mọi test case; xác nhận runner build/run với JDK 21 được chọn qua `JAVA_HOME`.
 
 ### Người 3 — Frontend (stdio)
 

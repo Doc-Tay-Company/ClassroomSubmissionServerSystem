@@ -15,7 +15,7 @@
   },
   "nghia": {
     "username": "nghia",
-    "password_hash": "scrypt$5284f1161b7c8dc87970af98836d59d8$12b65c56d94ef8b1d7104adafa75a49e6f358caca90edf96b18bd49028467ba5",
+    "password_hash": "scrypt$0f770970581b4cc734f796be3a81700d$f554181570aedf0d772321f30395a533be37afd5477db0025fe4b257cfc9b0fe",
     "active": true,
     "created_at": "2026-11-04T04:39:03+00:00",
     "created_by": "windows-start"

@@ -105,7 +105,7 @@ Trường riêng theo dạng chấm:
 
 - **Java reflection:** mỗi check có `id`, `kind`, `points`, `is_visible`, cộng trường riêng theo kind (xem mục 8).
 - **Stdio (cả Java và Python):** mỗi test có `id`, `stdin`, `expected_stdout`, `is_visible`, `points`, `compare_mode` (xem mục 9).
-- `total_points` phải bằng tổng điểm. Bản tích hợp web phải tự kiểm tra và báo lỗi nếu lệch, không tự sửa điểm.
+- `total_points` phải bằng tổng điểm. Với Java stdio, server chia đều `total_points` cho tất cả test cases và ghi nhận phần dư biểu diễn số ở test cuối; với Python stdio và reflection, cấu hình điểm từng test/check phải tự cộng đúng bằng `total_points`.
 
 ### Đề thi code (`data/code_exams.json`)
 

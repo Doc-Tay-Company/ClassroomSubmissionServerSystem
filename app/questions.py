@@ -1,13 +1,18 @@
 """Question bank validation and persistence for code grading."""
 from __future__ import annotations
 
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, localcontext
 import json
 import re
 import uuid
 from typing import Mapping
 
-from .grading import GradingError, sum_configured_points
+from .grading import (
+    GradingError,
+    parse_nonnegative_decimal,
+    plain_number,
+    sum_configured_points,
+)
 from .storage import audit, read_json, update_json, utc_now
 from .windows_job import MIN_JAVA_JOB_MEMORY_MB
 
@@ -119,11 +124,21 @@ def _validate_question(payload: Mapping, *, question_id: str, actor: str) -> dic
             question.setdefault("target_file", "solution.py")
 
     try:
+        declared = parse_nonnegative_decimal(question.get("total_points"), "total_points")
+        if language == "java" and grading_mode == "stdio":
+            with localcontext() as context:
+                context.prec = max(28, len(declared.as_tuple().digits) + 20)
+                points_per_test = declared / Decimal(len(tests))
+            allocated = Decimal("0")
+            for test in tests[:-1]:
+                test["points"] = plain_number(points_per_test)
+                allocated += Decimal(str(test["points"]))
+            tests[-1]["points"] = plain_number(declared - allocated)
+
         configured_total = sum_configured_points(items, item_name=item_name)
-        declared = Decimal(str(question.get("total_points")))
     except (GradingError, InvalidOperation, TypeError, ValueError) as exc:
         raise QuestionError(str(exc)) from exc
-    if not declared.is_finite() or declared < 0 or declared != configured_total:
+    if declared != configured_total:
         raise QuestionError("total_points must equal the sum of configured check/test points")
 
     question.update(
