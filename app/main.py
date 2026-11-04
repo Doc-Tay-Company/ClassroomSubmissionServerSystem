@@ -55,6 +55,7 @@ from .code_exams import (
     get_admin_code_results,
     list_code_exams,
     publish_question,
+    validate_question_sample,
     regrade_submission,
     run_pretest,
     submit_code,
@@ -253,15 +254,18 @@ class Handler(BaseHTTPRequestHandler):
                 "/admin/submissions":"submissions",
                 "/admin/server":"server",
                 "/admin/admins":"admins",
+                "/admin/exam-management":"exam-management",
             }
             if route_path=="/admin" or route_path in admin_sections:
                 sess=self._auth(req,"admin")
                 section=admin_sections.get(route_path, req.query.get("section", ["dashboard"])[0])
                 if section in {"settings", "distribution"}:
                     section="exam"
-                allowed={"dashboard","monitor","notifications","exam","accounts","submissions","server","admins"}
+                allowed={"dashboard","monitor","notifications","exam","accounts","submissions","server","admins","exam-management"}
                 if section not in allowed: section="dashboard"
-                return self._html(self._render("admin.html",session=sess,section=section,exam_files=list_exam_files(),settings=read_json("settings.json"),monitoring=monitoring_snapshot()))
+                tab=req.query.get("tab", ["questions"])[0]
+                if tab not in {"questions","exams","results"}: tab="questions"
+                return self._html(self._render("admin.html",session=sess,section=section,tab=tab,exam_files=list_exam_files(),settings=read_json("settings.json"),monitoring=monitoring_snapshot()))
             if path=="/admin/accounts-template.txt":
                 self._auth(req,"admin")
                 content="21010001|01/02/2003|Nguyen Van A\n21010002|15/08/2003|Tran Thi B\n"
@@ -398,11 +402,17 @@ class Handler(BaseHTTPRequestHandler):
                 if not question_id or "/" in question_id: raise ClientError(404,"Question was not found.")
                 delete_question(question_id,sess["user_id"],client_ip(req))
                 return self._json({"ok":True})
+            if path.startswith("/api/admin/questions/") and path.endswith("/validate"):
+                sess=self._auth(req,"admin"); question_id=urllib.parse.unquote(path[len("/api/admin/questions/"):-len("/validate")].strip("/")); payload=self._json_body(req)
+                if not question_id or "/" in question_id: raise ClientError(404,"Question was not found.")
+                result=validate_question_sample(question_id,payload.get("sample_source"),sess["user_id"],client_ip(req))
+                infra=result.get("error_category") in {"INVALID_REQUEST","JDK_NOT_FOUND","JUDGE_INFRA_ERROR","PROTOCOL_ERROR"}
+                return self._json({"ok":not infra,**result},503 if infra else 200)
             if path.startswith("/api/admin/questions/") and path.endswith("/publish"):
-                sess=self._auth(req,"admin"); question_id=urllib.parse.unquote(path[len("/api/admin/questions/"):-len("/publish")].strip("/")); payload=self._json_body(req)
-                if not question_id: raise ClientError(400,"question id is required.")
-                question,validation=publish_question(question_id,payload.get("sample_source"),sess["user_id"],client_ip(req))
-                return self._json({"ok":True,"question":question,"validation":validation},200)
+                sess=self._auth(req,"admin"); question_id=urllib.parse.unquote(path[len("/api/admin/questions/"):-len("/publish")].strip("/"))
+                if not question_id or "/" in question_id: raise ClientError(404,"Question was not found.")
+                question=publish_question(question_id,sess["user_id"],client_ip(req))
+                return self._json({"ok":True,"question":question,"validation":question.get("validation")},200)
             if path.startswith("/api/admin/code-results/") and path.endswith("/regrade"):
                 sess=self._auth(req,"admin")
                 exam_id=urllib.parse.unquote(path[len("/api/admin/code-results/"):-len("/regrade")].strip("/"))
@@ -611,8 +621,8 @@ class Handler(BaseHTTPRequestHandler):
             traceback.print_exc(); return self._json({"detail":"Lỗi máy chủ nội bộ."},500)
 
     def _handle_error(self,e):
-        status=getattr(e,"status",500); detail=getattr(e,"detail",str(e))
-        if self.path.startswith("/api/") or self.path.startswith("/admin/submissions/") or self.path=="/api/student/exam": return self._json({"detail":detail},status)
+        status=getattr(e,"status",500); detail=getattr(e,"detail",str(e)); code=getattr(e,"code",None)
+        if self.path.startswith("/api/") or self.path.startswith("/admin/submissions/") or self.path=="/api/student/exam": return self._json({"detail":detail,**({"code":code} if code else {})},status)
         return self._html("<!doctype html><meta charset='utf-8'><title>Lỗi</title><h1>Yêu cầu không thể xử lý</h1><p>"+html.escape(detail)+"</p><p><a href='/'>Quay lại</a></p>",status)
 
     @staticmethod

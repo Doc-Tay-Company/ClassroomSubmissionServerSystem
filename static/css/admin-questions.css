@@ -1,0 +1,29 @@
+.tab-bar{display:flex;gap:8px;border-bottom:1px solid #dbe3ef;margin-bottom:16px}
+.tab-link{padding:10px 16px;color:#475569;text-decoration:none;border-bottom:2px solid transparent}
+.tab-link.active{color:#2563eb;border-bottom-color:#2563eb;font-weight:600}
+.filter-row{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}
+.filter-row input,.filter-row select{min-width:150px}
+.data-table{width:100%;border-collapse:collapse;font-size:14px}
+.data-table th,.data-table td{padding:8px 10px;border-bottom:1px solid #e5eaf2;text-align:left;vertical-align:top}
+.row-actions{display:flex;flex-wrap:wrap;gap:4px;align-items:center}
+.pad{padding:16px}
+.field{display:flex;flex-direction:column;gap:4px;margin-bottom:8px}
+.field>span{font-weight:600;font-size:13px}
+.inline-group{display:inline-flex;gap:8px;align-items:center}
+.code-area{font-family:ui-monospace,Consolas,monospace;font-size:13px;width:100%}
+.code-block{background:#f1f5f9;border:1px solid #dbe3ef;border-radius:6px;padding:10px;overflow:auto;white-space:pre-wrap;font-size:13px}
+.kv-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px}
+.kv{display:flex;flex-direction:column}
+.check-card{border:1px solid #dbe3ef;border-radius:8px;padding:12px;margin-bottom:12px}
+.check-head{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;margin-bottom:8px}
+.case-row{align-items:end}
+input.invalid,textarea.invalid{border-color:#dc2626;outline-color:#dc2626}
+.notice-error{background:#fef2f2;color:#991b1b;border-color:#fecaca}
+.validation-result{margin-top:12px}
+.code-result-detail{margin-top:18px;padding:16px;border:1px solid #dbe3ef;border-radius:10px;background:#fbfcfe}
+.submission-detail-heading{display:flex;justify-content:space-between;align-items:center;gap:12px}
+.submission-source{max-height:520px;white-space:pre;overflow:auto}
+.code-result-value{white-space:pre-wrap;overflow-wrap:anywhere;max-width:320px}
+.regrade-controls{display:flex;align-items:center;gap:10px;flex-wrap:wrap;border-top:1px solid #e5eaf2;margin-top:16px;padding-top:12px}
+.history-entry{margin-top:12px;padding:10px;border:1px solid #e5eaf2;border-radius:8px}
+.history-entry h4{margin:4px 0}
