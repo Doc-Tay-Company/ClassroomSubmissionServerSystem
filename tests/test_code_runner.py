@@ -720,7 +720,7 @@ class JavaStdioIntegrationTests(WorkspaceTestCase):
             created.append(process)
             return process
 
-        # Keep the second JVM within the default Job memory budget; this test targets cleanup.
+        # Budget both JVM processes together; this test targets child cleanup, not MLE.
         source = (
             "public class Main { public static class Child { public static void main(String[] a) "
             "throws Exception { Thread.sleep(30000); } } public static void main(String[] a) "
@@ -734,6 +734,7 @@ class JavaStdioIntegrationTests(WorkspaceTestCase):
                 "java",
                 [make_test("spawn", "", "done\n")],
                 target_class="Main",
+                job_limits=_job_limits({"language": "java", "memory_limit_mb": 512}),
             )
         self.assertEqual(result.verdict, "AC")
         self.assertGreaterEqual(len(created), 2)  # JDK probes and runtime process.
