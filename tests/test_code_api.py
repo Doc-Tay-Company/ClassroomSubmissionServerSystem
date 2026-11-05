@@ -175,11 +175,17 @@ class CodeApiTests(unittest.TestCase):
         )
         self.assertEqual(status, 201, created)
         with patch("app.code_exams.execute_question", return_value=_execution()):
+            status, validation = self.request(
+                "POST",
+                f"/api/admin/questions/{question_id}/validate",
+                cookie=self.admin_cookie,
+                payload={"sample_source": _SAMPLE_SOURCE},
+            )
+            self.assertEqual(status, 200, validation)
             status, published = self.request(
                 "POST",
                 f"/api/admin/questions/{question_id}/publish",
                 cookie=self.admin_cookie,
-                payload={"sample_source": _SAMPLE_SOURCE},
             )
         self.assertEqual(status, 200, published)
         return published["question"]
@@ -194,7 +200,7 @@ class CodeApiTests(unittest.TestCase):
         self.assertEqual(status, 201, result)
         return result["code_exam"]
 
-    def create_started_code_exam(self, *, use_real_runner=False, code_only=True):
+    def create_started_code_exam(self, *, use_real_runner=False):
         question = {
             "id": "echo-question",
             "title": "Echo",
@@ -213,20 +219,26 @@ class CodeApiTests(unittest.TestCase):
         status, created = self.request("POST", "/api/admin/questions", cookie=self.admin_cookie, payload=question)
         self.assertEqual(status, 201, created)
         if use_real_runner:
-            status, published = self.request(
+            status, validation = self.request(
                 "POST",
-                "/api/admin/questions/echo-question/publish",
+                "/api/admin/questions/echo-question/validate",
                 cookie=self.admin_cookie,
                 payload={"sample_source": _SAMPLE_SOURCE},
             )
         else:
             with patch("app.code_exams.execute_question", return_value=_execution()):
-                status, published = self.request(
+                status, validation = self.request(
                     "POST",
-                    "/api/admin/questions/echo-question/publish",
+                    "/api/admin/questions/echo-question/validate",
                     cookie=self.admin_cookie,
                     payload={"sample_source": "print(input())\n"},
                 )
+        self.assertEqual(status, 200, validation)
+        status, published = self.request(
+            "POST",
+            "/api/admin/questions/echo-question/publish",
+            cookie=self.admin_cookie,
+        )
         self.assertEqual(status, 200, published)
         status, created_exam = self.request(
             "POST",
@@ -241,11 +253,9 @@ class CodeApiTests(unittest.TestCase):
         )
         self.assertEqual(status, 201, created_exam)
         exam_id = created_exam["code_exam"]["id"]
-        distribution = {"mode": "random", "code_exam_id": exam_id, "code_only": str(code_only).lower()}
-        if not code_only:
-            distribution["exam_files"] = "mock-exam.pdf"
+        distribution = {"mode": "random", "code_exam_id": exam_id, "code_only": "true"}
         body = urllib.parse.urlencode(distribution).encode()
-        files = [{"name": "mock-exam.pdf"}] if not code_only else []
+        files = []
         with patch("app.exams.list_exam_files", return_value=files):
             status, distributed = self.request(
                 "POST",
@@ -260,6 +270,91 @@ class CodeApiTests(unittest.TestCase):
         status, student_started = self.request("POST", "/api/student/start", cookie=self.student_cookie, raw_body=b"")
         self.assertEqual(status, 200, student_started)
         return exam_id
+
+    def test_exam_records_reject_mixed_types_and_require_one_type_to_publish(self):
+        mixed = {
+            "title": "Mixed exam",
+            "items": [
+                {"type": "code", "question_ids": ["echo-question"]},
+                {
+                    "type": "zip",
+                    "distribution_mode": "selected",
+                    "distribution_config": {"exam_files": ["exam.pdf"]},
+                },
+            ],
+        }
+        status, result = self.request(
+            "POST", "/api/admin/exam-records", cookie=self.admin_cookie, payload=mixed
+        )
+        self.assertEqual(status, 400, result)
+        self.assertEqual(result["fields"], ["items"])
+
+        status, created = self.request(
+            "POST",
+            "/api/admin/exam-records",
+            cookie=self.admin_cookie,
+            payload={"title": "Empty draft", "items": []},
+        )
+        self.assertEqual(status, 201, created)
+        status, result = self.request(
+            "POST",
+            f"/api/admin/exam-records/{created['exam']['id']}/publish",
+            cookie=self.admin_cookie,
+        )
+        self.assertEqual(status, 400, result)
+        self.assertIn("items", result["fields"])
+
+    def test_zip_only_exam_publishes_without_a_code_snapshot(self):
+        payload = {
+            "title": "ZIP-only exam",
+            "config": {"participants": ["student1"]},
+            "items": [
+                {
+                    "type": "zip",
+                    "distribution_mode": "selected",
+                    "distribution_config": {"exam_files": ["exam.pdf"]},
+                }
+            ],
+        }
+        with patch("app.general_exams.list_exam_files", return_value=[{"name": "exam.pdf"}]), patch(
+            "app.exams.list_exam_files", return_value=[{"name": "exam.pdf"}]
+        ):
+            status, created = self.request(
+                "POST", "/api/admin/exam-records", cookie=self.admin_cookie, payload=payload
+            )
+            self.assertEqual(status, 201, created)
+            status, published = self.request(
+                "POST",
+                f"/api/admin/exam-records/{created['exam']['id']}/publish",
+                cookie=self.admin_cookie,
+            )
+        self.assertEqual(status, 200, published)
+        self.assertEqual(published["exam"]["status"], "distributed")
+        self.assertEqual([item["type"] for item in published["exam"]["items"]], ["zip"])
+        self.assertEqual(storage.read_json("code_exams.json"), {})
+
+    def test_legacy_distribution_rejects_mixed_code_and_file_exam(self):
+        requests = (
+            {"mode": "selected", "exam_files": "exam.pdf", "code_exam_id": "code-exam-1", "code_only": "false"},
+            {"mode": "selected", "exam_files": "exam.pdf", "code_exam_id": "code-exam-1", "code_only": "true"},
+        )
+        with patch("app.exams.list_exam_files", return_value=[{"name": "exam.pdf"}]), patch(
+            "app.exams.prepare_code_exam_distribution"
+        ) as prepare:
+            for payload in requests:
+                with self.subTest(code_only=payload["code_only"]):
+                    body = urllib.parse.urlencode(payload).encode()
+                    status, result = self.request(
+                        "POST",
+                        "/api/admin/distribute",
+                        cookie=self.admin_cookie,
+                        raw_body=body,
+                        content_type="application/x-www-form-urlencoded",
+                    )
+                    self.assertEqual(status, 400, result)
+                    self.assertIn("không thể kết hợp", result["detail"])
+        prepare.assert_not_called()
+        self.assertFalse(storage.read_json("settings.json")["exam_released"])
 
     def test_admin_publish_snapshot_and_code_only_lifecycle(self):
         self.create_started_code_exam()
@@ -309,6 +404,20 @@ class CodeApiTests(unittest.TestCase):
             storage.read_json("code_exams.json")[exam_id]["questions"][0]["statement"],
             original_first_snapshot["statement"],
         )
+        with patch("app.code_exams.execute_question", return_value=_execution()):
+            status, validation = self.request(
+                "POST",
+                "/api/admin/questions/first-question/validate",
+                cookie=self.admin_cookie,
+                payload={"sample_source": _SAMPLE_SOURCE},
+            )
+        self.assertEqual(status, 200, validation)
+        status, republished = self.request(
+            "POST",
+            "/api/admin/questions/first-question/publish",
+            cookie=self.admin_cookie,
+        )
+        self.assertEqual(status, 200, republished)
 
         payload = {
             "title": "Reordered and refreshed",
@@ -331,7 +440,7 @@ class CodeApiTests(unittest.TestCase):
         self.assertEqual([item["question_id"] for item in refreshed["questions"]], payload["question_ids"])
         self.assertEqual([item["order"] for item in refreshed["questions"]], [0, 1])
         self.assertEqual(refreshed["questions"][1]["statement"], "Updated after exam creation.")
-        self.assertEqual(refreshed["questions"][1]["snapshot_version"], updated["question"]["version"])
+        self.assertEqual(refreshed["questions"][1]["snapshot_version"], republished["question"]["version"])
         self.assertEqual(refreshed["created_at"], exam["created_at"])
         usages_after_update = storage.read_json("questions.json")
         self.assertEqual(
@@ -585,31 +694,8 @@ class CodeApiTests(unittest.TestCase):
         self.assertEqual(storage.read_json("assignments.json")["student-1"]["status"], "submitted")
         self.assertNotIn("secret-expected", json.dumps(submitted))
 
-    def test_submit_keeps_score_private_until_exam_ends_and_keeps_zip_route(self):
+    def test_code_submission_keeps_score_private_until_exam_ends(self):
         self.create_started_code_exam()
-        boundary = "css-zip-boundary"
-        zip_body = (
-            f"--{boundary}\r\n"
-            'Content-Disposition: form-data; name="file"; filename="answer.zip"\r\n'
-            "Content-Type: application/zip\r\n\r\n"
-        ).encode() + b"PK\x03\x04dummy\r\n" + f"--{boundary}--\r\n".encode()
-        def accept_zip(*args):
-            assignments = storage.read_json("assignments.json")
-            assignments["student-1"]["status"] = "submitted"
-            storage.write_json("assignments.json", assignments)
-            return {"filename": "answer.zip"}
-
-        with patch("app.main.accept_submission", side_effect=accept_zip) as accept:
-            status, zip_result = self.request(
-                "POST",
-                "/api/student/submit",
-                cookie=self.student_cookie,
-                raw_body=zip_body,
-                content_type=f"multipart/form-data; boundary={boundary}",
-            )
-        self.assertEqual(status, 200, zip_result)
-        accept.assert_called_once()
-
         with patch("app.code_exams.execute_question", return_value=_execution()):
             status, result = self.request(
                 "POST",
@@ -634,6 +720,24 @@ class CodeApiTests(unittest.TestCase):
         self.assertEqual(final["score"], 10)
         self.assertEqual([item["id"] for item in final["results"]], ["visible"])
         self.assertNotIn("secret-expected", json.dumps(final))
+
+    def test_code_only_exam_rejects_file_submission(self):
+        self.create_started_code_exam()
+        boundary = "css-code-only-boundary"
+        body = (
+            f"--{boundary}\r\n"
+            'Content-Disposition: form-data; name="file"; filename="answer.zip"\r\n'
+            "Content-Type: application/zip\r\n\r\n"
+        ).encode() + b"PK\x03\x04dummy\r\n" + f"--{boundary}--\r\n".encode()
+        status, result = self.request(
+            "POST",
+            "/api/student/submit",
+            cookie=self.student_cookie,
+            raw_body=body,
+            content_type=f"multipart/form-data; boundary={boundary}",
+        )
+        self.assertEqual(status, 400, result)
+        self.assertEqual(storage.read_json("assignments.json")["student-1"]["status"], "in_progress")
 
     def test_admin_code_results_include_hidden_details_and_require_admin_role(self):
         exam_id = self.create_started_code_exam()
@@ -754,7 +858,21 @@ class CodeApiTests(unittest.TestCase):
             payload=current,
         )
         self.assertEqual(status, 200, updated)
-        new_version = updated["question"]["version"]
+        with patch("app.code_exams.execute_question", return_value=_execution()):
+            status, validation = self.request(
+                "POST",
+                "/api/admin/questions/echo-question/validate",
+                cookie=self.admin_cookie,
+                payload={"sample_source": _SAMPLE_SOURCE},
+            )
+        self.assertEqual(status, 200, validation)
+        status, republished = self.request(
+            "POST",
+            "/api/admin/questions/echo-question/publish",
+            cookie=self.admin_cookie,
+        )
+        self.assertEqual(status, 200, republished)
+        new_version = republished["question"]["version"]
 
         with patch(
             "app.code_exams.execute_question",
@@ -877,13 +995,19 @@ class CodeApiTests(unittest.TestCase):
         )
         self.assertEqual(status, 201)
         with patch("app.code_exams.execute_question", return_value=_execution()):
-            status, _ = self.request(
+            status, validation = self.request(
                 "POST",
-                "/api/admin/questions/echo-question/publish",
+                "/api/admin/questions/echo-question/validate",
                 cookie=self.admin_cookie,
                 payload={"sample_source": _SAMPLE_SOURCE},
             )
-        self.assertEqual(status, 200)
+        self.assertEqual(status, 200, validation)
+        status, published = self.request(
+            "POST",
+            "/api/admin/questions/echo-question/publish",
+            cookie=self.admin_cookie,
+        )
+        self.assertEqual(status, 200, published)
         status, created = self.request(
             "POST",
             "/api/admin/code-exams",
@@ -927,38 +1051,6 @@ class CodeApiTests(unittest.TestCase):
         self.assertEqual(result["submission"]["score"], 10)
         self.assertEqual(result["submission"]["exam_score"], 10)
         self.assertNotIn("secret-expected", json.dumps(result))
-
-    def test_code_completion_does_not_prevent_combined_exam_zip_submission(self):
-        self.create_started_code_exam(code_only=False)
-        assignments = storage.read_json("assignments.json")
-        self.assertEqual(assignments["student-1"]["exam_file"], "mock-exam.pdf")
-        with patch("app.code_exams.execute_question", return_value=_execution()):
-            status, submitted = self.request(
-                "POST",
-                "/api/student/code/submit",
-                cookie=self.student_cookie,
-                payload={"question_id": "echo-question", "source_code": "print(input())\n"},
-            )
-        self.assertEqual(status, 201, submitted)
-        assignments = storage.read_json("assignments.json")
-        self.assertEqual(assignments["student-1"]["status"], "in_progress")
-
-        boundary = "combined-zip-boundary"
-        body = (
-            f"--{boundary}\r\n"
-            'Content-Disposition: form-data; name="file"; filename="answer.zip"\r\n'
-            "Content-Type: application/zip\r\n\r\n"
-        ).encode() + b"PK\x03\x04dummy\r\n" + f"--{boundary}--\r\n".encode()
-        with patch("app.main.accept_submission", return_value={"filename": "answer.zip"}):
-            status, zip_result = self.request(
-                "POST",
-                "/api/student/submit",
-                cookie=self.student_cookie,
-                raw_body=body,
-                content_type=f"multipart/form-data; boundary={boundary}",
-            )
-        self.assertEqual(status, 200, zip_result)
-
 
 if __name__ == "__main__":
     unittest.main()

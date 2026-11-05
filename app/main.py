@@ -36,7 +36,9 @@ from .accounts import parse_accounts
 from .http import inline_filename_header
 from .storage import initialize, read_json, write_json, audit, utc_now
 from .security import hash_password, verify_password, new_session, get_session, require_user, client_ip, login_allowed, record_login_failure, clear_login_failures, logout_session, SecurityError
-from .exams import list_exam_files, distribute_exams, start_exam, start_exam_session, remaining_seconds
+from .exams import list_exam_files, distribute_exams, start_exam, start_exam_session, end_exam_session, remaining_seconds
+from . import general_exams
+from .general_exams import ExamError
 from .submissions import accept_submission
 from .questions import (
     QuestionError,
@@ -263,12 +265,13 @@ class Handler(BaseHTTPRequestHandler):
                 if not sess: return self._redirect("/login")
                 if sess["role"]=="admin": return self._redirect("/admin")
                 student=self._get_user_record(sess); assignment=current_exam_for(sess["user_id"]); settings=read_json("settings.json")
-                return self._html(self._render("student.html",session=sess,student=student,assignment=assignment,settings=settings,remaining=remaining_seconds(assignment or {}) if assignment and assignment.get("started_at") else None))
+                return self._html(self._render("student.html",session=sess,student=student,published_exams=general_exams.published_for_students(sess["user_id"]),assignment=assignment,settings=settings,remaining=remaining_seconds(assignment or {}) if assignment and assignment.get("started_at") else None))
             admin_sections={
                 "/admin/dashboard":"dashboard",
                 "/admin/monitor":"monitor",
                 "/admin/notifications":"notifications",
                 "/admin/exam":"exam",
+                "/admin/exams":"exams",
                 "/admin/settings":"exam",
                 "/admin/distribution":"exam",
                 "/admin/accounts":"accounts",
@@ -282,11 +285,11 @@ class Handler(BaseHTTPRequestHandler):
                 section=admin_sections.get(route_path, req.query.get("section", ["dashboard"])[0])
                 if section in {"settings", "distribution"}:
                     section="exam"
-                allowed={"dashboard","monitor","notifications","exam","accounts","submissions","server","admins","exam-management"}
+                allowed={"dashboard","monitor","notifications","exam","exams","accounts","submissions","server","admins","exam-management"}
                 if section not in allowed: section="dashboard"
                 tab=req.query.get("tab", ["questions"])[0]
                 if tab not in {"questions","exams","results"}: tab="questions"
-                return self._html(self._render("admin.html",session=sess,section=section,tab=tab,exam_files=list_exam_files(),settings=read_json("settings.json"),monitoring=monitoring_snapshot()))
+                return self._html(self._render("admin.html",session=sess,section=section,tab=tab,exam_id=req.query.get("id",[""])[0],exam_files=list_exam_files(),settings=read_json("settings.json"),monitoring=monitoring_snapshot()))
             if path=="/admin/accounts-template.txt":
                 self._auth(req,"admin")
                 content="21010001|01/02/2003|Nguyen Van A\n21010002|15/08/2003|Tran Thi B\n"
@@ -315,6 +318,13 @@ class Handler(BaseHTTPRequestHandler):
                 if not question:
                     raise ClientError(404, "Question was not found.")
                 return self._json({"question":question})
+            if path=="/api/admin/exam-records":
+                self._auth(req,"admin"); return self._json({"exams":general_exams.list_exams()})
+            if path.startswith("/api/admin/exam-records/"):
+                self._auth(req,"admin")
+                exam_id=urllib.parse.unquote(path[len("/api/admin/exam-records/"):]).strip("/")
+                if not exam_id or "/" in exam_id: raise ClientError(404,"Không tìm thấy kỳ thi.")
+                return self._json({"exam":general_exams.get_exam(exam_id)})
             if path=="/api/admin/code-exams":
                 self._auth(req,"admin"); return self._json({"code_exams":list_code_exams()})
             if path.startswith("/api/admin/code-exams/") and req.method == "GET":
@@ -350,7 +360,7 @@ class Handler(BaseHTTPRequestHandler):
                 sess=self._auth(req,"student"); item=current_exam_for(sess["user_id"]); settings=read_json("settings.json")
                 notifications=read_json("notifications.json", [])
                 personal=[item for item in notifications if item.get("student_id") in (None, sess["user_id"])]
-                return self._json({"assigned":bool(item),"started":bool(item and item.get("started_at")),"exam_file":item.get("exam_file") if item and item.get("started_at") else None,"status":item.get("status") if item else "not_assigned","remaining_seconds":remaining_seconds(item or {}) if item and item.get("started_at") else None,"started_at":item.get("started_at") if item else None,"ends_at":item.get("ends_at") if item else None,"server_time":utc_now(),"exam_state":settings.get("exam_state","idle"),"notifications":personal[-10:],"exam_password_enabled":settings.get("exam_password_enabled",False),"accepted_submission_extensions":settings.get("accepted_submission_extensions",[".zip"])})
+                return self._json({"assigned":bool(item),"started":bool(item and item.get("started_at")),"exam_file":item.get("exam_file") if item and item.get("started_at") else None,"status":item.get("status") if item else "not_assigned","remaining_seconds":remaining_seconds(item or {}) if item and item.get("started_at") else None,"started_at":item.get("started_at") if item else None,"ends_at":item.get("ends_at") if item else None,"server_time":utc_now(),"exam_state":settings.get("exam_state","idle"),"notifications":personal[-10:],"exam_password_enabled":settings.get("exam_password_enabled",False),                "accepted_submission_extensions":settings.get("accepted_submission_extensions",[".zip"]),"published_exams":general_exams.published_for_students(sess["user_id"])})
             if path=="/api/student/code-exam":
                 sess=self._auth(req,"student"); return self._json(get_student_code_exam(sess["user_id"]))
             if path=="/api/student/code/submission":
@@ -367,7 +377,7 @@ class Handler(BaseHTTPRequestHandler):
                 audit("admin.submission_downloaded",sess["user_id"],client_ip(req),{"student_id":sid,"filename":filename})
                 return self._send(200,target.read_bytes(),mimetypes.guess_type(target.name)[0] or "application/octet-stream",{"Content-Disposition":f'attachment; filename="{target.name}"'})
             return self._send(404,"Không tìm thấy trang.")
-        except (ClientError, SecurityError, CodeExamError, QuestionError) as e: return self._handle_error(e)
+        except (ClientError, SecurityError, CodeExamError, QuestionError, ExamError) as e: return self._handle_error(e)
         except Exception:
             traceback.print_exc(); return self._json({"detail":"Lỗi máy chủ nội bộ."},500)
 
@@ -469,6 +479,18 @@ class Handler(BaseHTTPRequestHandler):
                     raise ClientError(400,"use_latest_spec must be a boolean.")
                 result=regrade_submission(exam_id,submission_id,sess["user_id"],client_ip(req),use_latest_spec=use_latest_spec)
                 return self._json({"ok":True,"submission":result})
+            if path=="/api/admin/exam-records":
+                sess=self._auth(req,"admin")
+                return self._json({"ok":True,"exam":general_exams.create_exam(self._json_body(req),sess["user_id"],client_ip(req))},201)
+            if path.startswith("/api/admin/exam-records/"):
+                sess=self._auth(req,"admin"); parts=[urllib.parse.unquote(x) for x in path[len("/api/admin/exam-records/"):].strip("/").split("/")]
+                if len(parts)!=2: raise ClientError(404,"Không tìm thấy endpoint.")
+                exam_id,action=parts; actor=sess["user_id"]; ip=client_ip(req)
+                if action=="update": return self._json({"ok":True,"exam":general_exams.update_exam(exam_id,self._json_body(req),actor,ip)})
+                actions={"publish":general_exams.publish_exam,"revoke":general_exams.revoke_exam,"start":general_exams.start_exam,"end":general_exams.end_exam,"copy":general_exams.copy_exam}
+                if action in actions: return self._json({"ok":True,"exam":actions[action](exam_id,actor,ip)})
+                if action=="delete": return self._json({"ok":True,**general_exams.delete_exam(exam_id,actor,ip)})
+                raise ClientError(404,"Không tìm thấy endpoint.")
             if path=="/api/admin/code-exams":
                 sess=self._auth(req,"admin")
                 try:
@@ -590,15 +612,11 @@ class Handler(BaseHTTPRequestHandler):
                 except (ValueError,json.JSONDecodeError) as e: raise ClientError(400,str(e))
                 audit("admin.exam_distributed",sess["user_id"],client_ip(req),{"release_id":result["release_id"],"mode":mode}); return self._json(result)
             if path=="/api/admin/end-exam":
-                sess=self._auth(req,"admin"); settings=read_json("settings.json"); old=settings.get("exam_release_id")
-                if not settings.get("exam_released") or not old:
-                    raise ClientError(409, "Hiện không có kỳ thi đang diễn ra.")
-                transition_code_exam(old,"ended")
-                release_student_exam_scores(old)
-                settings.update({"exam_state":"ended","exam_released":False,"exam_release_id":None,"exam_release_at":None}); write_json("settings.json",settings); assignments=read_json("assignments.json"); ended=utc_now()
-                for item in assignments.values():
-                    if item.get("release_id")==old and item.get("status")!="submitted": item["status"]="ended"; item["ends_at"]=ended
-                write_json("assignments.json",assignments); audit("admin.exam_ended",sess["user_id"],client_ip(req),{"release_id":old,"ended_at":ended})
+                sess=self._auth(req,"admin")
+                try: ended=end_exam_session()
+                except ValueError as e: raise ClientError(409,str(e))
+                release_student_exam_scores(ended["release_id"])
+                audit("admin.exam_ended",sess["user_id"],client_ip(req),{"release_id":ended["release_id"],"ended_at":ended["ended_at"]})
                 return self._json({"ok":True,"note":"Lượt thi đã kết thúc; các đề đã phát của lượt cũ vẫn được giữ trong log nhưng không còn cho phép bắt đầu mới."})
             if path=="/api/admin/start-exam":
                 self._auth(req,"admin")
@@ -679,13 +697,13 @@ class Handler(BaseHTTPRequestHandler):
                 admins[username]={"username":username,"password_hash":hash_password(password),"active":True,"created_at":utc_now(),"created_by":sess["user_id"]}; write_json("admins.json",admins); audit("admin.admin_created",sess["user_id"],client_ip(req),{"new_admin":username})
                 return self._json({"ok":True,"username":username})
             return self._json({"detail":"Không tìm thấy endpoint."},404)
-        except (ClientError, SecurityError, CodeExamError, QuestionError) as e: return self._handle_error(e)
+        except (ClientError, SecurityError, CodeExamError, QuestionError, ExamError) as e: return self._handle_error(e)
         except Exception:
             traceback.print_exc(); return self._json({"detail":"Lỗi máy chủ nội bộ."},500)
 
     def _handle_error(self,e):
-        status=getattr(e,"status",500); detail=getattr(e,"detail",str(e)); code=getattr(e,"code",None)
-        if self.path.startswith("/api/") or self.path.startswith("/admin/submissions/") or self.path=="/api/student/exam": return self._json({"detail":detail,**({"code":code} if code else {})},status)
+        status=getattr(e,"status",500); detail=getattr(e,"detail",str(e)); code=getattr(e,"code",None); fields=getattr(e,"fields",None)
+        if self.path.startswith("/api/") or self.path.startswith("/admin/submissions/") or self.path=="/api/student/exam": return self._json({"detail":detail,**({"code":code} if code else {}),**({"fields":fields} if fields else {})},status)
         return self._html("<!doctype html><meta charset='utf-8'><title>Lỗi</title><h1>Yêu cầu không thể xử lý</h1><p>"+html.escape(detail)+"</p><p><a href='/'>Quay lại</a></p>",status)
 
     @staticmethod

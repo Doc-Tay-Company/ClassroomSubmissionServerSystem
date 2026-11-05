@@ -38,6 +38,12 @@ def validate_zip(data: bytes) -> tuple[bool, str]:
 
 def accept_submission(student_id: str, original_name: str, data: bytes, ip: str) -> dict:
     settings = read_json("settings.json")
+    assignments = read_json("assignments.json")
+    assignment = assignments.get(student_id)
+    if not settings.get("exam_released") or not assignment or assignment.get("release_id") != settings.get("exam_release_id"):
+        raise ValueError("Lượt thi đã kết thúc hoặc bạn chưa được giao đề.")
+    if not assignment.get("exam_file"):
+        raise ValueError("Kỳ thi này không nhận bài nộp file.")
     extension = Path(original_name).suffix.lower()
     accepted = {
         str(item).lower() if str(item).startswith(".") else f".{str(item).lower()}"
@@ -49,10 +55,6 @@ def accept_submission(student_id: str, original_name: str, data: bytes, ip: str)
         ok, message = validate_zip(data)
         if not ok:
             raise ValueError(message)
-    assignments = read_json("assignments.json")
-    assignment = assignments.get(student_id)
-    if not settings.get("exam_released") or not assignment or assignment.get("release_id") != settings.get("exam_release_id"):
-        raise ValueError("Lượt thi đã kết thúc hoặc bạn chưa được giao đề.")
     if not assignment.get("started_at"):
         raise ValueError("Bạn chưa bắt đầu làm bài.")
     if assignment.get("status") in {"submitted", "expired"} and settings.get("submission_policy") != "configurable":

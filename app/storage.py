@@ -34,6 +34,7 @@ DEFAULTS = {
     "submissions.json": {},
     "questions.json": {},
     "code_exams.json": {},
+    "exams.json": {},
     "code_submissions.json": {},
     "code_runs.json": [],
     "sessions.json": {},
@@ -94,6 +95,10 @@ def read_json(name: str, default: Any = None) -> Any:
 def write_json(name: str, value: Any) -> None:
     with _LOCK:
         atomic_write(_path(name), value)
+
+def transaction():
+    """Re-entrant process lock for multi-file read-check-write sequences."""
+    return _LOCK
 
 def update_json(name: str, mutator):
     with _LOCK:
