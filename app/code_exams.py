@@ -15,7 +15,7 @@ from typing import Mapping
 from .code_runner import run_stdio
 from .grading import GradingError, grade_exam, grade_reflection, grade_stdio
 from .java_runner import run_reflection_judge
-from .questions import QuestionError, compute_spec_hash, get_question
+from .questions import QuestionError, _validate_question, compute_spec_hash, get_question
 from .storage import audit, read_json, update_json, utc_now
 from .windows_job import DEFAULT_JOB_LIMITS, MIN_JAVA_JOB_MEMORY_MB, JobLimits
 
@@ -406,7 +406,29 @@ def get_student_code_exam(student_id: str) -> dict:
         or bool(assignment.get("forced_submit"))
         or expired
     )
-    return {
+    reveal = exam.get("show_final_score_immediately", False) or exam.get("status") == "ended"
+    student_records = [
+        item
+        for item in read_json("code_submissions.json").get(student_id, [])
+        if item.get("exam_id") == exam["id"] and item.get("release_id") == exam.get("release_id")
+    ]
+    progress = []
+    all_submitted = True
+    for question in exam["questions"]:
+        records = [item for item in student_records if item.get("question_id") == question["question_id"]]
+        latest = records[-1] if records else None
+        entry = {
+            "question_id": question["question_id"],
+            "submitted": latest is not None,
+            "submission_count": len(records),
+            "status": _public_submission(latest, reveal_score=False)["status"] if latest else "none",
+        }
+        if latest is None:
+            all_submitted = False
+        if reveal and latest and latest.get("status") == "graded":
+            entry.update({"score": latest.get("score"), "total_points": latest.get("total_points"), "verdict": latest.get("verdict")})
+        progress.append(entry)
+    result = {
         "exam_id": exam["id"],
         "title": exam["title"],
         "release_id": exam["release_id"],
@@ -416,8 +438,13 @@ def get_student_code_exam(student_id: str) -> dict:
         "submission_policy": exam.get("submission_policy"),
         "max_submissions": exam.get("max_submissions"),
         "read_only": read_only,
-        "questions": [public_question(question) for question in exam["questions"]],
+        "total_points": sum(float(item["total_points"]) for item in exam["questions"]),
+        "progress": progress,
+        "questions": [{**public_question(question), "total_points": question["total_points"]} for question in exam["questions"]],
     }
+    if reveal and all_submitted and all("score" in item for item in progress):
+        result["exam_score"] = sum(float(item["score"] or 0) for item in progress)
+    return result
 
 
 def _validate_source(source: str) -> str:
@@ -1143,8 +1170,115 @@ def get_admin_code_results(
     return {
         "exam_id": exam_id,
         "release_id": exam.get("release_id"),
+        "status": exam.get("status"),
+        "title": exam.get("title"),
+        "questions": [
+            {"question_id": q["question_id"], "title": q.get("title", ""), "total_points": q["total_points"], "language": q.get("language"), "grading_mode": q.get("grading_mode")}
+            for q in exam.get("questions", [])
+        ],
+        "matrix": _results_matrix(exam, submissions, student_id),
         "submissions": rows,
     }
+
+
+def _results_matrix(exam: dict, submissions: Mapping, only_student: str | None) -> list[dict]:
+    """One row per student, one cell per question in exam order; scores follow the latest graded submission."""
+    names = {sid: item.get("full_name", "") for sid, item in read_json("students.json").items()}
+    matrix = []
+    for owner_id, records in submissions.items():
+        if only_student is not None and owner_id != only_student:
+            continue
+        mine = [r for r in records if r.get("exam_id") == exam["id"] and r.get("release_id") == exam.get("release_id")]
+        if not mine:
+            continue
+        cells, scores = [], []
+        for question in exam.get("questions", []):
+            qid = question["question_id"]
+            attempts = [r for r in mine if r.get("question_id") == qid]
+            graded = [r for r in attempts if r.get("status") == "graded"]
+            latest = attempts[-1] if attempts else None
+            score = graded[-1].get("score", 0) if graded else 0
+            scores.append({"question_id": qid, "score": score, "total_points": question["total_points"]})
+            cells.append(
+                {
+                    "question_id": qid,
+                    "attempts": len(attempts),
+                    "status": latest.get("status") if latest else "none",
+                    "verdict": latest.get("verdict") if latest else None,
+                    "score": score,
+                    "total_points": question["total_points"],
+                    "submission_id": latest.get("id") if latest else None,
+                    "regraded": any(r.get("grading_history") for r in attempts),
+                }
+            )
+        try:
+            total = grade_exam(scores)
+            total_score, total_points = total.score, total.total_points
+        except GradingError:
+            total_score, total_points = None, None
+        matrix.append({"student_id": owner_id, "full_name": names.get(owner_id, ""), "cells": cells, "total_score": total_score, "total_points": total_points})
+    matrix.sort(key=lambda item: item["student_id"])
+    return matrix
+
+
+def regrade_student_exam(
+    exam_id: str,
+    student_id: str,
+    actor: str,
+    ip: str,
+    *,
+    question_id: str | None = None,
+    use_latest_spec: bool = False,
+) -> dict:
+    """Regrade the latest completed submission of each question (or one question) for one student."""
+    exam = get_code_exam(exam_id)
+    if not exam:
+        raise CodeExamError("Code exam was not found", 404)
+    if exam.get("status") != "ended":
+        raise CodeExamError("Only ended code exams can be regraded", 409)
+    if not isinstance(student_id, str) or not student_id:
+        raise CodeExamError("student_id is required")
+    question_ids = [q["question_id"] for q in exam.get("questions", [])]
+    if question_id is not None:
+        if question_id not in question_ids:
+            raise CodeExamError("Question is not part of this code exam", 404)
+        question_ids = [question_id]
+    records = [
+        item
+        for item in read_json("code_submissions.json").get(student_id, [])
+        if item.get("exam_id") == exam_id and item.get("release_id") == exam.get("release_id")
+    ]
+    if not records:
+        raise CodeExamError("This student has no submissions for this code exam", 404)
+    regraded, failed, skipped = [], [], []
+    for qid in question_ids:
+        done = [item for item in records if item.get("question_id") == qid and item.get("status") in {"graded", "error"}]
+        if not done:
+            skipped.append({"question_id": qid, "reason": "Chưa có bài nộp đã chấm."})
+            continue
+        target = done[-1]
+        try:
+            updated = regrade_submission(exam_id, target["id"], actor, ip, use_latest_spec=use_latest_spec)
+            regraded.append({"question_id": qid, "submission_id": target["id"], "verdict": updated.get("verdict"), "score": updated.get("score")})
+        except CodeExamError as exc:
+            failed.append({"question_id": qid, "submission_id": target["id"], "error": str(exc), "status": exc.status})
+    if regraded:
+        release_student_exam_scores(exam["release_id"])
+    audit(
+        "code.bulk_regrade",
+        actor,
+        ip,
+        {
+            "exam_id": exam_id,
+            "student_id": student_id,
+            "scope": "question" if question_id else "exam",
+            "regraded": len(regraded),
+            "failed": len(failed),
+            "skipped": len(skipped),
+            "use_latest_spec": use_latest_spec,
+        },
+    )
+    return {"exam_id": exam_id, "student_id": student_id, "regraded": regraded, "failed": failed, "skipped": skipped}
 
 
 def regrade_submission(
@@ -1255,6 +1389,15 @@ def _sample_passes(question: Mapping, execution: Mapping) -> tuple[bool, str | N
 
 _INFRA_CATEGORIES = {"INVALID_REQUEST", "JDK_NOT_FOUND", "JUDGE_INFRA_ERROR", "PROTOCOL_ERROR"}
 
+# Characters that browsers/editors add when code is pasted and that javac/python reject as "illegal character".
+_PASTE_ARTIFACTS = {"\ufeff": "", "\u200b": "", "\u200c": "", "\u200d": "", "\u2060": "", "\u00a0": " ", "\u2007": " ", "\u202f": " "}
+
+
+def _clean_sample_source(sample_source):
+    if not isinstance(sample_source, str):
+        return sample_source
+    return sample_source.translate({ord(k): v for k, v in _PASTE_ARTIFACTS.items()})
+
 
 def validate_question_sample(question_id: str, sample_source: str, actor: str, ip: str) -> dict:
     """Run a sample solution against the current draft spec and record the outcome bound to its spec hash.
@@ -1268,6 +1411,7 @@ def validate_question_sample(question_id: str, sample_source: str, actor: str, i
     if question.get("status") != "draft":
         raise QuestionError("Only draft questions can be validated", 409, "QUESTION_NOT_DRAFT")
     source_hash = _validate_source(sample_source)
+    sample_source = _clean_sample_source(sample_source)
     spec_hash = compute_spec_hash(question)
     if not _RUN_SLOTS.acquire(blocking=False):
         raise QuestionError("Code execution capacity is busy; retry shortly", 429)
@@ -1300,7 +1444,7 @@ def validate_question_sample(question_id: str, sample_source: str, actor: str, i
         "score": execution.get("score"),
         "total_points": execution.get("total_points"),
     }
-    state = {"stale": False}
+    state = {"stale": False, "kept": None}
 
     def store(questions):
         current = questions.get(question_id)
@@ -1313,6 +1457,16 @@ def validate_question_sample(question_id: str, sample_source: str, actor: str, i
             return
         if infra_error:
             return
+        previous = current.get("validation")
+        if (
+            not passed
+            and isinstance(previous, Mapping)
+            and previous.get("passed") is True
+            and previous.get("spec_hash") == spec_hash
+        ):
+            # A failing run of a different sample must not revoke an earlier pass for the very same spec.
+            state["kept"] = dict(previous)
+            return
         current["validation"] = record
 
     update_json("questions.json", store)
@@ -1324,6 +1478,7 @@ def validate_question_sample(question_id: str, sample_source: str, actor: str, i
     )
     return {
         "validation": {**record, "current": passed and not state["stale"], "stale": state["stale"], "reason": reason},
+        "previous_pass": {**state["kept"], "current": True, "stale": False, "reason": None} if state["kept"] else None,
         "verdict": execution.get("verdict"),
         "score": execution.get("score"),
         "total_points": execution.get("total_points"),
@@ -1333,6 +1488,87 @@ def validate_question_sample(question_id: str, sample_source: str, actor: str, i
         "compile_result": _compiler_summary(execution),
         "results": _normalized_results(question, execution, visible_only=False),
     }
+
+
+def update_published_question(question_id: str, payload: Mapping, sample_source: str, actor: str, ip: str) -> dict:
+    """Commit an edit of a published question only after its sample solution passes the new spec.
+
+    The stored question is untouched unless validation succeeds, so a failed attempt leaves the
+    previous published version intact. Code-exam snapshots are separate copies and are never modified.
+    """
+    current = get_question(question_id)
+    if not current:
+        raise QuestionError("Không tìm thấy câu hỏi.", 404)
+    if current.get("status") != "published":
+        raise QuestionError("Chỉ câu hỏi đã xuất bản mới dùng luồng này.", 409, "QUESTION_NOT_PUBLISHED")
+    if not isinstance(sample_source, str) or not sample_source.strip():
+        raise QuestionError("Cần nhập mã nguồn đáp án mẫu để xác thực trước khi lưu thay đổi.", 400, "SAMPLE_REQUIRED")
+    base_version = current.get("version")
+    candidate = _validate_question(payload, question_id=question_id, actor=actor)
+    source_hash = _validate_source(sample_source)
+    sample_source = _clean_sample_source(sample_source)
+    spec_hash = compute_spec_hash(candidate)
+    if not _RUN_SLOTS.acquire(blocking=False):
+        raise QuestionError("Hệ thống chấm đang bận, hãy thử lại sau giây lát.", 429)
+    try:
+        try:
+            execution = execute_question(candidate, sample_source)
+        except Exception as exc:
+            execution = {
+                "verdict": "JUDGE_INFRA_ERROR", "score": 0, "total_points": candidate["total_points"], "duration_ms": 0,
+                "error": f"{type(exc).__name__}: {exc}", "error_category": "JUDGE_INFRA_ERROR", "checks": [], "tests": [],
+            }
+    finally:
+        _RUN_SLOTS.release()
+
+    if execution.get("error_category") in _INFRA_CATEGORIES:
+        raise QuestionError("Hệ thống chấm gặp lỗi hạ tầng (không phải lỗi câu hỏi); thay đổi chưa được lưu.", 503, "JUDGE_INFRA_ERROR")
+    passed, reason = _sample_passes(candidate, execution)
+    record = {
+        "spec_hash": spec_hash,
+        "passed": passed,
+        "validated_at": utc_now(),
+        "validated_by": actor,
+        "sample_sha256": source_hash,
+        "verdict": execution.get("verdict"),
+        "score": execution.get("score"),
+        "total_points": execution.get("total_points"),
+    }
+    result = {
+        "saved": False,
+        "validation": {**record, "current": passed, "stale": False, "reason": reason},
+        "verdict": execution.get("verdict"),
+        "score": execution.get("score"),
+        "total_points": execution.get("total_points"),
+        "duration_ms": execution.get("duration_ms", 0),
+        "error": execution.get("error"),
+        "error_category": execution.get("error_category"),
+        "compile_result": _compiler_summary(execution),
+        "results": _normalized_results(candidate, execution, visible_only=False),
+    }
+    if not passed:
+        audit("code.question_edit_rejected", actor, ip, {"question_id": question_id, "spec_hash": spec_hash, "sample_sha256": source_hash})
+        return result
+
+    def commit(questions):
+        stored = questions.get(question_id)
+        if not stored or stored.get("status") != "published" or stored.get("version") != base_version:
+            raise QuestionError("Câu hỏi đã bị thay đổi trong lúc xác thực; hãy tải lại và thử lại.", 409, "QUESTION_CHANGED")
+        candidate.update(
+            {
+                "status": "published",
+                "source": {**stored.get("source", {}), "updated_by": actor, "updated_at": utc_now()},
+                "usage_count": stored.get("usage_count", 0),
+                "version": int(stored.get("version", 1)) + 1,
+                "validation": record,
+            }
+        )
+        questions[question_id] = candidate
+        return deepcopy(candidate)
+
+    saved = update_json("questions.json", commit)
+    audit("code.question_updated", actor, ip, {"question_id": question_id, "version": saved["version"], "spec_hash": spec_hash, "published": True})
+    return {**result, "saved": True, "question": saved}
 
 
 def publish_question(question_id: str, actor: str, ip: str) -> dict:
@@ -1354,8 +1590,7 @@ def publish_question(question_id: str, actor: str, ip: str) -> dict:
         if record.get("passed") is not True:
             raise QuestionError("The last sample validation failed; fix the question and validate again", 409, "VALIDATION_FAILED")
         question["status"] = "published"
-        question["source"]["updated_by"] = actor
-        question["source"]["updated_at"] = utc_now()
+        question.setdefault("source", {}).update({"updated_by": actor, "updated_at": utc_now()})
         question["version"] = int(question.get("version", 1)) + 1
         return deepcopy(question)
 

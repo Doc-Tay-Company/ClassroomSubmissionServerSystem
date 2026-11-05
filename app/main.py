@@ -48,6 +48,8 @@ from .questions import (
     duplicate_question,
     get_question,
     list_questions,
+    restore_question,
+    revoke_question,
     update_question,
 )
 from .code_exams import (
@@ -59,9 +61,10 @@ from .code_exams import (
     get_code_exam,
     list_code_exams,
     publish_question,
+    update_published_question,
     validate_question_sample,
     regrade_submission,
-    run_pretest,
+    regrade_student_exam,
     submit_code,
     transition_code_exam,
     update_draft_code_exam,
@@ -323,6 +326,8 @@ class Handler(BaseHTTPRequestHandler):
             if path.startswith("/api/admin/exam-records/"):
                 self._auth(req,"admin")
                 exam_id=urllib.parse.unquote(path[len("/api/admin/exam-records/"):]).strip("/")
+                if exam_id.endswith("/preview") and exam_id.count("/")==1:
+                    return self._json({"preview":general_exams.preview_exam(exam_id[:-len("/preview")])})
                 if not exam_id or "/" in exam_id: raise ClientError(404,"Không tìm thấy kỳ thi.")
                 return self._json({"exam":general_exams.get_exam(exam_id)})
             if path=="/api/admin/code-exams":
@@ -435,8 +440,20 @@ class Handler(BaseHTTPRequestHandler):
                 sess=self._auth(req,"admin")
                 question_id=urllib.parse.unquote(path[len("/api/admin/questions/"):-len("/update")].strip("/"))
                 if not question_id or "/" in question_id: raise ClientError(404,"Question was not found.")
-                question=update_question(question_id,self._json_body(req),sess["user_id"],client_ip(req))
+                payload=self._json_body(req)
+                existing=get_question(question_id)
+                if existing and existing.get("status")=="published" and isinstance(payload,dict):
+                    payload=dict(payload); sample=payload.pop("sample_source",None)
+                    result=update_published_question(question_id,payload,sample,sess["user_id"],client_ip(req))
+                    return self._json({**result,"ok":True})
+                question=update_question(question_id,payload,sess["user_id"],client_ip(req))
                 return self._json({"ok":True,"question":question})
+            if path.startswith("/api/admin/questions/") and (path.endswith("/revoke") or path.endswith("/restore")):
+                sess=self._auth(req,"admin"); action=path.rsplit("/",1)[1]
+                question_id=urllib.parse.unquote(path[len("/api/admin/questions/"):-len("/"+action)].strip("/"))
+                if not question_id or "/" in question_id: raise ClientError(404,"Question was not found.")
+                change=revoke_question if action=="revoke" else restore_question
+                return self._json({"ok":True,"question":change(question_id,sess["user_id"],client_ip(req))})
             if path.startswith("/api/admin/questions/") and path.endswith("/duplicate"):
                 sess=self._auth(req,"admin")
                 question_id=urllib.parse.unquote(path[len("/api/admin/questions/"):-len("/duplicate")].strip("/"))
@@ -466,6 +483,16 @@ class Handler(BaseHTTPRequestHandler):
                 if not question_id or "/" in question_id: raise ClientError(404,"Question was not found.")
                 question=publish_question(question_id,sess["user_id"],client_ip(req))
                 return self._json({"ok":True,"question":question,"validation":question.get("validation")},200)
+            if path.startswith("/api/admin/code-results/") and path.endswith("/regrade-student"):
+                sess=self._auth(req,"admin")
+                exam_id=urllib.parse.unquote(path[len("/api/admin/code-results/"):-len("/regrade-student")].strip("/"))
+                if not exam_id or "/" in exam_id: raise ClientError(404,"Code exam was not found.")
+                payload=self._json_body(req)
+                student_id=payload.get("student_id"); question_id=payload.get("question_id"); use_latest_spec=payload.get("use_latest_spec",False)
+                if not isinstance(student_id,str) or not student_id: raise ClientError(400,"student_id is required.")
+                if question_id is not None and (not isinstance(question_id,str) or not question_id): raise ClientError(400,"question_id must be a non-empty string.")
+                if not isinstance(use_latest_spec,bool): raise ClientError(400,"use_latest_spec must be a boolean.")
+                return self._json({"ok":True,"result":regrade_student_exam(exam_id,student_id,sess["user_id"],client_ip(req),question_id=question_id,use_latest_spec=use_latest_spec)})
             if path.startswith("/api/admin/code-results/") and path.endswith("/regrade"):
                 sess=self._auth(req,"admin")
                 exam_id=urllib.parse.unquote(path[len("/api/admin/code-results/"):-len("/regrade")].strip("/"))
@@ -702,8 +729,8 @@ class Handler(BaseHTTPRequestHandler):
             traceback.print_exc(); return self._json({"detail":"Lỗi máy chủ nội bộ."},500)
 
     def _handle_error(self,e):
-        status=getattr(e,"status",500); detail=getattr(e,"detail",str(e)); code=getattr(e,"code",None); fields=getattr(e,"fields",None)
-        if self.path.startswith("/api/") or self.path.startswith("/admin/submissions/") or self.path=="/api/student/exam": return self._json({"detail":detail,**({"code":code} if code else {}),**({"fields":fields} if fields else {})},status)
+        status=getattr(e,"status",500); detail=getattr(e,"detail",str(e)); code=getattr(e,"code",None); fields=getattr(e,"fields",None); extra=getattr(e,"extra",None) or {}
+        if self.path.startswith("/api/") or self.path.startswith("/admin/submissions/") or self.path=="/api/student/exam": return self._json({"detail":detail,**({"code":code} if code else {}),**({"fields":fields} if fields else {}),**extra},status)
         return self._html("<!doctype html><meta charset='utf-8'><title>Lỗi</title><h1>Yêu cầu không thể xử lý</h1><p>"+html.escape(detail)+"</p><p><a href='/'>Quay lại</a></p>",status)
 
     @staticmethod

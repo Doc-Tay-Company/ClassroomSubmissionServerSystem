@@ -1,0 +1,57 @@
+{
+  "p3-java-stdio-sum-draft": {
+    "id": "p3-java-stdio-sum-draft",
+    "title": "Phase 3 - Java STDIO: Tổng hai số",
+    "statement": "Đọc hai số nguyên a, b từ stdin (cách nhau bởi khoảng trắng) và in ra a + b.",
+    "language": "java",
+    "grading_mode": "stdio",
+    "problem_kind": "java_stdio",
+    "target_class": "Main",
+    "target_file": "Main.java",
+    "starter_code": "import java.util.Scanner;\n\npublic class Main {\n    public static void main(String[] args) {\n        // TODO\n    }\n}\n",
+    "time_limit_seconds": 5.0,
+    "memory_limit_mb": 256,
+    "max_output_bytes": 65536,
+    "allow_pretest": true,
+    "max_pretest_runs": 20,
+    "category": "Nhập xuất",
+    "tags": ["phase3-fixture", "stdio", "java"],
+    "difficulty": "easy",
+    "tests": [
+      {"id": "t1", "points": 20, "is_visible": true, "stdin": "1 2\n", "expected_stdout": "3\n"},
+      {"id": "t2", "points": 20, "is_visible": false, "stdin": "-5 5\n", "expected_stdout": "0\n"}
+    ],
+    "total_points": 40,
+    "status": "draft",
+    "usage_count": 0,
+    "version": 1,
+    "source": {"created_by": "phase3-fixture", "created_at": "2026-11-05T09:10:00+00:00", "updated_at": "2026-11-05T09:10:00+00:00"}
+  },
+  "p3-python-stdio-max-draft": {
+    "id": "p3-python-stdio-max-draft",
+    "title": "Phase 3 - Python STDIO: Số lớn nhất",
+    "statement": "Đọc hai số nguyên từ stdin (mỗi dòng một số) và in ra số lớn hơn.",
+    "language": "python",
+    "grading_mode": "stdio",
+    "problem_kind": "python_stdio",
+    "target_file": "solution.py",
+    "starter_code": "# TODO\n",
+    "time_limit_seconds": 5.0,
+    "memory_limit_mb": 256,
+    "max_output_bytes": 65536,
+    "allow_pretest": true,
+    "max_pretest_runs": 20,
+    "category": "Nhập xuất",
+    "tags": ["phase3-fixture", "stdio", "python"],
+    "difficulty": "easy",
+    "tests": [
+      {"id": "t1", "points": 30, "is_visible": true, "stdin": "3\n9\n", "expected_stdout": "9\n"},
+      {"id": "t2", "points": 30, "is_visible": false, "stdin": "7\n-2\n", "expected_stdout": "7\n"}
+    ],
+    "total_points": 60,
+    "status": "draft",
+    "usage_count": 0,
+    "version": 1,
+    "source": {"created_by": "phase3-fixture", "created_at": "2026-11-05T09:11:00+00:00", "updated_at": "2026-11-05T09:11:00+00:00"}
+  }
+}

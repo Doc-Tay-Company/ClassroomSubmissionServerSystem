@@ -33,19 +33,24 @@
           <div id="student-code-loading" class="muted" role="status">Đang tải đề code...</div>
           <div id="student-code-alert" class="hidden" role="alert"></div>
           <div id="student-code-content" class="hidden">
-            <header class="code-exam-heading"><div><p class="eyebrow">BÀI THI JAVA REFLECTION</p><h2 id="code-exam-title"></h2></div><span id="code-exam-state" class="status-pill status-blue"></span></header>
+            <header class="code-exam-heading"><div><p class="eyebrow">BÀI THI CODE</p><h2 id="code-exam-title"></h2><p id="code-exam-summary" class="fine-print"></p></div><span id="code-exam-state" class="status-pill status-blue"></span></header>
+            <div class="code-layout">
+              <nav id="code-question-nav" class="code-question-nav" aria-label="Danh sách câu hỏi"></nav>
+              <div class="code-question-pane">
             <div id="code-question-information"></div>
-            <div class="code-editor-heading"><label for="student-code-editor">Mã nguồn Java</label><span id="code-filename" class="code-filename"></span></div>
+            <div class="code-editor-heading"><label for="student-code-editor" id="code-editor-label">Mã nguồn</label><span id="code-filename" class="code-filename"></span></div>
             <textarea id="student-code-editor" class="student-code-editor" spellcheck="false" autocapitalize="off" autocomplete="off" aria-describedby="code-editor-hint"></textarea>
-            <p id="code-editor-hint" class="fine-print">Một file Java, một public class. Nhấn Tab để thụt lề.</p>
+            <p id="code-editor-hint" class="fine-print">Nhấn Tab để thụt lề. Bản nháp của từng câu được lưu riêng trên trình duyệt này.</p>
             <div class="form-actions code-controls">
               <button type="button" class="btn btn-secondary" id="code-restore-starter"><i class="fa fa-undo"></i> Khôi phục mã khởi tạo</button>
               <button type="button" class="btn btn-secondary" id="code-run"><i class="fa fa-play"></i> Chạy thử</button>
-              <button type="button" class="btn btn-primary" id="code-submit"><i class="fa fa-paper-plane"></i> Nộp bài</button>
+              <button type="button" class="btn btn-primary" id="code-submit"><i class="fa fa-paper-plane"></i> Nộp câu này</button>
             </div>
             <div id="code-draft-notice" class="notice hidden" role="status"></div>
             <div id="code-run-result" class="code-result-panel hidden" aria-live="polite"></div>
             <div id="code-submission-result" class="code-result-panel hidden" aria-live="polite"></div>
+              </div>
+            </div>
           </div>
         </section>
       {% elif not assignment.exam_file %}

@@ -102,3 +102,31 @@ small.fine-print{font-style:italic;font-weight:400}
 .case-hints{min-width:0}
 .case-actions{display:flex;flex-wrap:wrap;justify-content:flex-start;gap:6px}
 .btn-xs{padding:3px 8px;font-size:12px;line-height:1.4}
+/* Exam builder (CP2) */
+#exam-root .exam-builder{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;min-width:0}
+#exam-root .qb-panel{border:1px solid #e5eaf2;border-radius:10px;padding:12px;min-width:0;display:flex;flex-direction:column;gap:8px}
+#exam-root .qb-panel h4,#exam-root .qb-preview h4{margin:0}
+#exam-root .qb-filters{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
+#exam-root .qb-filters input,#exam-root .qb-filters select{min-width:0;width:100%}
+#exam-root .qb-picker-list,#exam-root .qb-selected-list{max-height:420px;overflow-y:auto;overflow-x:hidden;margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:6px}
+#exam-root .qb-item,#exam-root .qb-selected{display:flex;align-items:center;gap:8px;border:1px solid #dbe2ed;border-radius:9px;background:#f8faff;padding:8px;min-width:0}
+#exam-root .qb-picked{opacity:.7;background:#eef6ee}
+#exam-root .qb-selected{cursor:grab}
+#exam-root .qb-selected.qb-warn{border-color:#d97706;background:#fffbeb}
+#exam-root .qb-main{display:flex;flex-direction:column;flex:1;min-width:0;overflow-wrap:anywhere}
+#exam-root .qb-main small{color:#64748b}
+#exam-root .qb-warning{color:#b45309!important}
+#exam-root .qb-handle{color:#94a3b8}
+#exam-root .qb-actions{display:flex;gap:4px;flex-shrink:0}
+#exam-root .qb-total{margin:0}
+#exam-root .qb-preview-bar{display:flex;justify-content:flex-start}
+#exam-root .qb-preview{border:1px solid #dbe2ed;border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:10px;min-width:0}
+#exam-root .qb-preview-head{display:flex;justify-content:space-between;align-items:center;gap:8px}
+#exam-root .qb-preview-item{border-top:1px solid #e5eaf2;padding-top:10px}
+#exam-root .qb-preview-item h5{margin:0 0 4px}
+#exam-root .qb-statement{white-space:pre-wrap;overflow-wrap:anywhere}
+#exam-root .qb-code{max-height:240px;overflow:auto;background:#0f172a;color:#e2e8f0;border-radius:8px;padding:10px;margin:6px 0}
+@media(max-width:900px){#exam-root .exam-builder{grid-template-columns:1fr}}
+
+.q-row-clickable{cursor:pointer}
+.q-row-clickable:hover,.q-row-clickable:focus-visible{background:rgba(0,0,0,.04);outline:none}

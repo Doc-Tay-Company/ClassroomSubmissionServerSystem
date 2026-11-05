@@ -204,12 +204,14 @@ def update_question(question_id: str, payload: Mapping, actor: str, ip: str) -> 
     if not current:
         raise QuestionError("question not found", 404)
     if current.get("status") == "archived":
-        raise QuestionError("archived questions cannot be edited", 409)
+        raise QuestionError("Câu hỏi đã lưu trữ không thể chỉnh sửa. Hãy khôi phục trước.", 409)
+    if current.get("status") == "published":
+        raise QuestionError("Câu hỏi đã xuất bản phải được xác thực bằng đáp án mẫu trước khi lưu thay đổi.", 409, "SAMPLE_REQUIRED")
 
     updated = _validate_question(payload, question_id=question_id, actor=actor)
     updated.update(
         {
-            # Editing always returns the question to draft (a published question must be re-validated and re-published).
+            # Draft edits stay draft; the stored validation is dropped because the spec changed.
             "status": "draft",
             "source": {
                 **current.get("source", {}),
@@ -223,6 +225,31 @@ def update_question(question_id: str, payload: Mapping, actor: str, ip: str) -> 
     save_question(updated)
     audit("code.question_updated", actor, ip, {"question_id": question_id, "version": updated["version"]})
     return updated
+
+
+def _move_to_draft(question_id: str, allowed_from: str, message: str, code: str, event: str, actor: str, ip: str) -> dict:
+    def change(questions):
+        question = questions.get(question_id)
+        if not question:
+            raise QuestionError("Không tìm thấy câu hỏi.", 404)
+        if question.get("status") != allowed_from:
+            raise QuestionError(message, 409, code)
+        question["status"] = "draft"
+        question.setdefault("source", {}).update({"updated_by": actor, "updated_at": utc_now()})
+        # The spec is unchanged, so any stored validation stays bound to its spec_hash; publish re-checks it.
+        return dict(question)
+
+    question = update_json("questions.json", change)
+    audit(event, actor, ip, {"question_id": question_id})
+    return question
+
+
+def revoke_question(question_id: str, actor: str, ip: str) -> dict:
+    return _move_to_draft(question_id, "published", "Chỉ câu hỏi đã xuất bản mới có thể thu hồi.", "QUESTION_NOT_PUBLISHED", "code.question_revoked", actor, ip)
+
+
+def restore_question(question_id: str, actor: str, ip: str) -> dict:
+    return _move_to_draft(question_id, "archived", "Chỉ câu hỏi đã lưu trữ mới có thể khôi phục.", "QUESTION_NOT_ARCHIVED", "code.question_restored", actor, ip)
 
 
 def duplicate_question(question_id: str, actor: str, ip: str) -> dict:

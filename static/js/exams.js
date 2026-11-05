@@ -171,9 +171,14 @@
     let saving = false;
     let dirty = false;
     let showErrors = false;
+    let previewState = null;
+    let rejection = null;
+    const QSTATUS = { draft: ["Nháp", "status-gray"], published: ["Đã xuất bản", "status-green"], archived: ["Lưu trữ", "status-gray"] };
+    const statusPill = (status) => { const [label, cls] = QSTATUS[status] || [status, "status-gray"]; return h("span", { class: `status-pill ${cls}` }, label); };
     const blank = () => ({
       title: "", tag: "", duration: 90, policy: "configurable", maxSub: 1, overwrite: true, ext: ".zip", pwEnabled: false, pw: "", hasPw: false,
       participants: new Set(), code: null, zip: null, accountQuery: "", questionQuery: "",
+      pick: { search: "", language: "", mode: "", status: "published", category: "", usage: "" },
     });
 
     function fromExam(source) {
@@ -228,6 +233,35 @@
       };
       if (form.pw) config.password = form.pw;
       return { title: form.title, tag: form.tag, config, items };
+    }
+
+    async function openPreview() {
+      try {
+        if (mode() === "edit" && (!exam || exam.status === "draft") && (dirty || !exam)) await persist(true);
+        previewState = { loading: true };
+        render();
+        previewState = (await request(`${API}/${encodeURIComponent(examId)}/preview`)).preview;
+      } catch (error) {
+        previewState = null;
+        toast(errorText(error), true);
+      }
+      render();
+    }
+
+    function previewPanel() {
+      if (previewState.loading) return h("p", { class: "muted" }, h("i", { class: "fa fa-spinner fa-spin" }), " Đang tải bản xem trước…");
+      const checkLabel = (check) => `${check.kind}${check.name || check.method ? `: ${check.name || check.method}` : ""} (${Number(check.points) || 0} điểm)`;
+      return h("div", { class: "qb-preview", role: "region", "aria-label": "Xem trước đề thi" },
+        h("div", { class: "qb-preview-head" }, h("h4", {}, "Xem trước đề thi (chỉ đọc)"),
+          h("button", { type: "button", class: "btn btn-small btn-ghost", on: { click: () => { previewState = null; render(); } } }, h("i", { class: "fa fa-times" }), " Đóng")),
+        previewState.missing.length ? h("p", { class: "qb-warning" }, `Có ${previewState.missing.length} câu hỏi không còn trong Ngân hàng câu hỏi nên không hiển thị.`) : null,
+        previewState.questions.length ? previewState.questions.map((question, index) => h("article", { class: "qb-preview-item" },
+          h("h5", {}, `Câu ${index + 1}: ${question.title}`),
+          h("p", { class: "fine-print" }, [question.category, question.language, `${Number(question.total_points) || 0} điểm`].filter(Boolean).join(" · ")),
+          h("div", { class: "qb-statement" }, question.statement || ""),
+          question.starter_code ? h("pre", { class: "qb-code" }, question.starter_code) : null,
+          (question.checks || question.tests || []).length ? h("ul", { class: "qb-checks" }, ...(question.checks || question.tests).map((check) => h("li", {}, checkLabel(check)))) : null))
+          : h("p", { class: "muted" }, "Chưa có câu hỏi để xem trước."));
     }
 
     const notice = h("div", { class: "notice hidden", role: "status" });
@@ -394,20 +428,124 @@
         type: "checkbox", checked: Boolean(form.code),
         on: { change: (e) => { form.code = e.target.checked ? { item_id: undefined, ids: new Set(), final: false, pretest: true, maxRuns: 20, cooldown: 2 } : null; scheduleAutosave(); render(); } },
       }), " Có bài code (chấm tự động)");
+      if (form.zip) return null;
       if (!form.code) return mark("items", h("section", { class: "exam-form-section" }, h("h3", {}, h("i", { class: "fa fa-code" }), " Bài code"), toggle));
       const code = form.code;
-      const published = ref.questions.filter((question) => question.status === "published");
-      const list = h("div", { class: "participant-list" });
+      const canEdit = !exam || exam.status === "draft";
+      const bank = new Map(ref.questions.map((question) => [question.id, question]));
       const count = h("span", { class: "section-badge" });
-      const refreshList = () => {
-        const query = form.questionQuery.trim().toLowerCase();
-        const rows = published.filter((question) => !query || `${question.title} ${question.id}`.toLowerCase().includes(query));
-        list.replaceChildren(...(rows.length ? rows.map((question) => h("label", { class: "student-option" },
-          h("input", { type: "checkbox", checked: code.ids.has(question.id), on: { change: (e) => { e.target.checked ? code.ids.add(question.id) : code.ids.delete(question.id); count.textContent = `${code.ids.size} câu`; scheduleAutosave(); } } }),
-          h("span", {}, h("strong", {}, question.title), h("small", {}, question.language ? String(question.language) : "")))) : [h("span", { class: "muted" }, published.length ? "Không có câu hỏi khớp." : "Chưa có câu hỏi đã xuất bản trong Ngân hàng câu hỏi.")]));
-        count.textContent = `${code.ids.size} câu`;
+      const total = h("strong", {});
+      const selectedList = h("ol", { class: "qb-selected-list" });
+      const pickerList = h("div", { class: "qb-picker-list" });
+      const pickerCount = h("p", { class: "fine-print" });
+      const pick = form.pick;
+      let dragIndex = -1;
+
+      const supported = (question) => (question.language === "java" && ["reflection", "stdio"].includes(question.grading_mode)) || (question.language === "python" && question.grading_mode === "stdio");
+      const usageOk = (question) => {
+        const used = Number(question.usage_count) || 0;
+        if (pick.usage === "0") return used === 0;
+        if (pick.usage === "used") return used >= 1;
+        if (pick.usage === "1-2") return used >= 1 && used <= 2;
+        if (pick.usage === "3+") return used >= 3;
+        return true;
       };
-      refreshList();
+      const matches = (question) => {
+        if (pick.language && question.language !== pick.language) return false;
+        if (pick.mode && question.grading_mode !== pick.mode) return false;
+        if (pick.status && question.status !== pick.status) return false;
+        if (pick.category && !String(question.category || "").toLowerCase().includes(pick.category.toLowerCase())) return false;
+        if (!usageOk(question)) return false;
+        const query = pick.search.trim().toLowerCase();
+        return !query || `${question.title || ""} ${(question.tags || []).join(" ")} ${question.id}`.toLowerCase().includes(query);
+      };
+      const reorder = (from, to) => {
+        const ids = [...code.ids];
+        if (from < 0 || to < 0 || from >= ids.length || to >= ids.length || from === to) return;
+        const [moved] = ids.splice(from, 1);
+        ids.splice(to, 0, moved);
+        code.ids = new Set(ids);
+        changed();
+      };
+      const remove = (id) => { code.ids.delete(id); changed(); };
+      const add = (id) => { code.ids.add(id); changed(); };
+      const changed = () => { renderSelected(); renderPicker(); scheduleAutosave(); };
+
+      function renderSelected() {
+        const ids = [...code.ids];
+        let sum = 0;
+        const rows = ids.map((id, index) => {
+          const question = bank.get(id);
+          sum += question ? Number(question.total_points) || 0 : 0;
+          const warning = !question ? "Câu hỏi không còn trong Ngân hàng câu hỏi."
+            : question.status !== "published" ? (question.status === "archived" ? "Câu hỏi đã được lưu trữ. Hãy thay thế trước khi phát đề." : "Câu hỏi đang ở trạng thái Nháp sau khi chỉnh sửa. Hãy xuất bản lại trước khi phát đề.")
+              : !supported(question) ? "Loại câu hỏi chưa được hỗ trợ trong đề nhiều câu." : "";
+          const move = (label, icon, delta) => h("button", {
+            type: "button", class: "btn btn-small btn-ghost", "aria-label": `${label}: ${question ? question.title : id}`, disabled: !canEdit || index + delta < 0 || index + delta >= ids.length,
+            on: { click: () => reorder(index, index + delta) },
+          }, h("i", { class: `fa ${icon}` }));
+          return h("li", {
+            class: `qb-selected${warning ? " qb-warn" : ""}`, draggable: canEdit ? "true" : false,
+            on: {
+              dragstart: (e) => { dragIndex = index; e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", String(index)); },
+              dragover: (e) => { if (canEdit && dragIndex >= 0) e.preventDefault(); },
+              drop: (e) => { e.preventDefault(); const from = dragIndex; dragIndex = -1; reorder(from, index); },
+              dragend: () => { dragIndex = -1; },
+            },
+          },
+          h("span", { class: "qb-handle", "aria-hidden": "true" }, h("i", { class: "fa fa-bars" })),
+          h("span", { class: "qb-index" }, `${index + 1}.`),
+          h("span", { class: "qb-main" }, h("strong", {}, question ? question.title : id), h("small", {}, question ? `${Number(question.total_points) || 0} điểm` : "Không tìm thấy"), warning ? h("small", { class: "qb-warning", role: "alert" }, h("i", { class: "fa fa-exclamation-triangle" }), ` ${warning}`) : null),
+          h("span", { class: "qb-actions" }, move("Chuyển lên", "fa-arrow-up", -1), move("Chuyển xuống", "fa-arrow-down", 1),
+            h("button", { type: "button", class: "btn btn-small btn-ghost", disabled: !canEdit, "aria-label": `Xóa khỏi đề: ${question ? question.title : id}`, on: { click: () => remove(id) } }, h("i", { class: "fa fa-times" }), " Xóa")));
+        });
+        selectedList.replaceChildren(...(rows.length ? rows : [h("li", { class: "muted" }, "Chưa chọn câu hỏi nào.")]));
+        count.textContent = `${ids.length} câu`;
+        total.textContent = `${sum} điểm`;
+      }
+
+      function renderPicker() {
+        const rows = ref.questions.filter(matches);
+        pickerCount.textContent = `Hiển thị ${rows.length}/${ref.questions.length} câu hỏi`;
+        pickerList.replaceChildren(...(rows.length ? rows.map((question) => {
+          const picked = code.ids.has(question.id);
+          const reason = picked ? "" : question.status !== "published" ? "Chỉ thêm được câu hỏi đã xuất bản" : !supported(question) ? "Chưa hỗ trợ trong đề nhiều câu" : "";
+          return h("div", { class: `qb-item${picked ? " qb-picked" : ""}` },
+            h("span", { class: "qb-main" },
+              h("strong", {}, question.title),
+              h("small", {}, [question.category, question.language, question.grading_mode, `${Number(question.total_points) || 0} điểm`, `đã dùng ${Number(question.usage_count) || 0} lần`].filter(Boolean).join(" · "))),
+            statusPill(question.status),
+            picked ? h("span", { class: "section-badge" }, "Đã chọn")
+              : h("button", { type: "button", class: "btn btn-small btn-secondary", disabled: !canEdit || Boolean(reason), title: reason || null, on: { click: () => add(question.id) } }, h("i", { class: "fa fa-plus" }), " Thêm"));
+        }) : [h("span", { class: "muted" }, ref.questions.length ? "Không có câu hỏi khớp bộ lọc." : "Chưa có câu hỏi trong Ngân hàng câu hỏi.")]));
+      }
+
+      const filterInput = (key, control) => { control.addEventListener("input", () => { pick[key] = control.value; renderPicker(); }); return control; };
+      const option = (value, label, current) => h("option", { value, selected: value === current }, label);
+      const filters = h("div", { class: "qb-filters" },
+        filterInput("search", h("input", { type: "search", value: pick.search, placeholder: "Tìm theo tiêu đề / tag" })),
+        filterInput("language", h("select", { "aria-label": "Ngôn ngữ" }, option("", "Mọi ngôn ngữ", pick.language), option("java", "Java", pick.language), option("python", "Python", pick.language))),
+        filterInput("mode", h("select", { "aria-label": "Kiểu chấm" }, option("", "Mọi kiểu chấm", pick.mode), option("reflection", "reflection", pick.mode), option("stdio", "stdio", pick.mode))),
+        filterInput("status", h("select", { "aria-label": "Trạng thái" }, option("", "Mọi trạng thái", pick.status), option("draft", "Nháp", pick.status), option("published", "Đã xuất bản", pick.status), option("archived", "Lưu trữ", pick.status))),
+        filterInput("category", h("input", { type: "text", value: pick.category, placeholder: "Danh mục" })),
+        filterInput("usage", h("select", { "aria-label": "Số lần sử dụng" }, option("", "Mọi mức sử dụng", pick.usage), option("0", "Chưa dùng (0 lần)", pick.usage), option("used", "Đã dùng (≥ 1 lần)", pick.usage), option("1-2", "Dùng 1–2 lần", pick.usage), option("3+", "Dùng từ 3 lần", pick.usage))));
+      renderSelected();
+      renderPicker();
+
+      const previewButton = h("button", { type: "button", class: "btn btn-secondary btn-small", on: { click: () => openPreview() } }, h("i", { class: "fa fa-eye" }), " Xem trước đề thi");
+      const rejectionPanel = () => !rejection ? null : h("div", { class: "alert alert-warning qb-rejection", role: "alert" },
+        h("strong", {}, `Chưa thể phát đề: ${rejection.invalid_questions.length} câu hỏi cần xử lý. Kỳ thi vẫn ở trạng thái Nháp; danh sách câu hỏi và thứ tự được giữ nguyên.`),
+        h("ul", {}, ...rejection.invalid_questions.map((item) => h("li", {},
+          `Câu ${item.position}: ${item.title || item.question_id} — ${item.reason} `,
+          item.code === "missing" || item.code === "duplicate" ? null
+            : h("a", { href: `/admin?section=exam-management&tab=questions&question=${encodeURIComponent(item.question_id)}`, target: "_blank", rel: "noopener" }, "Mở câu hỏi để chỉnh sửa")))),
+        h("p", { class: "fine-print" }, "Sau khi xuất bản lại câu hỏi, quay lại trang này và bấm “Phát đề” lần nữa. Câu hỏi không dùng được có thể bị xóa khỏi danh sách đã chọn."));
+      const builder = h("div", { class: "exam-builder" },
+        h("div", { class: "qb-panel" }, h("h4", {}, "Ngân hàng câu hỏi"),
+          canEdit ? h("p", { class: "fine-print" }, "Chỉ thêm được câu hỏi đã xuất bản thuộc loại Java Reflection, Java STDIO hoặc Python STDIO.") : h("p", { class: "fine-print" }, "Chỉ kỳ thi Nháp mới được thay đổi danh sách câu hỏi."),
+          filters, pickerCount, pickerList),
+        h("div", { class: "qb-panel" }, h("h4", {}, "Câu hỏi đã chọn ", count),
+          h("p", { class: "qb-total" }, "Tổng điểm: ", total), mark("code", selectedList)));
       const clampInput = (input, assign, integer) => {
         const raw = input.value.trim();
         if (raw === "" || Number.isNaN(Number(raw))) return;
@@ -434,8 +572,10 @@
       cooldownInput.addEventListener("change", () => settle(cooldownInput, setCooldown, false));
       return h("section", { class: "exam-form-section" },
         h("h3", {}, h("i", { class: "fa fa-code" }), " Bài code ", count), toggle,
-        h("input", { type: "search", value: form.questionQuery, placeholder: "Tìm câu hỏi đã xuất bản...", on: { input: (e) => { form.questionQuery = e.target.value; refreshList(); } } }),
-        mark("code", list),
+        rejectionPanel(),
+        builder,
+        h("div", { class: "qb-preview-bar" }, previewButton),
+        previewState ? previewPanel() : null,
         h("div", { class: "exam-rows" },
           h("label", { class: "checkbox-row" }, h("input", { type: "checkbox", checked: code.pretest, on: { change: (e) => { code.pretest = e.target.checked; runsInput.disabled = cooldownInput.disabled = !code.pretest; scheduleAutosave(); } } }), " Cho phép chạy thử (pretest)"),
           h("label", { class: "checkbox-row" }, h("input", { type: "checkbox", checked: code.final, on: { change: (e) => { code.final = e.target.checked; scheduleAutosave(); } } }), " Hiện điểm cuối cho sinh viên ngay sau khi nộp"),
@@ -449,6 +589,7 @@
         on: { change: (e) => { form.zip = e.target.checked ? { item_id: undefined, mode: "random", files: new Set(), even: "", odd: "", map: {} } : null; scheduleAutosave(); render(); } },
       }), " Có bài nộp file (đề ZIP/PDF)");
       const heading = h("h3", {}, h("i", { class: "fa fa-file-archive-o" }), " Bài nộp file");
+      if (form.code) return null;
       if (!form.zip) return mark("items", h("section", { class: "exam-form-section" }, heading, toggle));
       const zip = form.zip;
       const names = ref.files.map((file) => file.name);
@@ -505,9 +646,12 @@
         if (!(await needSave())) return;
         try {
           const data = await post(`/${encodeURIComponent(examId)}/publish`);
+          rejection = null;
           exam = data.exam; toast("Đã phát đề."); history.replaceState(null, "", examUrl(examId)); render();
         } catch (error) {
           toast(errorText(error), true);
+          rejection = error && error.body && Array.isArray(error.body.invalid_questions) && error.body.invalid_questions.length ? error.body : null;
+          if (rejection) { render(); const panel = body.querySelector(".qb-rejection"); if (panel) panel.scrollIntoView({ behavior: "smooth", block: "center" }); }
           const keys = error && error.body && Array.isArray(error.body.fields) ? error.body.fields : [];
           if (keys.length) applyErrors(keys.map((key) => [key, ""]));
         }

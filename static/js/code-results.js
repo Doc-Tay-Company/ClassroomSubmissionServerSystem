@@ -13,6 +13,7 @@
   let exams = [];
   let students = new Map();
   let submissions = [];
+  let matrix = [];
   let selectedExam = null;
   let selectedSubmission = null;
 
@@ -201,10 +202,105 @@
     list.replaceChildren(table(["Sinh viên", "Câu hỏi", "Thời gian nộp", "Trạng thái / verdict", "Điểm", "Lần", ""], rows));
   }
 
+  function cellLabel(cell) {
+    if (cell.status === "none") return "Chưa nộp";
+    if (cell.status === "error") return "Lỗi chấm";
+    if (cell.status !== "graded") return "Đang chấm";
+    return `${cell.score}/${cell.total_points}`;
+  }
+
+  const specMode = el("select");
+  specMode.setAttribute("aria-label", "Phiên bản đề dùng khi chấm lại");
+  for (const [value, label] of [["false", "Chấm lại bằng snapshot đã phát"], ["true", "Chấm lại bằng phiên bản câu hỏi mới nhất"]]) {
+    const option = el("option", label);
+    option.value = value;
+    specMode.append(option);
+  }
+
+  async function bulkRegrade(studentId, questionId, buttons) {
+    const latest = specMode.value === "true";
+    const scope = questionId ? "câu hỏi này" : "toàn bộ đề";
+    if (!window.confirm(`Chấm lại ${scope} của sinh viên ${studentId} bằng ${latest ? "phiên bản mới nhất đã xuất bản" : "snapshot đã phát"}? Kết quả cũ được lưu vào lịch sử chấm.`)) return;
+    buttons.forEach((button) => { button.disabled = true; });
+    setNotice("Đang yêu cầu máy chủ chấm lại...", false);
+    try {
+      const response = await window.cssRequest(`/api/admin/code-results/${encodeURIComponent(selectedExam.id)}/regrade-student`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ student_id: studentId, ...(questionId ? { question_id: questionId } : {}), use_latest_spec: latest }),
+      });
+      const result = response.result;
+      const titles = new Map((selectedExam.questions || []).map((q) => [q.question_id, q.title || q.question_id]));
+      const parts = [`Đã chấm lại ${result.regraded.length} câu.`];
+      if (result.skipped.length) parts.push(`Bỏ qua ${result.skipped.length} câu chưa có bài nộp đã chấm.`);
+      if (result.failed.length) parts.push(`Thất bại ${result.failed.length} câu (kết quả cũ được giữ): ${result.failed.map((item) => `${titles.get(item.question_id)} — ${item.error}`).join("; ")}`);
+      await loadResults();
+      setNotice(parts.join(" "), result.failed.length > 0);
+    } catch (error) {
+      setNotice(error.message || "Không thể chấm lại.", true);
+      buttons.forEach((button) => { button.disabled = false; });
+    }
+  }
+
+  function renderMatrix() {
+    const host = $("cr-matrix");
+    if (!host) return;
+    host.replaceChildren();
+    if (!selectedExam || !matrix.length) return;
+    const ended = selectedExam.status === "ended";
+    host.append(el("h3", "Bảng điểm theo sinh viên (theo thứ tự câu trong đề)"));
+    const controls = el("div", undefined, "regrade-controls");
+    controls.append(specMode);
+    if (!ended) controls.append(el("p", "Đề thi chưa kết thúc nên chưa thể chấm lại.", "fine-print"));
+    host.append(controls);
+    const questions = selectedExam.questions || [];
+    const rows = matrix.map((entry) => {
+      const row = el("tr");
+      const who = el("td");
+      who.append(el("strong", entry.full_name || students.get(entry.student_id) || entry.student_id), el("div", `MSSV: ${entry.student_id}`, "fine-print"));
+      row.append(who);
+      const buttons = [];
+      entry.cells.forEach((cell) => {
+        const td = el("td");
+        td.append(el("div", cellLabel(cell)), el("div", `${verdictLabel(cell.verdict)}${cell.attempts ? ` · ${cell.attempts} lần` : ""}${cell.regraded ? " · đã chấm lại" : ""}`, "fine-print"));
+        const detailRecord = submissions.find((record) => record.id === cell.submission_id);
+        if (detailRecord) {
+          const open = el("button", "Chi tiết", "btn btn-ghost btn-small");
+          open.type = "button";
+          open.addEventListener("click", () => renderDetail(detailRecord));
+          td.append(open);
+        }
+        if (cell.submission_id) {
+          const one = el("button", "Chấm lại câu", "btn btn-ghost btn-small");
+          one.type = "button";
+          one.disabled = !ended;
+          one.addEventListener("click", () => bulkRegrade(entry.student_id, cell.question_id, buttons));
+          buttons.push(one);
+          td.append(one);
+        }
+        row.append(td);
+      });
+      row.append(el("td", entry.total_score === null ? "—" : `${entry.total_score}/${entry.total_points}`));
+      const actions = el("td");
+      const all = el("button", "Chấm lại cả đề", "btn btn-secondary btn-small");
+      all.type = "button";
+      all.disabled = !ended;
+      buttons.push(all);
+      all.addEventListener("click", () => bulkRegrade(entry.student_id, null, buttons));
+      actions.append(all);
+      row.append(actions);
+      return row;
+    });
+    host.append(el("div", undefined, "table-scroll"));
+    host.lastChild.append(table(["Sinh viên", ...questions.map((q) => `${q.title || q.question_id} (${q.total_points} điểm)`), "Tổng", ""], rows));
+  }
+
   async function loadResults() {
     if (!examSelect.value) {
       detail.classList.add("hidden");
       submissions = [];
+      matrix = [];
+      renderMatrix();
       list.replaceChildren(el("p", "Chọn một đề thi code để xem kết quả.", "empty-cell"));
       setNotice("", false);
       return;
@@ -219,6 +315,9 @@
     try {
       const response = await window.cssRequest(`/api/admin/code-results?${params.toString()}`);
       submissions = response.submissions || [];
+      matrix = response.matrix || [];
+      selectedExam = { ...selectedExam, status: response.status || selectedExam.status };
+      renderMatrix();
       renderList();
       if (studentSelect.value || questionSelect.value) {
         setNotice(submissions.length ? "" : "Không có bài nộp nào khớp với bộ lọc.", false);

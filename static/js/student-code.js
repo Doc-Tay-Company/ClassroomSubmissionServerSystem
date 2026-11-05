@@ -33,6 +33,11 @@
   let serverRemaining = 0;
   let serverAnchor = 0;
   let storageTimer = 0;
+  const questionStates = new Map();
+  const progress = new Map();
+  const navButtons = new Map();
+  const SUPPORTED = (q) => (q.language === "java" && ["reflection", "stdio"].includes(q.grading_mode))
+    || (q.language === "python" && q.grading_mode === "stdio");
 
   function reportBackgroundError(scope, error) {
     if (reportedErrors.has(scope)) return;
@@ -85,6 +90,7 @@
   function setPending(value) {
     requestPending = value;
     updateControls();
+    for (const button of navButtons.values()) button.disabled = value;
   }
 
   function currentRemaining() {
@@ -204,27 +210,51 @@
 
   function starterFilename(q) {
     if (q.target_file) return q.target_file;
+    if (q.language === "python") return "solution.py";
     const className = String(q.target_class || "").split(".").pop();
     return className ? `${className}.java` : "Tệp Java";
+  }
+
+  function visibleTests(q) {
+    const tests = Array.isArray(q.tests) ? q.tests : [];
+    if (!tests.length) return null;
+    const box = node("div", "visible-tests");
+    box.append(node("h4", "", "Ví dụ kiểm tra hiển thị"));
+    for (const test of tests) {
+      const item = node("div", "visible-test");
+      item.append(node("strong", "", test.id || "Ví dụ"));
+      item.append(node("div", "fine-print", "Đầu vào:"), node("pre", "code-block", test.stdin ?? ""));
+      item.append(node("div", "fine-print", "Đầu ra mong đợi:"), node("pre", "code-block", test.expected_stdout ?? ""));
+      box.append(item);
+    }
+    return box;
   }
 
   function renderQuestionInfo(q) {
     $("code-exam-title").textContent = exam.title || "Bài thi code";
     $("code-filename").textContent = `Tệp: ${starterFilename(q)}`;
+    $("code-editor-label").textContent = q.language === "python" ? "Mã nguồn Python" : "Mã nguồn Java";
     const info = $("code-question-information");
     info.replaceChildren();
     info.append(node("h3", "", q.title || "Câu hỏi"));
+    info.append(node("p", "fine-print", `${q.total_points ?? 0} điểm`));
     info.append(node("div", "code-statement", q.statement || "Đề bài không có nội dung mô tả."));
+    const rows = q.language === "python"
+      ? [["Tên file", starterFilename(q)], ["Kiểu chấm", "Nhập/xuất chuẩn (STDIO)"]]
+      : [
+        ["Package bắt buộc", q.target_package || "(không khai báo)"],
+        ["Class cần cài đặt", q.target_class || "Không có thông tin"],
+        ["Tên file", starterFilename(q)],
+        ["Kiểu chấm", q.grading_mode === "stdio" ? "Nhập/xuất chuẩn (STDIO)" : "Kiểm tra qua Reflection"],
+      ];
     const details = node("dl", "code-question-meta");
-    for (const [label, value] of [
-      ["Package bắt buộc", q.target_package || "(không khai báo)"],
-      ["Class cần cài đặt", q.target_class || "Không có thông tin"],
-      ["Tên file", starterFilename(q)],
-    ]) {
-      details.append(node("dt", "", label), node("dd", "", value));
-    }
+    for (const [label, value] of rows) details.append(node("dt", "", label), node("dd", "", value));
     info.append(details);
-    info.append(node("div", "alert alert-info", "Tên public class phải trùng tên file; package phải đúng theo đề. Bài làm hiện hỗ trợ một file Java và một public class."));
+    if (q.language === "java") {
+      info.append(node("div", "alert alert-info", "Tên public class phải trùng tên file; package phải đúng theo đề. Bài làm hiện hỗ trợ một file Java và một public class."));
+    }
+    const tests = q.grading_mode === "stdio" ? visibleTests(q) : null;
+    if (tests) info.append(tests);
     if (q.starter_code) {
       const block = node("details", "starter-code-details");
       block.append(node("summary", "", "Xem mã khởi tạo"));
@@ -233,6 +263,82 @@
     } else {
       info.append(node("p", "muted", "Đề không cung cấp mã khởi tạo; vùng soạn thảo bắt đầu trống."));
     }
+  }
+
+  function navStatus(entry) {
+    if (!entry || !entry.submitted) return ["Chưa nộp", ""];
+    const times = entry.submission_count ? ` (${entry.submission_count} lần)` : "";
+    if (entry.score !== undefined && entry.score !== null) return [`Đã nộp${times} · ${entry.score}/${entry.total_points}`, "code-nav-submitted"];
+    return [`Đã nộp${times}`, "code-nav-submitted"];
+  }
+
+  function renderNav() {
+    const nav = $("code-question-nav");
+    nav.replaceChildren();
+    navButtons.clear();
+    exam.questions.forEach((q, index) => {
+      const button = node("button", "code-nav-item");
+      button.type = "button";
+      const [statusText, statusClass] = navStatus(progress.get(q.question_id));
+      button.append(
+        node("strong", "", `Câu ${index + 1}: ${q.title || q.question_id}`),
+        node("small", "", `${q.total_points ?? 0} điểm`),
+        node("small", statusClass, statusText),
+      );
+      if (question && q.question_id === question.question_id) button.setAttribute("aria-current", "true");
+      button.disabled = requestPending;
+      button.addEventListener("click", () => switchQuestion(q.question_id));
+      navButtons.set(q.question_id, button);
+      nav.append(button);
+    });
+    const summary = [`${exam.questions.length} câu`, `tổng ${exam.total_points ?? 0} điểm`];
+    if (exam.exam_score !== undefined) summary.push(`điểm của bạn: ${exam.exam_score}/${exam.total_points}`);
+    $("code-exam-summary").textContent = summary.join(" · ");
+  }
+
+  async function refreshProgress() {
+    try {
+      const fresh = await window.cssRequest("/api/student/code-exam");
+      progress.clear();
+      for (const entry of fresh.progress || []) progress.set(entry.question_id, entry);
+      exam.total_points = fresh.total_points;
+      if (fresh.exam_score !== undefined) exam.exam_score = fresh.exam_score; else delete exam.exam_score;
+    } catch (error) {
+      if (error.status === 401) showLoginLink();
+      reportBackgroundError("Student code progress refresh", error);
+    }
+    renderNav();
+  }
+
+  async function switchQuestion(questionId) {
+    if (requestPending || (question && question.question_id === questionId)) return;
+    const next = exam.questions.find((q) => q.question_id === questionId);
+    if (!next) return;
+    if (question) {
+      window.clearTimeout(storageTimer);
+      saveDraft();
+      questionStates.set(question.question_id, { submissionUnknown, latestSubmissionId });
+    }
+    await showQuestion(next);
+  }
+
+  async function showQuestion(q) {
+    question = q;
+    clearAlert();
+    for (const id of ["code-run-result", "code-submission-result", "code-draft-notice"]) {
+      $(id).replaceChildren();
+      $(id).classList.add("hidden");
+    }
+    const saved = questionStates.get(q.question_id);
+    submissionUnknown = saved ? saved.submissionUnknown : false;
+    latestSubmissionId = saved ? saved.latestSubmissionId : null;
+    draftReady = false;
+    renderQuestionInfo(q);
+    initializeDraft(q);
+    runButton.classList.toggle("hidden", exam.allow_pretest === false || q.allow_pretest === false);
+    renderNav();
+    updateControls();
+    await loadLatestSubmission(q);
   }
 
   function storageNotice(message, error = false) {
@@ -439,6 +545,7 @@
       }
     } finally {
       setPending(false);
+      await refreshProgress();
     }
   }
 
@@ -451,27 +558,22 @@
         throw new Error("Đề code hiện tại không khớp với phân công của tài khoản.");
       }
       const questions = Array.isArray(exam.questions) ? exam.questions : [];
-      if (questions.length !== 1) {
+      if (!questions.length) {
         loading.classList.add("hidden");
-        showAlert(questions.length
-          ? `Đề thi có ${questions.length} câu hỏi. Giao diện hiện chỉ hỗ trợ một câu hỏi Java Reflection; chưa thể hiển thị an toàn toàn bộ đề.`
-          : "Đề thi code chưa có câu hỏi.");
+        showAlert("Đề thi code chưa có câu hỏi.");
         return;
       }
-      question = questions[0];
-      if (question.language !== "java" || question.grading_mode !== "reflection") {
+      if (!questions.every(SUPPORTED)) {
         loading.classList.add("hidden");
-        showAlert("Giao diện này hiện chỉ hỗ trợ một câu hỏi Java Reflection.");
+        showAlert("Đề thi có loại câu hỏi chưa được hỗ trợ trên giao diện này. Vui lòng liên hệ giáo viên.");
         return;
       }
-      renderQuestionInfo(question);
-      initializeDraft(question);
-      runButton.classList.toggle("hidden", exam.allow_pretest === false || question.allow_pretest === false);
+      for (const entry of exam.progress || []) progress.set(entry.question_id, entry);
       runButton.addEventListener("click", runPretest);
       submitButton.addEventListener("click", submitAnswer);
       await syncServerStatus();
       revealContent();
-      await loadLatestSubmission(question);
+      await showQuestion(questions[0]);
       drawCountdown();
       window.setInterval(drawCountdown, 1000);
       window.setInterval(() => syncServerStatus().catch((error) => {

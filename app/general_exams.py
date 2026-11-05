@@ -19,6 +19,7 @@ from .code_exams import (
     create_code_exam,
     discard_code_exam,
     get_code_exam,
+    public_question,
     release_student_exam_scores,
     transition_code_exam,
 )
@@ -40,11 +41,12 @@ DISTRIBUTION_MODES = ("random", "selected", "parity", "custom")
 
 
 class ExamError(Exception):
-    def __init__(self, detail: str, status: int = 400, fields: list | None = None):
+    def __init__(self, detail: str, status: int = 400, fields: list | None = None, extra: dict | None = None):
         super().__init__(detail)
         self.detail = detail
         self.status = status
         self.fields = fields
+        self.extra = extra
 
 
 def _new_id() -> str:
@@ -443,6 +445,31 @@ def get_exam(exam_id: str) -> dict:
     return _public(_must(_load(), exam_id))
 
 
+def preview_exam(exam_id: str) -> dict:
+    """Read-only, student-facing view of the code questions (hidden checks stripped)."""
+    reconcile()
+    exam = _must(_load(), exam_id)
+    code_item = _item(exam, "code")
+    if not code_item:
+        raise ExamError("Kỳ thi này không có bài code để xem trước.", 409)
+    snapshot = get_code_exam(code_item["code_exam_id"]) if code_item.get("code_exam_id") else None
+    if snapshot and exam["status"] != "draft":
+        source = {question["question_id"]: question for question in snapshot.get("questions", [])}
+    else:
+        bank = read_json("questions.json")
+        source = {question_id: {**bank[question_id], "question_id": question_id} for question_id in code_item["question_ids"] if question_id in bank}
+    questions, missing = [], []
+    for index, question_id in enumerate(code_item["question_ids"]):
+        question = source.get(question_id)
+        if not question:
+            missing.append(question_id)
+            continue
+        entry = public_question({**question, "order": index})
+        entry["total_points"] = question.get("total_points", 0)
+        questions.append(entry)
+    return {"exam_id": exam_id, "title": exam["title"], "questions": questions, "missing": missing}
+
+
 def published_for_students(student_id: str | None = None) -> list[dict]:
     return [
         {"id": exam["id"], "title": exam["title"], "tag": exam.get("tag", "")}
@@ -497,6 +524,51 @@ def _validate_publishable(exam: dict) -> None:
         raise ExamError("Chưa thể phát đề. Còn thiếu: " + "; ".join(label for _, label in problems) + ".", 400, [key for key, _ in problems])
 
 
+SUPPORTED_CODE_KINDS = {("java", "reflection"), ("java", "stdio"), ("python", "stdio")}
+
+
+def _check_code_questions(code_item: dict) -> None:
+    """Reject publishing when any selected question is missing, not Published, unsupported or duplicated.
+
+    Runs before any snapshot is created, so a rejection leaves no partial data behind.
+    """
+    bank = read_json("questions.json")
+    invalid: list[dict] = []
+    seen: set[str] = set()
+    for position, question_id in enumerate(code_item.get("question_ids", []), start=1):
+        question = bank.get(question_id)
+        reason = code = None
+        if question_id in seen:
+            reason, code = "Câu hỏi bị chọn trùng trong đề.", "duplicate"
+        elif not question:
+            reason, code = "Câu hỏi không còn trong Ngân hàng câu hỏi.", "missing"
+        elif question.get("status") == "archived":
+            reason, code = "Câu hỏi đã được lưu trữ.", "archived"
+        elif question.get("status") != "published":
+            reason, code = "Câu hỏi đang ở trạng thái Nháp. Hãy xác thực và xuất bản lại.", "draft"
+        elif (question.get("language"), question.get("grading_mode")) not in SUPPORTED_CODE_KINDS:
+            reason, code = "Loại câu hỏi chưa được hỗ trợ trong đề nhiều câu.", "unsupported"
+        seen.add(question_id)
+        if reason:
+            invalid.append(
+                {
+                    "question_id": question_id,
+                    "position": position,
+                    "title": (question or {}).get("title", ""),
+                    "status": (question or {}).get("status"),
+                    "code": code,
+                    "reason": reason,
+                }
+            )
+    if invalid:
+        raise ExamError(
+            f"Không thể phát đề: có {len(invalid)} câu hỏi không hợp lệ. Kỳ thi vẫn ở trạng thái Nháp.",
+            409,
+            ["code"],
+            {"invalid_questions": invalid},
+        )
+
+
 def _build_release(exam: dict, actor: str, ip: str) -> dict:
     """Validate the exam, snapshot its code questions and compute the student assignments.
 
@@ -507,6 +579,8 @@ def _build_release(exam: dict, actor: str, ip: str) -> dict:
     config = exam["config"]
     zip_item = _item(exam, "zip")
     code_item = _item(exam, "code")
+    if code_item:
+        _check_code_questions(code_item)
     students = read_json("students.json")
     participants = config["participants"]
     missing = [sid for sid in participants if sid not in students]
@@ -570,6 +644,22 @@ def _build_release(exam: dict, actor: str, ip: str) -> dict:
     }
 
 
+def _check_new_code_questions(old_item: dict | None, new_item: dict | None) -> None:
+    """Questions already in the exam may stay (with warnings); newly added ones must be Published and supported."""
+    if not new_item:
+        return
+    previous = set(old_item["question_ids"]) if old_item else set()
+    bank = read_json("questions.json")
+    for question_id in new_item["question_ids"]:
+        if question_id in previous:
+            continue
+        question = bank.get(question_id)
+        if not question or question.get("status") != "published":
+            raise ExamError("Chỉ có thể thêm câu hỏi đã xuất bản vào đề thi.", 409, ["code"])
+        if (question.get("language"), question.get("grading_mode")) not in SUPPORTED_CODE_KINDS:
+            raise ExamError("Loại câu hỏi này chưa được hỗ trợ trong đề nhiều câu.", 409, ["code"])
+
+
 def update_exam(exam_id: str, payload, actor: str, ip: str) -> dict:
     with transaction():
         reconcile()
@@ -578,6 +668,7 @@ def update_exam(exam_id: str, payload, actor: str, ip: str) -> dict:
         if exam["status"] not in {"draft", "distributed"}:
             raise ExamError("Không thể chỉnh sửa kỳ thi đang diễn ra hoặc đã kết thúc.", 409)
         fields = _normalize(payload, exam)
+        _check_new_code_questions(_item(exam, "code"), _item({"items": fields["items"]}, "code"))
         updated = {**copy.deepcopy(exam), **fields}
         if exam["status"] == "distributed":
             if exam["release"].get("applied"):

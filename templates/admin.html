@@ -329,6 +329,7 @@
                         <button type="button" class="btn btn-primary btn-small" id="cr-refresh"><i class="fa fa-refresh"></i> Tải kết quả</button>
                     </div>
                     <div id="cr-notice" class="notice hidden"></div>
+                    <div id="cr-matrix"></div>
                     <div id="cr-list" class="table-scroll"></div>
                     <div id="cr-detail" class="code-result-detail hidden"></div>
                 </div>
@@ -347,7 +348,10 @@
                             <select id="q-filter-mode"><option value="">Mọi kiểu chấm</option><option value="reflection">reflection</option><option value="stdio">stdio</option></select>
                             <select id="q-filter-status"><option value="">Mọi trạng thái</option><option value="draft">Nháp</option><option value="published">Đã xuất bản</option><option value="archived">Lưu trữ</option></select>
                             <input type="text" id="q-filter-category" placeholder="Danh mục">
+                            <select id="q-filter-usage" aria-label="Lọc theo số lần sử dụng"><option value="">Mọi mức sử dụng</option><option value="0">Chưa dùng (0 lần)</option><option value="used">Đã dùng (≥ 1 lần)</option><option value="1-2">Dùng 1–2 lần</option><option value="3+">Dùng từ 3 lần</option></select>
+                            <button type="button" class="btn btn-small btn-ghost hidden" id="q-filter-usage-clear">Xóa lọc số lần dùng</button>
                         </div>
+                        <p class="fine-print" id="q-count"></p>
                         <div id="q-notice" class="notice hidden"></div>
                         <div id="q-list" class="table-scroll"></div>
                     </div>

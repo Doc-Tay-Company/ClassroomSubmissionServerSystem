@@ -15,5 +15,13 @@
 .code-verdict{font-weight:750;color:#253752}
 .code-diagnostic summary,.starter-code-details summary{cursor:pointer;font-weight:700;color:#52617a;margin:8px 0}
 .countdown-warning{color:#b33232}
+.code-layout{display:grid;grid-template-columns:240px minmax(0,1fr);gap:20px;align-items:start;margin-top:14px}
+.code-question-nav{display:flex;flex-direction:column;gap:8px;position:sticky;top:12px}
+.code-nav-item{display:flex;flex-direction:column;gap:3px;text-align:left;width:100%;padding:10px 12px;border:1px solid #d5deea;border-radius:10px;background:#fff;color:#253752;cursor:pointer;font:inherit}
+.code-nav-item:hover{border-color:#6693f5}
+.code-nav-item[aria-current="true"]{border-color:#2563eb;background:#eef4ff;box-shadow:inset 3px 0 0 #2563eb}
+.code-nav-item small{color:#66748a}
+.code-nav-item .code-nav-submitted{color:#177245;font-weight:700}
+@media(max-width:820px){.code-layout{grid-template-columns:1fr}.code-question-nav{position:static;flex-direction:row;flex-wrap:wrap}.code-nav-item{width:auto;min-width:140px}}
 .notice-error{background:#fff0f0;color:#a32e32;border:1px solid #ffd9d9}
 @media(max-width:640px){.code-exam-heading,.code-editor-heading{align-items:flex-start;flex-direction:column}.code-question-meta{grid-template-columns:1fr}.student-code-editor{min-height:280px}.code-controls .btn{width:100%}}

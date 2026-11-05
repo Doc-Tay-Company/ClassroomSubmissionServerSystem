@@ -77,6 +77,11 @@
     VALIDATION_FAILED: "Đáp án mẫu chưa đạt toàn bộ test. Hãy sửa câu hỏi hoặc đáp án mẫu rồi chạy lại.",
     ALREADY_PUBLISHED: "Câu hỏi đã được xuất bản.",
     QUESTION_NOT_DRAFT: "Chỉ câu hỏi ở trạng thái nháp mới được chạy mẫu hoặc xuất bản.",
+    SAMPLE_REQUIRED: "Cần nhập mã nguồn đáp án mẫu để xác thực trước khi lưu thay đổi.",
+    QUESTION_NOT_PUBLISHED: "Chỉ câu hỏi đã xuất bản mới thực hiện được thao tác này.",
+    QUESTION_NOT_ARCHIVED: "Chỉ câu hỏi đã lưu trữ mới có thể khôi phục.",
+    QUESTION_CHANGED: "Câu hỏi đã bị thay đổi trong lúc xác thực; hãy tải lại và thử lại.",
+    JUDGE_INFRA_ERROR: "Hệ thống chấm gặp lỗi hạ tầng (không phải lỗi câu hỏi); thay đổi chưa được lưu.",
   };
   function friendly(error) {
     return (error && VALIDATION_MESSAGES[error.code]) || errorText(error);
@@ -162,7 +167,13 @@
     const mode = value("q-filter-mode");
     const status = value("q-filter-status");
     const category = value("q-filter-category").toLowerCase();
+    const usage = value("q-filter-usage");
     return questions.filter((q) => {
+      const used = Number(q.usage_count) || 0;
+      if (usage === "0" && used !== 0) return false;
+      if (usage === "used" && used < 1) return false;
+      if (usage === "1-2" && (used < 1 || used > 2)) return false;
+      if (usage === "3+" && used < 3) return false;
       if (language && q.language !== language) return false;
       if (mode && q.grading_mode !== mode) return false;
       if (status && q.status !== status) return false;
@@ -177,6 +188,8 @@
 
   function renderList() {
     const rows = filteredQuestions();
+    document.getElementById("q-count").textContent = questions.length ? `Hiển thị ${rows.length}/${questions.length} câu hỏi` : "";
+    document.getElementById("q-filter-usage-clear").classList.toggle("hidden", !document.getElementById("q-filter-usage").value);
     if (!questions.length) {
       listHost.replaceChildren(h("p", { class: "empty-cell" }, "Chưa có câu hỏi nào. Nhấn “Tạo câu hỏi” hoặc “Nhập JSON” để bắt đầu."));
       return;
@@ -186,20 +199,30 @@
       return;
     }
     const head = h("tr", {}, ...["Tiêu đề", "Ngôn ngữ / kiểu chấm", "Điểm", "Trạng thái", "Phiên bản", "Đã dùng", ""].map((t) => h("th", {}, t)));
-    const body = rows.map((q) =>
-      h("tr", {},
+    const body = rows.map((q) => {
+      const act = (label, cls, fn) => h("button", { type: "button", class: `btn btn-small ${cls}`, on: { click: (e) => { e.stopPropagation(); fn(); } } }, label);
+      const open = () => (q.status === "draft" ? openEditor(q.id) : openDetail(q.id));
+      const actions = [];
+      if (q.status === "published") actions.push(act("Chỉnh sửa", "btn-secondary", () => openEditor(q.id)), act("Thu hồi", "btn-ghost", () => revoke(q)));
+      if (q.status === "archived") actions.push(act("Khôi phục", "btn-secondary", () => restore(q)));
+      actions.push(act("Sao chép", "btn-ghost", () => duplicate(q)));
+      if (q.status !== "archived") actions.push(act("Lưu trữ", "btn-ghost", () => archive(q)));
+      actions.push(act("Xóa", "btn-danger", () => remove(q)));
+      return h("tr", {
+        class: "q-row-clickable", tabindex: "0", title: q.status === "draft" ? "Mở để chỉnh sửa" : "Mở để xem",
+        on: {
+          click: open,
+          keydown: (e) => { if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); open(); } },
+        },
+      },
         h("td", {}, h("strong", {}, q.title), q.category ? h("div", { class: "fine-print" }, q.category) : null),
         h("td", {}, `${q.language} / ${q.grading_mode}`),
         h("td", {}, q.total_points),
         h("td", {}, statusPill(q.status)),
         h("td", {}, q.version ?? 1),
         h("td", {}, q.usage_count ?? 0),
-        h("td", { class: "row-actions" },
-          h("button", { type: "button", class: "btn btn-small btn-secondary", on: { click: () => openDetail(q.id) } }, "Xem"),
-          q.status !== "archived" ? h("button", { type: "button", class: "btn btn-small btn-ghost", on: { click: () => openEditor(q.id) } }, "Sửa") : null,
-          h("button", { type: "button", class: "btn btn-small btn-ghost", on: { click: () => duplicate(q) } }, "Nhân bản"),
-          q.status !== "archived" ? h("button", { type: "button", class: "btn btn-small btn-ghost", on: { click: () => archive(q) } }, "Lưu trữ") : null,
-          h("button", { type: "button", class: "btn btn-small btn-danger", on: { click: () => remove(q) } }, "Xóa"))));
+        h("td", { class: "row-actions" }, ...actions));
+    });
     listHost.replaceChildren(h("table", { class: "data-table" }, h("thead", {}, head), h("tbody", {}, body)));
   }
 
@@ -221,6 +244,13 @@
 
   function duplicate(q) {
     return mutate(() => post(`/api/admin/questions/${encodeURIComponent(q.id)}/duplicate`), "Đã nhân bản câu hỏi (bản sao ở trạng thái nháp).");
+  }
+  function revoke(q) {
+    if (!window.confirm(`Thu hồi câu hỏi “${q.title}” về trạng thái Nháp? Các đề đã tạo vẫn giữ phiên bản cũ.`)) return;
+    return mutate(() => post(`/api/admin/questions/${encodeURIComponent(q.id)}/revoke`), "Đã thu hồi câu hỏi về trạng thái Nháp.");
+  }
+  function restore(q) {
+    return mutate(() => post(`/api/admin/questions/${encodeURIComponent(q.id)}/restore`), "Đã khôi phục câu hỏi về trạng thái Nháp (chưa xuất bản).");
   }
   function archive(q) {
     if (!window.confirm(`Lưu trữ câu hỏi “${q.title}”? Câu hỏi sẽ không thể chọn cho đề mới.`)) return;
@@ -267,6 +297,7 @@
     return parts.join(", ");
   }
 
+  const VERDICT_TEXT = { CE: "lỗi biên dịch", WA: "sai kết quả", RE: "lỗi khi chạy", TLE: "quá thời gian", MLE: "quá bộ nhớ", OLE: "quá giới hạn output" };
   function renderDetail(q) {
     const items = q.grading_mode === "reflection" ? q.checks || [] : q.tests || [];
     const sampleBox = h("textarea", { id: "q-sample-source", class: "code-area", rows: 14, spellcheck: "false", placeholder: "Dán mã nguồn đáp án mẫu (Java) tại đây" });
@@ -280,10 +311,11 @@
       const validation = current.validation;
       const canPublish = current.status === "draft" && validation && validation.passed === true && validation.current !== false;
       publishButton.disabled = !canPublish;
-      if (current.status === "published") hint.textContent = "Câu hỏi đã xuất bản. Sửa nội dung sẽ chuyển lại về nháp và phải chạy mẫu lại.";
+      if (current.status === "published") hint.textContent = "Câu hỏi đã xuất bản.";
       else if (current.status === "archived") hint.textContent = "Câu hỏi đã lưu trữ.";
       else if (!validation) hint.textContent = "Chưa chạy đáp án mẫu: chưa thể xuất bản.";
-      else if (!validation.passed) hint.textContent = "Lần chạy mẫu gần nhất chưa đạt: chưa thể xuất bản.";
+      else if (!validation.passed) hint.textContent = `Lần chạy mẫu gần nhất chưa đạt (${VERDICT_TEXT[validation.verdict] || validation.verdict || "không rõ"}, ${validation.score ?? 0}/${validation.total_points ?? "?"} điểm): chưa thể xuất bản. Hãy dán đáp án mẫu đúng rồi bấm “Chạy đáp án mẫu”.`;
+      else if (validation.current === false) hint.textContent = "Kết quả xác thực không còn khớp đặc tả hiện tại: hãy chạy lại đáp án mẫu.";
       else hint.textContent = `Đáp án mẫu đạt (${validation.validated_at || ""}). Có thể xuất bản.`;
       runButton.disabled = current.status !== "draft";
       sampleBox.disabled = current.status !== "draft";
@@ -296,8 +328,10 @@
       resultHost.replaceChildren(h("p", { class: "muted" }, h("i", { class: "fa fa-spinner fa-spin" }), " Đang biên dịch và chạy đáp án mẫu..."));
       try {
         const result = await post(`/api/admin/questions/${encodeURIComponent(q.id)}/validate`, { sample_source: source });
-        current = { ...current, validation: result.validation };
-        resultHost.replaceChildren(renderValidation(result));
+        current = { ...current, validation: result.previous_pass || result.validation };
+        const view = renderValidation(result);
+        if (result.previous_pass) view.prepend(h("div", { class: "alert alert-warning" }, "Lần chạy này chưa đạt, nhưng đáp án mẫu đạt trước đó cho đúng đặc tả hiện tại vẫn được giữ: có thể xuất bản."));
+        resultHost.replaceChildren(view);
       } catch (error) {
         const body = error.body && typeof error.body === "object" ? error.body : {};
         const lines = [friendly(error)];
@@ -315,6 +349,7 @@
         const data = await post(`/api/admin/questions/${encodeURIComponent(q.id)}/publish`);
         current = data.question;
         setNotice(listNotice, "Đã xuất bản câu hỏi.", false);
+        loadList();
         renderDetail(current);
       } catch (error) {
         resultHost.replaceChildren(h("div", { class: "alert alert-warning" }, friendly(error)));
@@ -326,7 +361,10 @@
       h("div", { class: "panel-heading" },
         h("div", {}, backButton(), " ", h("strong", {}, q.title), " ", statusPill(q.status)),
         h("div", { class: "form-actions" },
-          q.status !== "archived" ? h("button", { type: "button", class: "btn btn-secondary btn-small", on: { click: () => openEditor(q.id) } }, "Sửa") : null)),
+          q.status === "published" ? h("button", { type: "button", class: "btn btn-secondary btn-small", on: { click: () => openEditor(q.id) } }, "Chỉnh sửa") : null,
+          q.status === "published" ? h("button", { type: "button", class: "btn btn-ghost btn-small", on: { click: async () => { await revoke(q); openDetail(q.id); } } }, "Thu hồi") : null,
+          q.status === "draft" ? h("button", { type: "button", class: "btn btn-secondary btn-small", on: { click: () => openEditor(q.id) } }, "Chỉnh sửa") : null,
+          q.status === "archived" ? h("button", { type: "button", class: "btn btn-secondary btn-small", on: { click: async () => { await restore(q); openDetail(q.id); } } }, "Khôi phục") : null)),
       h("div", { class: "kv-grid" },
         kv("Ngôn ngữ", q.language), kv("Kiểu chấm", q.grading_mode), kv("Tổng điểm", q.total_points),
         kv("Phiên bản", q.version), kv("Đã dùng", q.usage_count), kv("Danh mục", q.category),
@@ -342,13 +380,13 @@
         h("tbody", {}, items.map((c) => h("tr", {},
           h("td", {}, c.id), h("td", {}, c.kind || "stdio"), h("td", {}, c.points),
           h("td", {}, c.is_visible ? "Công khai" : "Ẩn"), h("td", { class: "fine-print" }, itemSummary(c))))))),
-      h("h3", {}, "Chạy đáp án mẫu & xuất bản"),
-      q.grading_mode === "reflection" || q.language === "java" || q.language === "python"
+      q.status === "draft"
         ? [
+            h("h3", {}, "Chạy đáp án mẫu & xuất bản"),
             h("label", { for: "q-sample-source" }, "Mã nguồn đáp án mẫu"), sampleBox,
             h("div", { class: "form-actions" }, runButton, publishButton), hint, resultHost,
           ]
-        : null);
+        : h("p", { class: "fine-print" }, q.status === "published" ? "Câu hỏi đã xuất bản (chỉ đọc). Bấm “Chỉnh sửa” để sửa; thay đổi chỉ được lưu sau khi đáp án mẫu đạt, hoặc “Thu hồi” để đưa về Nháp." : "Câu hỏi đã lưu trữ (chỉ đọc). Bấm “Khôi phục” để đưa về Nháp."));
     detailView.replaceChildren(panel);
     refreshPublish();
   }
@@ -660,7 +698,7 @@
     const form = h("form", { class: "stack-form", novalidate: true, on: { submit: (e) => { e.preventDefault(); save(); } } },
       isNew ? null : heading,
       !isNew && editing.original?.status === "published"
-        ? h("div", { class: "alert alert-warning" }, "Câu hỏi này đã xuất bản. Lưu thay đổi sẽ chuyển câu hỏi về nháp, xóa kết quả chạy mẫu cũ và phải chạy mẫu + xuất bản lại. Các đề đã tạo giữ nguyên phiên bản cũ.")
+        ? h("div", { class: "alert alert-warning" }, "Câu hỏi đang ở trạng thái Đã xuất bản. Thay đổi chỉ được áp dụng khi đáp án mẫu mới chạy đạt; nếu không đạt, phiên bản đã xuất bản hiện tại được giữ nguyên. Các đề đã tạo giữ nguyên phiên bản cũ.")
         : null,
       h("div", { class: "two-cols" },
         field("Tiêu đề *", bindInput(h("input", { type: "text", maxlength: 200 }), d, "title")),
@@ -689,10 +727,18 @@
       h("div", { id: "q-items" }),
       h("div", { class: "form-actions" }, addMenu(isReflection)),
       h("p", {}, "Tổng điểm (tự cộng): ", totalNode),
+      !isNew && editing.original?.status === "published"
+        ? h("div", {}, h("label", { for: "q-edit-sample" }, "Mã nguồn đáp án mẫu * (dùng để xác thực thay đổi)"),
+            h("textarea", { id: "q-edit-sample", rows: 10, class: "code-area", spellcheck: "false", on: { input: (e) => { editing.sample = e.target.value; } } }, editing.sample || ""))
+        : null,
       h("div", { id: "q-editor-notice", class: "notice hidden" }),
+      h("div", { id: "q-editor-result" }),
       h("div", { class: "form-actions" },
-        h("button", { type: "submit", class: "btn btn-primary" }, h("i", { class: "fa fa-save" }), isNew ? " Tạo câu hỏi" : " Lưu thay đổi"),
-        h("button", { type: "button", class: "btn btn-ghost", on: { click: discardCreation } }, isNew ? "Hủy và xóa bản nháp" : "Hủy")));
+        h("button", { type: "submit", class: "btn btn-primary" }, h("i", { class: "fa fa-save" }), isNew ? " Tạo câu hỏi" : editing.original?.status === "draft" ? " Lưu và chuyển sang xác thực" : " Lưu thay đổi"),
+        !isNew && editing.original?.status === "draft"
+          ? h("button", { type: "button", class: "btn btn-secondary", on: { click: () => { if (window.confirm("Chuyển sang bước xác thực & xuất bản mà không lưu các chỉnh sửa vừa nhập?")) { const id = editing.id; editing = null; openDetail(id); } } } }, h("i", { class: "fa fa-upload" }), " Đến bước xác thực & xuất bản")
+          : null,
+        h("button", { type: "button", class: "btn btn-ghost", on: { click: discardCreation } }, isNew ? "Hủy và xóa bản nháp" : "Hủy bỏ")));
     if (!isNew) {
       editorView.replaceChildren(form);
       renderItems();
@@ -730,6 +776,12 @@
       if (!window.confirm("Hủy tạo câu hỏi và xóa bản nháp đang nhập?")) return;
       clearCreation();
       editing = null;
+    }
+    if (editing && editing.id) {
+      const id = editing.id;
+      const published = editing.original?.status === "published";
+      editing = null;
+      if (published) { openDetail(id); return; }
     }
     show(listView);
     loadList();
@@ -998,10 +1050,22 @@
     try {
       const payload = buildPayload();
       const isUpdate = Boolean(editing.id);
+      const published = isUpdate && editing.original?.status === "published";
+      if (published) {
+        if (!(editing.sample || "").trim()) { setNotice(notice, VALIDATION_MESSAGES.SAMPLE_REQUIRED, true); return; }
+        payload.sample_source = editing.sample;
+        setNotice(notice, "Đang xác thực đáp án mẫu với thay đổi...", false);
+      }
       const url = isUpdate ? `/api/admin/questions/${encodeURIComponent(editing.id)}/update` : "/api/admin/questions";
       const data = await post(url, payload);
+      const resultHost = document.getElementById("q-editor-result");
+      if (published && data.saved === false) {
+        setNotice(notice, "Đáp án mẫu không đạt với thay đổi. Phiên bản đã xuất bản hiện tại được giữ nguyên, thay đổi chưa được lưu.", true);
+        if (resultHost) resultHost.replaceChildren(renderValidation(data));
+        return;
+      }
       if (!isUpdate) { clearCreation(); editing = null; }
-      setNotice(listNotice, isUpdate ? "Đã lưu. Câu hỏi ở trạng thái nháp, cần chạy đáp án mẫu trước khi xuất bản." : "Đã tạo câu hỏi (nháp).", false);
+      setNotice(listNotice, published ? "Đã lưu thay đổi. Câu hỏi vẫn ở trạng thái Đã xuất bản." : isUpdate ? "Đã lưu. Câu hỏi ở trạng thái nháp, cần chạy đáp án mẫu trước khi xuất bản." : "Đã tạo câu hỏi (nháp).", false);
       openDetail(data.question.id);
     } catch (error) {
       setNotice(notice, friendly(error), true);
@@ -1045,12 +1109,21 @@
     e.target.value = "";
     if (file) importSpec(file);
   });
-  for (const id of ["q-filter-search", "q-filter-language", "q-filter-mode", "q-filter-status", "q-filter-category"]) {
+  for (const id of ["q-filter-search", "q-filter-language", "q-filter-mode",   "q-filter-status", "q-filter-category", "q-filter-usage"]) {
     document.getElementById(id).addEventListener("input", renderList);
   }
+    document.getElementById("q-filter-usage-clear").addEventListener("click", () => {
+      document.getElementById("q-filter-usage").value = "";
+      renderList();
+    });
 
   const storedCreation = loadStoredCreation();
   if (storedCreation) creation = storedCreation;
   loadList();
-  if (creation && creation.open) openEditor(null);
+  const linkedQuestion = new URLSearchParams(location.search).get("question");
+  if (linkedQuestion) {
+    request(`/api/admin/questions/${encodeURIComponent(linkedQuestion)}`)
+      .then((data) => (data.question.status === "draft" ? openEditor(linkedQuestion) : openDetail(linkedQuestion)))
+      .catch((error) => { listHost.prepend(errorBox(error, () => location.reload())); });
+  } else if (creation && creation.open) openEditor(null);
 })();

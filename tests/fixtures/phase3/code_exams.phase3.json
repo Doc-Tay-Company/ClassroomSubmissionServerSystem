@@ -1,0 +1,224 @@
+{
+  "p3-code-exam-draft": {
+    "id": "p3-code-exam-draft",
+    "status": "draft",
+    "release_id": null,
+    "created_by": "phase3-fixture",
+    "created_at": "2026-11-05T09:30:00+00:00",
+    "updated_at": "2026-11-05T09:30:00+00:00",
+    "title": "Phase 3 - ?? nh?p nhi?u c?u (Point + Temperature)",
+    "show_final_score_immediately": false,
+    "allow_pretest": true,
+    "max_pretest_runs": 20,
+    "pretest_cooldown_seconds": 2.0,
+    "submission_policy": "configurable",
+    "max_submissions": 2,
+    "questions": [
+      {
+        "title": "Phase 3 - Lớp Point (toString và tổng)",
+        "statement": "Tạo class Point trong package model với: private int x, private int y; constructor public Point(int x, int y); sum() trả về x + y; toString() trả về Point(<x>, <y>).",
+        "language": "java",
+        "grading_mode": "reflection",
+        "target_class": "model.Point",
+        "target_package": "model",
+        "target_file": "Point.java",
+        "starter_code": "package model;\n\npublic class Point {\n    // TODO\n}\n",
+        "time_limit_seconds": 5.0,
+        "memory_limit_mb": 256,
+        "max_output_bytes": 65536,
+        "allow_pretest": true,
+        "max_pretest_runs": 20,
+        "category": "Đối tượng cơ bản",
+        "tags": [
+          "phase3-fixture",
+          "tostring",
+          "java"
+        ],
+        "difficulty": "easy",
+        "checks": [
+          {
+            "id": "field-x",
+            "kind": "field",
+            "points": 10,
+            "is_visible": true,
+            "name": "x",
+            "type": "int",
+            "modifier": "private"
+          },
+          {
+            "id": "field-y",
+            "kind": "field",
+            "points": 10,
+            "is_visible": true,
+            "name": "y",
+            "type": "int",
+            "modifier": "private"
+          },
+          {
+            "id": "ctor",
+            "kind": "constructor",
+            "points": 10,
+            "is_visible": true,
+            "parameter_types": [
+              "int",
+              "int"
+            ],
+            "modifier": "public"
+          },
+          {
+            "id": "behavior-sum",
+            "kind": "behavior",
+            "points": 20,
+            "is_visible": false,
+            "setup": [],
+            "expect_return": 7,
+            "constructor_parameter_types": [
+              "int",
+              "int"
+            ],
+            "constructor_args": [
+              3,
+              4
+            ],
+            "method": "sum",
+            "parameter_types": [],
+            "args": []
+          },
+          {
+            "id": "tostring",
+            "kind": "toString",
+            "points": 30,
+            "is_visible": true,
+            "setup": [],
+            "constructor_parameter_types": [
+              "int",
+              "int"
+            ],
+            "constructor_args": [
+              3,
+              4
+            ],
+            "template": "Point({x}, {y})"
+          }
+        ],
+        "total_points": 80,
+        "problem_kind": "java_reflection",
+        "id": "p3-java-point",
+        "status": "published",
+        "source": {
+          "created_by": "phase3-fixture",
+          "created_at": "2026-11-05T09:05:00+00:00",
+          "updated_at": "2026-11-05T09:05:00+00:00"
+        },
+        "usage_count": 1,
+        "version": 2,
+        "question_id": "p3-java-point",
+        "snapshot_version": 2,
+        "snapshot_at": "2026-11-05T09:30:00+00:00",
+        "order": 0
+      },
+      {
+        "title": "Phase 3 - Lớp Temperature (đổi độ)",
+        "statement": "Tạo class Temperature trong package model với: private double celsius; constructor public Temperature(double celsius); toFahrenheit() trả về celsius * 9 / 5 + 32.",
+        "language": "java",
+        "grading_mode": "reflection",
+        "target_class": "model.Temperature",
+        "target_package": "model",
+        "target_file": "Temperature.java",
+        "starter_code": "package model;\n\npublic class Temperature {\n    // TODO\n}\n",
+        "time_limit_seconds": 5.0,
+        "memory_limit_mb": 256,
+        "max_output_bytes": 65536,
+        "allow_pretest": true,
+        "max_pretest_runs": 20,
+        "category": "Tính toán",
+        "tags": [
+          "phase3-fixture",
+          "math",
+          "java"
+        ],
+        "difficulty": "medium",
+        "checks": [
+          {
+            "id": "field-celsius",
+            "kind": "field",
+            "points": 20,
+            "is_visible": true,
+            "name": "celsius",
+            "type": "double",
+            "modifier": "private"
+          },
+          {
+            "id": "ctor",
+            "kind": "constructor",
+            "points": 20,
+            "is_visible": true,
+            "parameter_types": [
+              "double"
+            ],
+            "modifier": "public"
+          },
+          {
+            "id": "method-toFahrenheit",
+            "kind": "method",
+            "points": 20,
+            "is_visible": true,
+            "name": "toFahrenheit",
+            "return_type": "double",
+            "parameter_types": [],
+            "modifier": "public"
+          },
+          {
+            "id": "behavior-boiling",
+            "kind": "behavior",
+            "points": 30,
+            "is_visible": false,
+            "setup": [],
+            "expect_return": 212,
+            "constructor_parameter_types": [
+              "double"
+            ],
+            "constructor_args": [
+              100
+            ],
+            "method": "toFahrenheit",
+            "parameter_types": [],
+            "args": []
+          },
+          {
+            "id": "behavior-freezing",
+            "kind": "behavior",
+            "points": 10,
+            "is_visible": true,
+            "setup": [],
+            "expect_return": 32,
+            "constructor_parameter_types": [
+              "double"
+            ],
+            "constructor_args": [
+              0
+            ],
+            "method": "toFahrenheit",
+            "parameter_types": [],
+            "args": []
+          }
+        ],
+        "total_points": 100,
+        "problem_kind": "java_reflection",
+        "id": "p3-java-temperature",
+        "status": "published",
+        "source": {
+          "created_by": "phase3-fixture",
+          "created_at": "2026-11-05T09:10:00+00:00",
+          "updated_at": "2026-11-05T09:10:00+00:00"
+        },
+        "usage_count": 3,
+        "version": 2,
+        "question_id": "p3-java-temperature",
+        "snapshot_version": 2,
+        "snapshot_at": "2026-11-05T09:30:00+00:00",
+        "order": 1
+      }
+    ]
+  }
+}
