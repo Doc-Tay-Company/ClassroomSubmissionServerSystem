@@ -84,7 +84,63 @@
 
   function show(view) {
     for (const node of [listView, detailView, editorView]) node.classList.toggle("hidden", node !== view);
+    if (creation) { creation.open = view === editorView && Boolean(editing) && !editing.id; schedulePersist(); }
     window.scrollTo({ top: 0 });
+  }
+
+  // ---------- temporary draft of the "new code question" form ----------
+  const DRAFT_KEY = "css:question-creation-draft:v1";
+  const QUESTION_TYPES = [["code", "Câu hỏi code"], ["choice", "Câu hỏi trắc nghiệm"], ["short", "Câu hỏi ngắn"]];
+  let creation = null; // { draft, type, open } kept in memory so a storage failure never loses data
+  let persistTimer = null;
+  let storageFailed = false;
+
+  function loadStoredCreation() {
+    try {
+      const data = JSON.parse(sessionStorage.getItem(DRAFT_KEY) || "null");
+      if (!data || data.v !== 1 || !data.draft || typeof data.draft !== "object" || Array.isArray(data.draft)) return null;
+      const draft = { ...newDraft(), ...data.draft };
+      draft.checks = Array.isArray(draft.checks) ? draft.checks : [];
+      draft.tests = Array.isArray(draft.tests) ? draft.tests : [];
+      draft.tags = Array.isArray(draft.tags) ? draft.tags : [];
+      return { draft, type: QUESTION_TYPES.some(([k]) => k === data.type) ? data.type : "code", open: data.open === true };
+    } catch (error) {
+      return null;
+    }
+  }
+
+  function persistCreationNow() {
+    clearTimeout(persistTimer);
+    persistTimer = null;
+    if (!creation) return;
+    try {
+      sessionStorage.setItem(DRAFT_KEY, JSON.stringify({ v: 1, type: creation.type, open: creation.open, draft: creation.draft }));
+      storageFailed = false;
+    } catch (error) {
+      storageFailed = true;
+    }
+    const note = document.getElementById("q-storage-note");
+    if (note) note.classList.toggle("hidden", !storageFailed);
+  }
+
+  function schedulePersist() {
+    if (!creation) return;
+    clearTimeout(persistTimer);
+    persistTimer = setTimeout(persistCreationNow, 250);
+  }
+
+  function clearCreation() {
+    clearTimeout(persistTimer);
+    persistTimer = null;
+    creation = null;
+    try { sessionStorage.removeItem(DRAFT_KEY); } catch (error) { /* nothing stored */ }
+  }
+
+  window.addEventListener("pagehide", persistCreationNow);
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") persistCreationNow(); });
+  // Bound inputs update the draft first; these bubbled events then snapshot it (covers dynamic add/remove/copy/reorder clicks).
+  for (const type of ["input", "change", "click"]) {
+    editorView.addEventListener(type, () => { if (editing && !editing.id) schedulePersist(); });
   }
 
   // ---------- list ----------
@@ -515,12 +571,17 @@
   }
 
   async function openEditor(id, imported) {
-    show(editorView);
     if (!id) {
-      editing = { id: null, draft: imported || newDraft(), original: null };
+      if (imported) creation = { draft: imported, type: "code", open: true };
+      else if (!creation) creation = { draft: newDraft(), type: "code", open: true };
+      editing = { id: null, draft: creation.draft, original: null };
+      show(editorView);
       renderEditor();
+      persistCreationNow();
       return;
     }
+    editing = null;
+    show(editorView);
     editorView.replaceChildren(h("p", { class: "muted pad" }, "Đang tải câu hỏi..."));
     try {
       const data = await request(`/api/admin/questions/${encodeURIComponent(id)}`);
@@ -592,10 +653,12 @@
     const starter = bindInput(h("textarea", { rows: 8, class: "code-area", spellcheck: "false" }), d, "starter_code");
     const memory = bindInput(h("input", { type: "number", min: d.language === "java" ? 256 : 16, max: 2048, step: 1 }), d, "memory_limit_mb", (t) => { const n = num(t); if (!Number.isInteger(n)) throw new Error("int"); return n; });
 
+    const heading = h("div", { class: "panel-heading" },
+      h("div", {}, backButton(), isNew ? null : " ", isNew ? null : h("strong", {}, `Sửa: ${d.title || editing.id}`)),
+      h("div", { class: "form-actions" }, h("button", { type: "button", class: "btn btn-ghost btn-small", on: { click: exportSpec } }, h("i", { class: "fa fa-download" }), " Xuất JSON")));
+
     const form = h("form", { class: "stack-form", novalidate: true, on: { submit: (e) => { e.preventDefault(); save(); } } },
-      h("div", { class: "panel-heading" },
-        h("div", {}, backButton(), " ", h("strong", {}, isNew ? "Tạo câu hỏi mới" : `Sửa: ${d.title || editing.id}`)),
-        h("div", { class: "form-actions" }, h("button", { type: "button", class: "btn btn-ghost btn-small", on: { click: exportSpec } }, h("i", { class: "fa fa-download" }), " Xuất JSON"))),
+      isNew ? null : heading,
       !isNew && editing.original?.status === "published"
         ? h("div", { class: "alert alert-warning" }, "Câu hỏi này đã xuất bản. Lưu thay đổi sẽ chuyển câu hỏi về nháp, xóa kết quả chạy mẫu cũ và phải chạy mẫu + xuất bản lại. Các đề đã tạo giữ nguyên phiên bản cũ.")
         : null,
@@ -629,10 +692,47 @@
       h("div", { id: "q-editor-notice", class: "notice hidden" }),
       h("div", { class: "form-actions" },
         h("button", { type: "submit", class: "btn btn-primary" }, h("i", { class: "fa fa-save" }), isNew ? " Tạo câu hỏi" : " Lưu thay đổi"),
-        h("button", { type: "button", class: "btn btn-ghost", on: { click: () => { show(listView); loadList(); } } }, "Hủy")));
-    editorView.replaceChildren(form);
+        h("button", { type: "button", class: "btn btn-ghost", on: { click: discardCreation } }, isNew ? "Hủy và xóa bản nháp" : "Hủy")));
+    if (!isNew) {
+      editorView.replaceChildren(form);
+      renderItems();
+      refreshTotal();
+      return;
+    }
+    const typeSelect = h("select", { id: "q-type-select", "aria-label": "Loại câu hỏi" }, ...QUESTION_TYPES.map(([value, label]) => h("option", { value }, label)));
+    typeSelect.value = creation.type;
+    const placeholder = (text) => h("div", { class: "q-type-placeholder" }, h("p", { class: "muted" }, "Chức năng đang được phát triển"), h("small", { class: "fine-print" }, text));
+    const choicePane = placeholder("Câu hỏi trắc nghiệm");
+    const shortPane = placeholder("Câu hỏi ngắn");
+    const exportBtn = heading.querySelector(".form-actions");
+    const applyType = () => {
+      const type = typeSelect.value;
+      creation.type = type;
+      form.classList.toggle("hidden", type !== "code");
+      exportBtn.classList.toggle("hidden", type !== "code");
+      choicePane.classList.toggle("hidden", type !== "choice");
+      shortPane.classList.toggle("hidden", type !== "short");
+    };
+    typeSelect.addEventListener("change", () => { applyType(); persistCreationNow(); });
+    editorView.replaceChildren(heading,
+      h("div", { class: "q-create-head" },
+        h("h2", {}, "Tạo câu hỏi mới"),
+        typeSelect,
+        h("small", { id: "q-storage-note", class: `fine-print ${storageFailed ? "" : "hidden"}` }, "Không thể lưu bản nháp tạm vào trình duyệt; dữ liệu chỉ được giữ cho đến khi tải lại trang.")),
+      form, choicePane, shortPane);
+    applyType();
     renderItems();
     refreshTotal();
+  }
+
+  function discardCreation() {
+    if (editing && !editing.id) {
+      if (!window.confirm("Hủy tạo câu hỏi và xóa bản nháp đang nhập?")) return;
+      clearCreation();
+      editing = null;
+    }
+    show(listView);
+    loadList();
   }
 
   // inputs are bound live, so a re-render after structural change keeps the draft
@@ -685,13 +785,14 @@
       h("legend", {}, `#${index + 1} · ${title}`),
       h("div", { class: "check-head" },
         field("ID", bindInput(h("input", { type: "text" }), item, "id")),
-        field("Điểm", bindInput(h("input", { type: "number", min: 0, step: "any" }), item, "points", num)),
+        field("Điểm", bindInput(h("input", { type: "number", min: 0, step: "any" }), item, "points", num))),
+      h("div", { class: "check-body" }, isReflection ? checkFields(item) : testFields(item)),
+      h("div", { class: "check-footer" },
         h("label", { class: "checkbox-row" }, h("input", { type: "checkbox", checked: item.is_visible === true, on: { change: (e) => { item.is_visible = e.target.checked; } } }), " Hiển thị cho sinh viên"),
         h("span", { class: "row-actions" },
           h("button", { type: "button", class: "btn btn-ghost btn-small", title: "Lên", on: { click: () => move(-1) } }, h("i", { class: "fa fa-arrow-up" })),
           h("button", { type: "button", class: "btn btn-ghost btn-small", title: "Xuống", on: { click: () => move(1) } }, h("i", { class: "fa fa-arrow-down" })),
-          h("button", { type: "button", class: "btn btn-danger btn-small", title: "Xóa", on: { click: () => { items.splice(index, 1); renderItems(); refreshTotal(); } } }, h("i", { class: "fa fa-trash" })))),
-      isReflection ? checkFields(item) : testFields(item));
+          h("button", { type: "button", class: "btn btn-danger btn-small", title: "Xóa", on: { click: () => { items.splice(index, 1); renderItems(); refreshTotal(); } } }, h("i", { class: "fa fa-trash" })))));
   }
 
   const typesInput = (obj, key) => bindInput(h("input", { type: "text", placeholder: "java.lang.String, double" }), obj, key, splitList, listToText);
@@ -803,9 +904,12 @@
         sign.value = String(c.expected_sign ?? 0);
         sign.addEventListener("change", () => { c.expected_sign = Number(sign.value); });
         return h("div", { class: "two-cols case-row" },
-          field(`Case ${i + 1} · a`, argsInput(c, "a"), ARGS_HINT), field("b", argsInput(c, "b")),
-          field("Kết quả so sánh", sign),
-          h("button", { type: "button", class: "btn btn-danger btn-small", on: { click: () => { item.cases.splice(i, 1); draw(); } } }, h("i", { class: "fa fa-trash" })));
+          h("span", { class: "case-title" }, `Case ${i + 1}`),
+          h("div", { class: "case-fields" }, field("a", argsInput(c, "a")), field("b", argsInput(c, "b")), field("Kết quả so sánh", sign)),
+          h("div", { class: "case-hints" }, h("small", { class: "fine-print" }, ARGS_HINT)),
+          h("div", { class: "case-actions" },
+            h("button", { type: "button", class: "btn btn-danger btn-xs", title: "Xóa case", on: { click: () => { item.cases.splice(i, 1); draw(); } } }, h("i", { class: "fa fa-trash" }), " Xóa"),
+            h("button", { type: "button", class: "btn btn-ghost btn-xs", title: "Sao chép case", on: { click: () => { item.cases.splice(i + 1, 0, clone(c)); draw(); } } }, h("i", { class: "fa fa-clone" }), " Sao chép")));
       }));
       if (!item.cases.length) host.append(h("p", { class: "fine-print" }, "Chưa có case so sánh."));
     }
@@ -893,9 +997,11 @@
     setNotice(notice, "Đang lưu...", false);
     try {
       const payload = buildPayload();
-      const url = editing.id ? `/api/admin/questions/${encodeURIComponent(editing.id)}/update` : "/api/admin/questions";
+      const isUpdate = Boolean(editing.id);
+      const url = isUpdate ? `/api/admin/questions/${encodeURIComponent(editing.id)}/update` : "/api/admin/questions";
       const data = await post(url, payload);
-      setNotice(listNotice, editing.id ? "Đã lưu. Câu hỏi ở trạng thái nháp, cần chạy đáp án mẫu trước khi xuất bản." : "Đã tạo câu hỏi (nháp).", false);
+      if (!isUpdate) { clearCreation(); editing = null; }
+      setNotice(listNotice, isUpdate ? "Đã lưu. Câu hỏi ở trạng thái nháp, cần chạy đáp án mẫu trước khi xuất bản." : "Đã tạo câu hỏi (nháp).", false);
       openDetail(data.question.id);
     } catch (error) {
       setNotice(notice, friendly(error), true);
@@ -922,6 +1028,7 @@
         data.checks = Array.isArray(data.checks) ? data.checks : [];
         data.tests = Array.isArray(data.tests) ? data.tests : [];
         data.tags = Array.isArray(data.tags) ? data.tags : [];
+        if (creation && !window.confirm("Nhập JSON sẽ thay thế bản nháp câu hỏi đang nhập. Tiếp tục?")) return;
         openEditor(null, toEditorQuestion({ ...newDraft(), ...data }));
       } catch (error) {
         setNotice(listNotice, `Không nhập được: ${error.message}`, true);
@@ -942,5 +1049,8 @@
     document.getElementById(id).addEventListener("input", renderList);
   }
 
+  const storedCreation = loadStoredCreation();
+  if (storedCreation) creation = storedCreation;
   loadList();
+  if (creation && creation.open) openEditor(null);
 })();
