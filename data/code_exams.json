@@ -1,61 +1,59 @@
 {
-  "code_exams": {
-    "mock-code-exam-001": {
-      "id": "mock-code-exam-001",
-      "title": "Mock Python Echo Exam",
-      "status": "started",
-      "release_id": "mock-release-001",
-      "created_by": "admin-mock",
-      "created_at": "2026-11-04T12:00:00+00:00",
-      "updated_at": "2026-11-04T12:05:00+00:00",
-      "distributed_at": "2026-11-04T12:04:00+00:00",
-      "started_at": "2026-11-04T12:05:00+00:00",
-      "show_final_score_immediately": false,
-      "allow_pretest": true,
-      "max_pretest_runs": 20,
-      "pretest_cooldown_seconds": 2.0,
-      "submission_policy": "configurable",
-      "max_submissions": 2,
-      "questions": [
-        {
-          "id": "mock-echo-question-001",
-          "question_id": "mock-echo-question-001",
-          "title": "Echo the input",
-          "statement": "Read one line from standard input and print it unchanged.",
-          "language": "python",
-          "grading_mode": "stdio",
-          "starter_code": "",
-          "time_limit_seconds": 2.0,
-          "memory_limit_mb": 128,
-          "max_output_bytes": 4096,
-          "allow_pretest": true,
-          "max_pretest_runs": 20,
-          "total_points": 10,
-          "tests": [
-            {
-              "id": "visible-echo",
-              "stdin": "hello\n",
-              "expected_stdout": "hello\n",
-              "is_visible": true,
-              "points": 8,
-              "compare_mode": "exact"
-            },
-            {
-              "id": "hidden-echo",
-              "stdin": "hidden case\n",
-              "expected_stdout": "hidden case\n",
-              "is_visible": false,
-              "points": 2,
-              "compare_mode": "exact"
-            }
-          ],
-          "status": "published",
-          "version": 1,
-          "snapshot_version": 1,
-          "snapshot_at": "2026-11-04T12:00:00+00:00",
-          "order": 0
-        }
-      ]
-    }
+  "mock-code-exam-001": {
+    "id": "mock-code-exam-001",
+    "title": "Mock Python Echo Exam",
+    "status": "started",
+    "release_id": "mock-release-001",
+    "created_by": "admin-mock",
+    "created_at": "2026-11-04T12:00:00+00:00",
+    "updated_at": "2026-11-04T12:05:00+00:00",
+    "distributed_at": "2026-11-04T12:04:00+00:00",
+    "started_at": "2026-11-04T12:05:00+00:00",
+    "show_final_score_immediately": false,
+    "allow_pretest": true,
+    "max_pretest_runs": 20,
+    "pretest_cooldown_seconds": 2.0,
+    "submission_policy": "configurable",
+    "max_submissions": 2,
+    "questions": [
+      {
+        "id": "mock-echo-question-001",
+        "question_id": "mock-echo-question-001",
+        "title": "Echo the input",
+        "statement": "Read one line from standard input and print it unchanged.",
+        "language": "python",
+        "grading_mode": "stdio",
+        "starter_code": "",
+        "time_limit_seconds": 2.0,
+        "memory_limit_mb": 128,
+        "max_output_bytes": 4096,
+        "allow_pretest": true,
+        "max_pretest_runs": 20,
+        "total_points": 10,
+        "tests": [
+          {
+            "id": "visible-echo",
+            "stdin": "hello\n",
+            "expected_stdout": "hello\n",
+            "is_visible": true,
+            "points": 8,
+            "compare_mode": "exact"
+          },
+          {
+            "id": "hidden-echo",
+            "stdin": "hidden case\n",
+            "expected_stdout": "hidden case\n",
+            "is_visible": false,
+            "points": 2,
+            "compare_mode": "exact"
+          }
+        ],
+        "status": "published",
+        "version": 1,
+        "snapshot_version": 1,
+        "snapshot_at": "2026-11-04T12:00:00+00:00",
+        "order": 0
+      }
+    ]
   }
 }

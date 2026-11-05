@@ -136,6 +136,8 @@ def _validate_question(payload: Mapping, *, question_id: str, actor: str) -> dic
             if not isinstance(question.get("target_class"), str) or not question["target_class"].strip():
                 raise QuestionError("Java STDIO questions require target_class")
         else:
+            question.pop("target_class", None)
+            question.pop("target_package", None)
             question.setdefault("target_file", "solution.py")
 
     try:

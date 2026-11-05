@@ -304,6 +304,25 @@ class CodeApiTests(unittest.TestCase):
         self.assertEqual(status, 400, result)
         self.assertIn("items", result["fields"])
 
+    def test_exam_records_get_migrates_wrapped_code_exam_store(self):
+        legacy_exam = {
+            "id": "legacy-code-exam",
+            "title": "Legacy code exam",
+            "status": "draft",
+            "release_id": None,
+            "questions": [],
+        }
+        storage.write_json("code_exams.json", {"code_exams": {legacy_exam["id"]: legacy_exam}})
+
+        main.initialize()
+        status, response = self.request(
+            "GET", "/api/admin/exam-records", cookie=self.admin_cookie
+        )
+
+        self.assertEqual(status, 200, response)
+        self.assertIn(legacy_exam["id"], {exam["id"] for exam in response["exams"]})
+        self.assertEqual(storage.read_json("code_exams.json"), {legacy_exam["id"]: legacy_exam})
+
     def test_zip_only_exam_publishes_without_a_code_snapshot(self):
         payload = {
             "title": "ZIP-only exam",
@@ -656,6 +675,8 @@ class CodeApiTests(unittest.TestCase):
         question = {
             "grading_mode": "stdio",
             "language": "python",
+            "target_class": "StaleJavaClass",
+            "target_package": "legacy.java",
             "tests": [_VISIBLE, _HIDDEN],
             "time_limit_seconds": 2,
             "max_output_bytes": 1024,
@@ -666,6 +687,8 @@ class CodeApiTests(unittest.TestCase):
             execute_question(question, "print(input())", visible_only=True)
 
         self.assertTrue(run_stdio.call_args.kwargs["visible_only"])
+        self.assertIsNone(run_stdio.call_args.kwargs["target_class"])
+        self.assertIsNone(run_stdio.call_args.kwargs["target_package"])
 
     def test_api_runs_python_submission_through_stdio_runner(self):
         self.create_started_code_exam(use_real_runner=True)

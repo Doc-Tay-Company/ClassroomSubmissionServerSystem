@@ -67,6 +67,13 @@ def initialize() -> None:
                 if missing:
                     current.update(missing)
                     atomic_write(p, current)
+        code_exams = read_json("code_exams.json")
+        if (
+            isinstance(code_exams, dict)
+            and set(code_exams) == {"code_exams"}
+            and isinstance(code_exams["code_exams"], dict)
+        ):
+            write_json("code_exams.json", code_exams["code_exams"])
         (LOG_DIR / "audit.jsonl").touch(exist_ok=True)
 
 def atomic_write(path: Path, value: Any) -> None:

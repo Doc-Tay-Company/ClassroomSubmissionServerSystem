@@ -183,6 +183,34 @@ class QuestionMemoryLimitTests(unittest.TestCase):
 
 
 class JavaStdioQuestionPointsTests(unittest.TestCase):
+    def test_python_question_drops_stale_java_target_fields(self):
+        question = _validate_question(
+            {
+                "title": "Python with stale Java metadata",
+                "statement": "",
+                "language": "python",
+                "grading_mode": "stdio",
+                "target_class": "Main",
+                "target_package": "legacy",
+                "total_points": 1,
+                "tests": [
+                    {
+                        "id": "case-1",
+                        "stdin": "",
+                        "expected_stdout": "",
+                        "is_visible": True,
+                        "points": 1,
+                    }
+                ],
+            },
+            question_id="python-stale-java-metadata",
+            actor="admin",
+        )
+
+        self.assertNotIn("target_class", question)
+        self.assertNotIn("target_package", question)
+        self.assertEqual(question["target_file"], "solution.py")
+
     def test_java_stdio_divides_total_points_equally_across_tests(self):
         question = _validate_question(
             {
