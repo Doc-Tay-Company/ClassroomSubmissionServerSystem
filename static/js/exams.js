@@ -170,7 +170,7 @@
     let saveTimer = null;
     let saving = false;
     let dirty = false;
-
+    let showErrors = false;
     const blank = () => ({
       title: "", tag: "", duration: 90, policy: "configurable", maxSub: 1, overwrite: true, ext: ".zip", pwEnabled: false, pw: "", hasPw: false,
       participants: new Set(), code: null, zip: null, accountQuery: "", questionQuery: "",
@@ -198,12 +198,17 @@
       return f;
     }
 
+    const clampPretest = (value) => {
+      const n = Number(value);
+      return Number.isFinite(n) ? Math.min(20, Math.max(1, n)) : 1;
+    };
+
     function toPayload() {
       const items = [];
       if (form.code) {
         items.push({
           item_id: form.code.item_id, type: "code", question_ids: [...form.code.ids], show_final_score_immediately: form.code.final,
-          allow_pretest: form.code.pretest, max_pretest_runs: Number(form.code.maxRuns), pretest_cooldown_seconds: Number(form.code.cooldown),
+          allow_pretest: form.code.pretest, max_pretest_runs: Math.round(clampPretest(form.code.maxRuns)), pretest_cooldown_seconds: clampPretest(form.code.cooldown),
         });
       }
       if (form.zip) {
@@ -256,14 +261,48 @@
       }
     }
 
+    const mark = (key, el) => { el.dataset.field = key; return el; };
+
     function scheduleAutosave() {
       dirty = true;
+      if (showErrors) applyErrors(publishProblems());
       if (!exam || exam.status !== "draft") return;
       clearTimeout(saveTimer);
       autosave.textContent = "Đang chờ lưu…";
       saveTimer = setTimeout(async () => {
         try { await persist(true); } catch (error) { autosave.textContent = `Không thể tự lưu: ${errorText(error)}`; }
       }, 1500);
+    }
+
+    // Mirrors the backend publish rules; keys match the `fields` returned by the API.
+    function publishProblems() {
+      const problems = [];
+      const inRange = (value, min, max) => Number.isInteger(Number(value)) && String(value).trim() !== "" && Number(value) >= min && Number(value) <= max;
+      if (!form.title.trim()) problems.push(["title", "tên kỳ thi"]);
+      if (!inRange(form.duration, 1, 1440)) problems.push(["duration", "thời lượng (1–1440 phút)"]);
+      if (!inRange(form.maxSub, 1, 20)) problems.push(["maxSub", "số lần nộp tối đa (1–20)"]);
+      if (!form.ext.replace(/[,\s]/g, "")) problems.push(["ext", "loại file được chấp nhận"]);
+      if (form.pwEnabled && !form.pw && !form.hasPw) problems.push(["password", "mật khẩu đề thi (đang bật yêu cầu mật khẩu)"]);
+      if (!form.participants.size) problems.push(["participants", "danh sách sinh viên dự thi"]);
+      if (!form.code && !form.zip) problems.push(["items", "bài code hoặc bài nộp file (cần ít nhất một)"]);
+      else if (form.code && !form.code.ids.size) problems.push(["code", "câu hỏi cho bài code"]);
+      return problems;
+    }
+
+    function applyErrors(problems) {
+      body.querySelectorAll(".field-invalid").forEach((el) => el.classList.remove("field-invalid"));
+      problems.forEach(([key]) => body.querySelectorAll(`[data-field="${key}"]`).forEach((el) => el.classList.add("field-invalid")));
+    }
+
+    function showProblems(problems) {
+      showErrors = true;
+      applyErrors(problems);
+      toast(`Chưa thể phát đề. Còn thiếu: ${problems.map(([, label]) => label).join("; ")}.`, true);
+      const first = body.querySelector(".field-invalid");
+      if (first) {
+        first.scrollIntoView({ behavior: "smooth", block: "center" });
+        if (/^(INPUT|SELECT|TEXTAREA)$/.test(first.tagName)) first.focus({ preventScroll: true });
+      }
     }
 
     const field = (label, control, hint) => h("div", {}, h("label", {}, label), control, hint ? h("p", { class: "fine-print" }, hint) : null);
@@ -278,22 +317,22 @@
     function configSection() {
       return h("section", { class: "exam-form-section" },
         h("h3", {}, h("i", { class: "fa fa-sliders" }), " Thông tin và cấu hình"),
-        h("div", { class: "exam-rows" },
-          rowField("Tên kỳ thi", h("input", { value: form.title, maxlength: 200, placeholder: "Ví dụ: Thi giữa kỳ JSD", on: { input: bind("title") } })),
-          rowField("Nhãn", h("select", { value: form.tag, on: { change: bind("tag") } },
+        h("div", { class: "exam-row exam-row-title" }, h("label", {}, "Tên kỳ thi"), mark("title", h("input", { value: form.title, maxlength: 200, placeholder: "Ví dụ: Thi giữa kỳ JSD", on: { input: bind("title") } }))),
+        h("div", { class: "exam-grid" },
+          stackField("Nhãn", h("select", { value: form.tag, on: { change: bind("tag") } },
             ...Object.entries(TAGS).map(([value, label]) => h("option", { value, selected: form.tag === value }, label)))),
-          rowField("Thời lượng (phút)", h("input", { type: "number", min: 1, max: 1440, value: form.duration, on: { input: bind("duration") } })),
-          rowField("Chính sách nộp bài", h("select", { on: { change: bind("policy") } },
+          stackField("Thời lượng (phút)", mark("duration", h("input", { type: "number", min: 1, max: 1440, value: form.duration, on: { input: bind("duration") } }))),
+          stackField("Chính sách nộp bài", h("select", { on: { change: bind("policy") } },
             h("option", { value: "once", selected: form.policy === "once" }, "Một lần duy nhất"),
             h("option", { value: "configurable", selected: form.policy === "configurable" }, "Theo số lần Admin cấu hình"))),
-          rowField("Số lần nộp tối đa", h("input", { type: "number", min: 1, max: 20, value: form.maxSub, on: { input: bind("maxSub") } })),
-          rowField("Khi nộp lại", h("select", { on: { change: bind("overwrite", "yesno") } },
+          stackField("Số lần nộp tối đa", mark("maxSub", h("input", { type: "number", min: 1, max: 20, value: form.maxSub, on: { input: bind("maxSub") } }))),
+          stackField("Khi nộp lại", h("select", { on: { change: bind("overwrite", "yesno") } },
             h("option", { value: "true", selected: form.overwrite }, "Ghi đè file trước"),
-            h("option", { value: "false", selected: !form.overwrite }, "Giữ các file trước")))),
-        stackField("Loại file được chấp nhận (cách nhau bằng dấu cách hoặc dấu phẩy)", h("input", { value: form.ext, placeholder: ".zip .pdf .docx", on: { input: bind("ext") } })),
+            h("option", { value: "false", selected: !form.overwrite }, "Giữ các file trước"))),
+          stackField("Loại file được chấp nhận", mark("ext", h("input", { value: form.ext, placeholder: ".zip .pdf .docx", on: { input: bind("ext") } })))),
         h("label", { class: "checkbox-row" }, h("input", { type: "checkbox", checked: form.pwEnabled, on: { change: (e) => { form.pwEnabled = e.target.checked; scheduleAutosave(); render(); } } }), " Yêu cầu mật khẩu đề thi"),
         form.pwEnabled
-          ? stackField("Mật khẩu đề thi", h("input", { type: "password", autocomplete: "new-password", value: form.pw, placeholder: form.hasPw ? "Đã có mật khẩu — chỉ nhập khi muốn đổi" : "Nhập mật khẩu", on: { input: bind("pw") } }))
+          ? stackField("Mật khẩu đề thi", mark("password", h("input", { type: "password", autocomplete: "new-password", value: form.pw, placeholder: form.hasPw ? "Đã có mật khẩu — chỉ nhập khi muốn đổi" : "Nhập mật khẩu", on: { input: bind("pw") } })))
           : null);
     }
 
@@ -328,8 +367,8 @@
       refreshList();
       return h("section", { class: "exam-form-section" },
         h("h3", {}, h("i", { class: "fa fa-user-check" }), " Đối tượng được vào thi ", count),
-        h("p", { class: "muted" }, "Để trống để áp dụng cho tất cả tài khoản đang hoạt động. MSSV chưa có tài khoản sẽ được tạo tự động (mật khẩu ban đầu là MSSV) khi phát đề."),
-        h("div", { class: "participant-block" },
+        h("p", { class: "muted" }, "Cần chọn ít nhất một sinh viên để phát đề. MSSV chưa có tài khoản sẽ được tạo tự động (mật khẩu ban đầu là MSSV) khi phát đề."),
+        mark("participants", h("div", { class: "participant-block" },
           h("div", {},
             h("input", { type: "search", value: form.accountQuery, placeholder: "Tìm MSSV hoặc họ tên...", on: { input: (e) => { form.accountQuery = e.target.value; refreshList(); } } }),
             list,
@@ -347,7 +386,7 @@
                 refreshList();
                 scheduleAutosave();
               } },
-            }, "Thêm vào danh sách"))));
+            }, "Thêm vào danh sách")))));
     }
 
     function codeSection() {
@@ -355,7 +394,7 @@
         type: "checkbox", checked: Boolean(form.code),
         on: { change: (e) => { form.code = e.target.checked ? { item_id: undefined, ids: new Set(), final: false, pretest: true, maxRuns: 20, cooldown: 2 } : null; scheduleAutosave(); render(); } },
       }), " Có bài code (chấm tự động)");
-      if (!form.code) return h("section", { class: "exam-form-section" }, h("h3", {}, h("i", { class: "fa fa-code" }), " Bài code"), toggle);
+      if (!form.code) return mark("items", h("section", { class: "exam-form-section" }, h("h3", {}, h("i", { class: "fa fa-code" }), " Bài code"), toggle));
       const code = form.code;
       const published = ref.questions.filter((question) => question.status === "published");
       const list = h("div", { class: "participant-list" });
@@ -369,12 +408,34 @@
         count.textContent = `${code.ids.size} câu`;
       };
       refreshList();
-      const runsInput = h("input", { type: "number", min: 1, max: 1000, value: code.maxRuns, disabled: !code.pretest, on: { input: (e) => { code.maxRuns = e.target.value; scheduleAutosave(); } } });
-      const cooldownInput = h("input", { type: "number", min: 0, max: 3600, step: "0.5", value: code.cooldown, disabled: !code.pretest, on: { input: (e) => { code.cooldown = e.target.value; scheduleAutosave(); } } });
+      const clampInput = (input, assign, integer) => {
+        const raw = input.value.trim();
+        if (raw === "" || Number.isNaN(Number(raw))) return;
+        let value = Number(raw);
+        if (integer) value = Math.round(value);
+        const fixed = clampPretest(value);
+        if (fixed !== Number(raw)) input.value = String(fixed);
+        assign(fixed);
+        scheduleAutosave();
+      };
+      const settle = (input, assign, integer) => {
+        if (input.value.trim() === "") input.value = "1";
+        clampInput(input, assign, integer);
+      };
+      const runsInput = h("input", { type: "number", min: 1, max: 20, step: 1, value: clampPretest(code.maxRuns), disabled: !code.pretest });
+      const cooldownInput = h("input", { type: "number", min: 1, max: 20, step: "0.5", value: clampPretest(code.cooldown), disabled: !code.pretest });
+      code.maxRuns = runsInput.value;
+      code.cooldown = cooldownInput.value;
+      const setRuns = (value) => { code.maxRuns = value; };
+      const setCooldown = (value) => { code.cooldown = value; };
+      runsInput.addEventListener("input", () => clampInput(runsInput, setRuns, true));
+      runsInput.addEventListener("change", () => settle(runsInput, setRuns, true));
+      cooldownInput.addEventListener("input", () => clampInput(cooldownInput, setCooldown, false));
+      cooldownInput.addEventListener("change", () => settle(cooldownInput, setCooldown, false));
       return h("section", { class: "exam-form-section" },
         h("h3", {}, h("i", { class: "fa fa-code" }), " Bài code ", count), toggle,
         h("input", { type: "search", value: form.questionQuery, placeholder: "Tìm câu hỏi đã xuất bản...", on: { input: (e) => { form.questionQuery = e.target.value; refreshList(); } } }),
-        list,
+        mark("code", list),
         h("div", { class: "exam-rows" },
           h("label", { class: "checkbox-row" }, h("input", { type: "checkbox", checked: code.pretest, on: { change: (e) => { code.pretest = e.target.checked; runsInput.disabled = cooldownInput.disabled = !code.pretest; scheduleAutosave(); } } }), " Cho phép chạy thử (pretest)"),
           h("label", { class: "checkbox-row" }, h("input", { type: "checkbox", checked: code.final, on: { change: (e) => { code.final = e.target.checked; scheduleAutosave(); } } }), " Hiện điểm cuối cho sinh viên ngay sau khi nộp"),
@@ -388,7 +449,7 @@
         on: { change: (e) => { form.zip = e.target.checked ? { item_id: undefined, mode: "random", files: new Set(), even: "", odd: "", map: {} } : null; scheduleAutosave(); render(); } },
       }), " Có bài nộp file (đề ZIP/PDF)");
       const heading = h("h3", {}, h("i", { class: "fa fa-file-archive-o" }), " Bài nộp file");
-      if (!form.zip) return h("section", { class: "exam-form-section" }, heading, toggle);
+      if (!form.zip) return mark("items", h("section", { class: "exam-form-section" }, heading, toggle));
       const zip = form.zip;
       const names = ref.files.map((file) => file.name);
       const fileOptions = (selected, onChange) => h("select", { on: { change: onChange } }, h("option", { value: "" }, "— Chọn đề —"), ...names.map((name) => h("option", { value: name, selected: name === selected }, name)));
@@ -412,13 +473,13 @@
             h("select", { on: { change: (e) => { zip.map[remainder] = e.target.value; scheduleAutosave(); } } },
               h("option", { value: "" }, "— Chọn đề —"), ...selected.map((name) => h("option", { value: name, selected: zip.map[remainder] === name }, name))))) : [])));
       }
-      return h("section", { class: "exam-form-section" }, heading, toggle,
+      return mark("items", h("section", { class: "exam-form-section" }, heading, toggle,
         rowField("Chế độ phân phối", h("select", { class: "exam-select-wide", on: { change: (e) => { zip.mode = e.target.value; scheduleAutosave(); render(); } } },
           h("option", { value: "random", selected: zip.mode === "random" }, "Ngẫu nhiên (xa nhau theo IP) trong các đề được chọn"),
           h("option", { value: "selected", selected: zip.mode === "selected" }, "Luân phiên trong các đề được chọn"),
           h("option", { value: "parity", selected: zip.mode === "parity" }, "Chẵn/lẻ theo chữ số cuối MSSV"),
           h("option", { value: "custom", selected: zip.mode === "custom" }, "Quy tắc tùy chỉnh theo chữ số cuối MSSV"))),
-        ...extra);
+        ...extra));
     }
 
     let busy = false;
@@ -436,9 +497,20 @@
     const handlers = {
       saveDraft: guard(async () => { if (await needSave()) { toast("Đã lưu nháp."); render(); } }),
       publish: guard(async () => {
+        const problems = publishProblems();
+        if (problems.length) { showProblems(problems); return; }
+        showErrors = false;
+        applyErrors([]);
         if (!(await confirmDialog("Phát đề cho kỳ thi này? Sinh viên được chọn sẽ thấy kỳ thi trong danh sách đã phát đề.", "Phát đề"))) return;
         if (!(await needSave())) return;
-        try { const data = await post(`/${encodeURIComponent(examId)}/publish`); exam = data.exam; toast("Đã phát đề."); history.replaceState(null, "", examUrl(examId)); render(); } catch (error) { toast(errorText(error), true); }
+        try {
+          const data = await post(`/${encodeURIComponent(examId)}/publish`);
+          exam = data.exam; toast("Đã phát đề."); history.replaceState(null, "", examUrl(examId)); render();
+        } catch (error) {
+          toast(errorText(error), true);
+          const keys = error && error.body && Array.isArray(error.body.fields) ? error.body.fields : [];
+          if (keys.length) applyErrors(keys.map((key) => [key, ""]));
+        }
       }),
       saveChanges: guard(async () => {
         if (!form.title.trim()) { toast("Hãy nhập tên kỳ thi.", true); return; }
@@ -502,17 +574,18 @@
 
     function render() {
       const readOnly = mode() === "view";
+      const warningText = !readOnly || !exam ? "" : exam.status === "distributed"
+        ? "Kỳ thi đã phát đề. Bấm “Chỉnh sửa” để thay đổi (đề sẽ được phát lại)."
+        : "Kỳ thi ở chế độ chỉ xem.";
       body.replaceChildren(
         h("div", { class: "exam-detail-head" },
-          link("/admin?section=exams", "fa-arrow-left", "Danh sách kỳ thi", "btn-ghost"),
-          pill(exam ? exam.status : "draft"),
-          actionBar()),
-        readOnly ? h("div", { class: "alert alert-warning" }, exam.status === "distributed"
-          ? "Kỳ thi đã phát đề. Bấm “Chỉnh sửa” để thay đổi (đề sẽ được phát lại)."
-          : "Kỳ thi ở chế độ chỉ xem.") : null,
+          h("div", { class: "exam-detail-status" }, pill(exam ? exam.status : "draft"), actionBar()),
+          link("/admin?section=exams", "fa-arrow-left", "Danh sách kỳ thi", "btn-ghost")),
+        warningText.trim() ? h("div", { class: "alert alert-warning" }, warningText) : null,
         h("fieldset", { class: "exam-form", disabled: readOnly }, configSection(), participantsSection(), codeSection(), zipSection()),
         mode() === "edit" && (!exam || exam.status === "draft") ? autosave : null,
         bottomBar(), notice);
+      if (showErrors && mode() === "edit") applyErrors(publishProblems());
     }
 
     async function init() {

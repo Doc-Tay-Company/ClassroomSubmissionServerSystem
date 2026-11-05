@@ -639,8 +639,8 @@ class Handler(BaseHTTPRequestHandler):
             traceback.print_exc(); return self._json({"detail":"Lỗi máy chủ nội bộ."},500)
 
     def _handle_error(self,e):
-        status=getattr(e,"status",500); detail=getattr(e,"detail",str(e)); code=getattr(e,"code",None)
-        if self.path.startswith("/api/") or self.path.startswith("/admin/submissions/") or self.path=="/api/student/exam": return self._json({"detail":detail,**({"code":code} if code else {})},status)
+        status=getattr(e,"status",500); detail=getattr(e,"detail",str(e)); code=getattr(e,"code",None); fields=getattr(e,"fields",None)
+        if self.path.startswith("/api/") or self.path.startswith("/admin/submissions/") or self.path=="/api/student/exam": return self._json({"detail":detail,**({"code":code} if code else {}),**({"fields":fields} if fields else {})},status)
         return self._html("<!doctype html><meta charset='utf-8'><title>Lỗi</title><h1>Yêu cầu không thể xử lý</h1><p>"+html.escape(detail)+"</p><p><a href='/'>Quay lại</a></p>",status)
 
     @staticmethod

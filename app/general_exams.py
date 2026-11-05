@@ -39,10 +39,11 @@ DISTRIBUTION_MODES = ("random", "selected", "parity", "custom")
 
 
 class ExamError(Exception):
-    def __init__(self, detail: str, status: int = 400):
+    def __init__(self, detail: str, status: int = 400, fields: list | None = None):
         super().__init__(detail)
         self.detail = detail
         self.status = status
+        self.fields = fields
 
 
 def _new_id() -> str:
@@ -474,14 +475,23 @@ def create_exam(payload, actor: str, ip: str) -> dict:
 
 
 def _validate_publishable(exam: dict) -> None:
-    if not exam["items"]:
-        raise ExamError("Kỳ thi cần ít nhất một bài (code hoặc nộp ZIP) trước khi phát đề.")
-    code_item = _item(exam, "code")
-    if code_item and not code_item["question_ids"]:
-        raise ExamError("Bài code cần ít nhất một câu hỏi.")
+    problems: list[tuple[str, str]] = []
     config = exam["config"]
+    if not str(exam.get("title", "")).strip():
+        problems.append(("title", "tên kỳ thi"))
+    if not config.get("participants"):
+        problems.append(("participants", "danh sách sinh viên dự thi"))
+    if not config.get("accepted_submission_extensions"):
+        problems.append(("ext", "loại file được chấp nhận"))
     if config["password_enabled"] and not config.get("password_hash"):
-        raise ExamError("Hãy nhập mật khẩu đề thi khi bật tùy chọn này.")
+        problems.append(("password", "mật khẩu đề thi (đang bật yêu cầu mật khẩu)"))
+    code_item = _item(exam, "code")
+    if not exam["items"]:
+        problems.append(("items", "bài code hoặc bài nộp file (cần ít nhất một)"))
+    elif code_item and not code_item["question_ids"]:
+        problems.append(("code", "câu hỏi cho bài code"))
+    if problems:
+        raise ExamError("Chưa thể phát đề. Còn thiếu: " + "; ".join(label for _, label in problems) + ".", 400, [key for key, _ in problems])
 
 
 def _build_release(exam: dict, actor: str, ip: str) -> dict:
