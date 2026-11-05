@@ -5,10 +5,11 @@
 <header class="topbar ui-header"><div class="brand"><i class="fa fa-laptop"></i> Classroom Submission Server</div><form action="/logout" method="post"><button class="btn btn-ghost ui-action" type="submit"><i class="fa fa-sign-out"></i> Đăng xuất</button></form></header>
 <main class="page-wrap narrow ui-page mx-auto max-w-4xl px-6 py-8">
   <section class="welcome-panel"><div><p class="eyebrow">KHU VỰC SINH VIÊN</p><h1>Xin chào, {{ student.full_name }}</h1><p class="muted">MSSV: <strong>{{ session.user_id }}</strong></p></div><span class="status-pill status-blue">Đã đăng nhập</span></section>
-  <section class="panel bg-white rounded-2xl border p-6 mb-5" id="student-panel" data-exam-state="{{ settings.exam_state|default('idle') }}">
+  <section class="panel bg-white rounded-2xl border p-6 mb-5" id="student-panel" data-exam-state="{{ settings.exam_state|default('idle') }}" data-published="{% for item in published_exams %}{{ item.id }}{% if not loop.last %},{% endif %}{% endfor %}">
     <div id="student-notifications" class="hidden"></div><div class="panel-heading"><div><h2><i class="fa fa-file-text-o"></i> Bài thi của bạn</h2><p class="muted">Đề thi chỉ được mở sau khi bạn nhấn bắt đầu làm bài.</p></div></div>
     {% if settings.exam_state == 'idle' or (settings.exam_state == 'ended' and not (assignment and assignment.code_exam_id and assignment.started_at)) %}
-      <div class="empty-state"><i class="fa fa-clock-o"></i><h3>Chưa phát đề</h3><p>Vui lòng chờ giảng viên bắt đầu kỳ thi.</p></div>
+      <div class="empty-state"><i class="fa fa-clock-o"></i><h3>Chưa phát đề</h3><p>Vui lòng chờ giảng viên bắt đầu kỳ thi.</p>
+      {% if published_exams %}<div class="alert alert-info"><strong>Kỳ thi đã được phát đề:</strong><ul>{% for item in published_exams %}<li>{{ item.title }}</li>{% endfor %}</ul></div>{% endif %}</div>
     {% elif settings.exam_state == 'distributed' %}
       <div class="empty-state"><i class="fa fa-hourglass-half"></i><h3>Đã được phân phối đề</h3><p>Giảng viên chưa bắt đầu kỳ thi. Vui lòng chờ thông báo.</p></div>
     {% elif not assignment %}

@@ -43,6 +43,10 @@
         box.innerHTML = status.notifications.map((item) =>
           `<div><strong>Thông báo</strong>: ${window.cssEscape(item.message)}</div>`).join("");
       }
+      const panel = document.getElementById("student-panel");
+      const waiting = panel && ["idle", "ended", "distributed"].includes(panel.dataset.examState);
+      const published = (status.published_exams || []).map((item) => item.id).sort().join(",");
+      if (waiting && (status.exam_state === "started" || (panel.dataset.published ?? published) !== published)) window.location.reload();
     } catch (error) { reportBackgroundError("Student heartbeat", error); }
   };
   document.addEventListener("visibilitychange", sendTelemetry);

@@ -33,6 +33,11 @@ def _subnet_key(ip: str) -> str:
     except ValueError:
         return "unknown"
 
+def eligible_students(participant_ids, students: dict) -> list[tuple[str, dict]]:
+    if participant_ids:
+        return [(sid, students[sid]) for sid in participant_ids if sid in students and students[sid].get("active", True)]
+    return [(sid, data) for sid, data in students.items() if data.get("active", True)]
+
 def distribute_exams(mode: str, config: dict | None = None) -> dict:
     students = read_json("students.json")
     files = [x["name"] for x in list_exam_files()]
@@ -46,13 +51,20 @@ def distribute_exams(mode: str, config: dict | None = None) -> dict:
         prepare_code_exam_distribution(code_exam_id)
     if mode not in {"random", "selected", "parity", "custom"}:
         raise ValueError("Chế độ phân phối không hợp lệ.")
-    assignments = {}
     settings = read_json("settings.json")
     participant_ids = settings.get("exam_participants") or []
-    eligible = [(sid, students[sid]) for sid in participant_ids if sid in students and students[sid].get("active", True)] if participant_ids else [(sid, data) for sid, data in students.items() if data.get("active", True)]
+    eligible = eligible_students(participant_ids, students)
     if not eligible:
         raise ValueError("Không có tài khoản sinh viên đang hoạt động để phát đề.")
-    if code_exam_id and (config.get("code_only") is True or not files):
+    code_only = bool(code_exam_id) and (config.get("code_only") is True or not files)
+    assignments = compute_assignments(mode, config, files, eligible, code_only)
+    return persist_distribution(mode, config, assignments, code_exam_id)
+
+def compute_assignments(mode: str, config: dict, files: list[str], eligible: list[tuple[str, dict]], code_only: bool) -> dict:
+    """Validate a distribution request and map each eligible student to an exam file (None for code-only)."""
+    assignments = {}
+    students = read_json("students.json")
+    if code_only:
         assignments = {sid: None for sid, _ in eligible}
     elif mode == "selected":
         selected_files = config.get("exam_files") or []
@@ -124,6 +136,9 @@ def distribute_exams(mode: str, config: dict | None = None) -> dict:
             order = order[offset:] + order[:offset]
             for index, (sid, _) in enumerate(group):
                 assignments[sid] = order[index % len(order)]
+    return assignments
+
+def persist_distribution(mode: str, config: dict, assignments: dict, code_exam_id: str | None) -> dict:
     release_id = uuid.uuid4().hex
     created_at = utc_now()
     persisted = {sid: {"exam_file": filename, "release_id": release_id, "assigned_at": created_at, "started_at": None, "ends_at": None, "status": "assigned", "ip_at_assignment": None, **({"code_exam_id": code_exam_id} if code_exam_id else {})} for sid, filename in assignments.items()}
@@ -183,6 +198,24 @@ def start_exam_session() -> dict:
     transition_code_exam(release_id, "started")
     audit("exam.started_by_admin", "admin", None, {"release_id": settings.get("exam_release_id")})
     return settings
+
+def end_exam_session() -> dict:
+    """End the running exam: close code exam, clear release fields, mark unfinished assignments ended."""
+    settings = read_json("settings.json")
+    old = settings.get("exam_release_id")
+    if not settings.get("exam_released") or not old:
+        raise ValueError("Hiện không có kỳ thi đang diễn ra.")
+    transition_code_exam(old, "ended")
+    settings.update({"exam_state": "ended", "exam_released": False, "exam_release_id": None, "exam_release_at": None})
+    write_json("settings.json", settings)
+    assignments = read_json("assignments.json")
+    ended = utc_now()
+    for item in assignments.values():
+        if item.get("release_id") == old and item.get("status") != "submitted":
+            item["status"] = "ended"
+            item["ends_at"] = ended
+    write_json("assignments.json", assignments)
+    return {"release_id": old, "ended_at": ended}
 
 def remaining_seconds(item: dict) -> int:
     if not item.get("ends_at"):

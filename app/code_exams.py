@@ -181,6 +181,32 @@ def attach_code_exam_to_release(exam_id: str, release_id: str) -> None:
     update_json("code_exams.json", attach)
 
 
+def discard_code_exam(exam_id: str | None) -> bool:
+    """Remove a never-started code exam snapshot and release its question usage counts."""
+    if not exam_id:
+        return False
+    removed: list[str] = []
+
+    def remove(exams):
+        exam = exams.get(exam_id)
+        if exam and exam.get("status") in {"draft", "distributed"}:
+            removed.extend(question.get("question_id") for question in exam.get("questions", []))
+            del exams[exam_id]
+
+    update_json("code_exams.json", remove)
+    if not removed:
+        return False
+
+    def release_usage(questions):
+        for question_id in removed:
+            question = questions.get(question_id)
+            if question:
+                question["usage_count"] = max(0, int(question.get("usage_count", 0)) - 1)
+
+    update_json("questions.json", release_usage)
+    return True
+
+
 def transition_code_exam(release_id: str | None, state: str) -> None:
     if not release_id:
         return

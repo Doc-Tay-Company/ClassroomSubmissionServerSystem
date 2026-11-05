@@ -27,3 +27,49 @@ input.invalid,textarea.invalid{border-color:#dc2626;outline-color:#dc2626}
 .regrade-controls{display:flex;align-items:center;gap:10px;flex-wrap:wrap;border-top:1px solid #e5eaf2;margin-top:16px;padding-top:12px}
 .history-entry{margin-top:12px;padding:10px;border:1px solid #e5eaf2;border-radius:8px}
 .history-entry h4{margin:4px 0}
+.exam-filters{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}
+.exam-filters input{flex:0 1 260px;width:260px;max-width:100%;border:1px solid #94a3b8;border-radius:8px}
+.exam-filters input:focus{border-color:#2f6fed;outline:none}
+.exam-card-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px}
+.exam-card{display:flex;flex-direction:column;gap:8px;padding:16px;border:1px solid #dbe3ef;border-radius:12px;background:#fff;cursor:pointer}
+.exam-card-started{border-color:#16a34a;box-shadow:0 0 0 1px #16a34a33}
+.exam-card-main{display:flex;flex-direction:column;gap:8px;min-width:0}
+.exam-card-main p{margin:0}
+.exam-card-head{display:flex;flex-direction:column;gap:8px;min-width:0}
+.exam-card-title{font-weight:700;font-size:16px;color:#0f172a;text-decoration:none;overflow-wrap:anywhere}
+.exam-card-meta{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.exam-card-actions,.exam-action-bar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:auto}
+.exam-card-actions{justify-content:flex-end}
+@media(min-width:761px){
+.exam-card-grid{grid-template-columns:1fr}
+.exam-card{flex-direction:row;justify-content:space-between;align-items:flex-end;gap:16px}
+.exam-card-head{flex-direction:row;flex-wrap:wrap;align-items:center}
+.exam-card-actions{margin-top:0;max-width:60%}
+}
+.exam-action-bar{margin-top:16px}
+.exam-form{border:0;padding:0;margin:0;min-width:0}
+.exam-form-section{border:1px solid #e5eaf2;border-radius:12px;padding:16px;margin-bottom:14px;display:flex;flex-direction:column;gap:10px}
+.exam-form-section h3{margin:0}
+.modal-overlay{position:fixed;inset:0;background:#0f172a80;display:flex;align-items:center;justify-content:center;z-index:1000}
+.modal-box{background:#fff;border-radius:12px;padding:20px;max-width:440px;width:calc(100% - 32px)}
+
+/* Exam detail page */
+.exam-detail-head{display:flex;flex-direction:column;align-items:flex-end;gap:8px;margin-bottom:12px}
+.exam-detail-head .exam-action-bar{margin-top:0;justify-content:flex-end}
+.exam-action-bottom{justify-content:flex-end;margin-top:4px}
+#exam-root input:not([type=checkbox]):not([type=radio]),#exam-root select,#exam-root textarea{border:1px solid #94a3b8;border-radius:8px;background:#fff;color:#1e293b;padding:9px 11px;max-width:100%;min-width:0;outline:none;transition:border-color .15s,box-shadow .15s}
+#exam-root input:not([type=checkbox]):not([type=radio]):focus,#exam-root select:focus,#exam-root textarea:focus{border-color:#2563eb;box-shadow:0 0 0 3px #2563eb26}
+#exam-root input:disabled,#exam-root select:disabled,#exam-root textarea:disabled{background:#eef1f6;border-color:#d5dbe6;border-style:dashed;color:#94a3b8;cursor:not-allowed;opacity:1}
+.exam-rows{display:flex;flex-direction:column;gap:10px}
+.exam-row{display:flex;align-items:center;justify-content:space-between;gap:8px 16px;flex-wrap:wrap}
+.exam-row>label{flex:1 1 220px;min-width:0;margin:0}
+.exam-row>input,.exam-row>select{flex:0 1 320px;width:320px;min-width:180px}
+.exam-row-stack{flex-direction:column;align-items:stretch;justify-content:flex-start}
+.exam-row-stack>label{flex:0 0 auto}
+.exam-row-stack>input{flex:0 0 auto;width:100%}
+.exam-row>select.exam-select-wide{flex:0 1 420px;width:420px}
+.participant-block{display:flex;flex-direction:column;gap:12px;min-width:0}
+.paste-block{display:flex;flex-direction:column;align-items:flex-start;gap:8px}
+.paste-block .paste-input{width:98%;min-height:150px;max-height:300px;overflow-y:auto;resize:vertical}
+#exam-root .participant-list{max-height:240px;overflow-y:auto;overflow-x:hidden}
+@media(max-width:560px){.exam-row>input,.exam-row>select,.exam-row>select.exam-select-wide{flex:1 1 100%;width:100%}.exam-detail-head,.exam-detail-head .exam-action-bar,.exam-action-bottom{align-items:stretch}.paste-block .paste-input{width:100%}}
