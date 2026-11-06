@@ -28,12 +28,42 @@ class QuestionError(ValueError):
 
 
 # Lifecycle/bookkeeping fields that do not describe what the judge executes.
-_SPEC_HASH_EXCLUDED = frozenset({"id", "status", "source", "usage_count", "version", "validation"})
+_SPEC_HASH_EXCLUDED = frozenset({"id", "status", "source", "usage_count", "version", "validation", "reference_source"})
+
+# Fields that change what the judge executes / how it grades. A change to any of these
+# invalidates a previous sample validation. Metadata-only fields (title, statement,
+# category, tags, difficulty, starter_code, allow_pretest, max_pretest_runs) do not.
+_GRADING_HASH_FIELDS = (
+    "language",
+    "grading_mode",
+    "problem_kind",
+    "target_class",
+    "target_package",
+    "target_file",
+    "checks",
+    "tests",
+    "total_points",
+    "time_limit_seconds",
+    "memory_limit_mb",
+    "max_output_bytes",
+)
 
 
 def compute_spec_hash(question: Mapping) -> str:
     """SHA-256 of the canonical question specification (everything except lifecycle fields)."""
     spec = {key: value for key, value in question.items() if key not in _SPEC_HASH_EXCLUDED}
+    canonical = json.dumps(spec, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def compute_grading_hash(question: Mapping) -> str:
+    """SHA-256 of only the fields that affect grading behaviour.
+
+    Used to decide whether a previous sample validation can be reused when a question is
+    edited. Metadata-only edits keep the same grading hash, so they do not force a new
+    sample execution.
+    """
+    spec = {key: question.get(key) for key in _GRADING_HASH_FIELDS if key in question}
     canonical = json.dumps(spec, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
@@ -61,8 +91,10 @@ def _validate_question(payload: Mapping, *, question_id: str, actor: str) -> dic
         question = json.loads(json.dumps(dict(payload), ensure_ascii=False, allow_nan=False))
     except (TypeError, ValueError, UnicodeEncodeError) as exc:
         raise QuestionError("Question must contain valid JSON values") from exc
-    # Validation records are server-owned and must never be accepted from a client.
+    # Validation records and the private reference source are server-owned and must
+    # never be accepted from a client payload.
     question.pop("validation", None)
+    question.pop("reference_source", None)
 
     title = question.get("title")
     statement = question.get("statement", "")
@@ -179,7 +211,10 @@ def create_question(payload: Mapping, actor: str, ip: str) -> dict:
     question_id = requested_id or uuid.uuid4().hex
     if not isinstance(question_id, str) or not _ID_PATTERN.fullmatch(question_id):
         raise QuestionError("id may contain only letters, digits, underscore, and hyphen")
+    reference_source = payload.get("reference_source") if isinstance(payload, Mapping) else None
     question = _validate_question(payload, question_id=question_id, actor=actor)
+    if isinstance(reference_source, str) and reference_source.strip():
+        question["reference_source"] = reference_source
 
     def insert(questions):
         if question_id in questions:
@@ -209,6 +244,7 @@ def update_question(question_id: str, payload: Mapping, actor: str, ip: str) -> 
         raise QuestionError("Câu hỏi đã xuất bản phải được xác thực bằng đáp án mẫu trước khi lưu thay đổi.", 409, "SAMPLE_REQUIRED")
 
     updated = _validate_question(payload, question_id=question_id, actor=actor)
+    new_reference = payload.get("reference_source") if isinstance(payload, Mapping) else None
     updated.update(
         {
             # Draft edits stay draft; the stored validation is dropped because the spec changed.
@@ -220,6 +256,8 @@ def update_question(question_id: str, payload: Mapping, actor: str, ip: str) -> 
             },
             "usage_count": current.get("usage_count", 0),
             "version": int(current.get("version", 1)) + 1,
+            # Preserve the private reference source across draft edits, or adopt a new one.
+            "reference_source": new_reference if isinstance(new_reference, str) and new_reference.strip() else current.get("reference_source"),
         }
     )
     save_question(updated)
@@ -259,7 +297,7 @@ def duplicate_question(question_id: str, actor: str, ip: str) -> dict:
     duplicate = {
         key: value
         for key, value in question.items()
-        if key not in {"id", "status", "source", "usage_count", "version", "validation"}
+        if key not in {"id", "status", "source", "usage_count", "version", "validation", "reference_source"}
     }
     return create_question(duplicate, actor, ip)
 

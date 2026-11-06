@@ -15,7 +15,7 @@ from typing import Mapping
 from .code_runner import run_stdio
 from .grading import GradingError, grade_exam, grade_reflection, grade_stdio
 from .java_runner import run_reflection_judge
-from .questions import QuestionError, _validate_question, compute_spec_hash, get_question
+from .questions import QuestionError, _validate_question, compute_grading_hash, compute_spec_hash, get_question
 from .storage import audit, read_json, update_json, utc_now
 from .windows_job import DEFAULT_JOB_LIMITS, MIN_JAVA_JOB_MEMORY_MB, JobLimits
 
@@ -102,7 +102,7 @@ def _validate_code_exam_payload(payload: Mapping) -> tuple[dict, list[dict]]:
             raise CodeExamError(f"Question '{question_id}' is not published", 409)
         snapshots.append(
             {
-                **_json_copy(question),
+                **_snapshot_question(question),
                 "question_id": question_id,
                 "snapshot_version": question.get("version", 1),
                 "snapshot_at": utc_now(),
@@ -139,6 +139,16 @@ def _json_copy(value):
         return json.loads(json.dumps(value, ensure_ascii=False, allow_nan=False))
     except (TypeError, ValueError, UnicodeEncodeError) as exc:
         raise CodeExamError("Request must contain valid JSON values") from exc
+
+
+def _snapshot_question(question: Mapping) -> dict:
+    """Copy a question for a snapshot, dropping the private reference source.
+
+    The reference source must never reach Student-facing snapshots or public output.
+    """
+    copy = _json_copy(question)
+    copy.pop("reference_source", None)
+    return copy
 
 
 def create_code_exam(payload: Mapping, actor: str, ip: str) -> dict:
@@ -1455,6 +1465,8 @@ def validate_question_sample(question_id: str, sample_source: str, actor: str, i
         ):
             state["stale"] = True
             return
+        # Keep the latest reference source separate from the result of its most recent validation.
+        current["reference_source"] = sample_source
         if infra_error:
             return
         previous = current.get("validation")
@@ -1490,21 +1502,12 @@ def validate_question_sample(question_id: str, sample_source: str, actor: str, i
     }
 
 
-def update_published_question(question_id: str, payload: Mapping, sample_source: str, actor: str, ip: str) -> dict:
-    """Commit an edit of a published question only after its sample solution passes the new spec.
+def _run_candidate(candidate: Mapping, sample_source: str, *, validated_by: str | None = None) -> tuple[dict, dict]:
+    """Execute a reference source against an in-memory candidate question.
 
-    The stored question is untouched unless validation succeeds, so a failed attempt leaves the
-    previous published version intact. Code-exam snapshots are separate copies and are never modified.
+    Returns (execution, record). Never persists anything. The candidate must already be a
+    validated question dict (e.g. from _validate_question).
     """
-    current = get_question(question_id)
-    if not current:
-        raise QuestionError("Không tìm thấy câu hỏi.", 404)
-    if current.get("status") != "published":
-        raise QuestionError("Chỉ câu hỏi đã xuất bản mới dùng luồng này.", 409, "QUESTION_NOT_PUBLISHED")
-    if not isinstance(sample_source, str) or not sample_source.strip():
-        raise QuestionError("Cần nhập mã nguồn đáp án mẫu để xác thực trước khi lưu thay đổi.", 400, "SAMPLE_REQUIRED")
-    base_version = current.get("version")
-    candidate = _validate_question(payload, question_id=question_id, actor=actor)
     source_hash = _validate_source(sample_source)
     sample_source = _clean_sample_source(sample_source)
     spec_hash = compute_spec_hash(candidate)
@@ -1521,22 +1524,34 @@ def update_published_question(question_id: str, payload: Mapping, sample_source:
     finally:
         _RUN_SLOTS.release()
 
-    if execution.get("error_category") in _INFRA_CATEGORIES:
-        raise QuestionError("Hệ thống chấm gặp lỗi hạ tầng (không phải lỗi câu hỏi); thay đổi chưa được lưu.", 503, "JUDGE_INFRA_ERROR")
-    passed, reason = _sample_passes(candidate, execution)
+    infra_error = execution.get("error_category") in _INFRA_CATEGORIES
+    passed, reason = (False, execution.get("error")) if infra_error else _sample_passes(candidate, execution)
     record = {
         "spec_hash": spec_hash,
         "passed": passed,
         "validated_at": utc_now(),
-        "validated_by": actor,
+        "validated_by": validated_by,
         "sample_sha256": source_hash,
         "verdict": execution.get("verdict"),
         "score": execution.get("score"),
         "total_points": execution.get("total_points"),
     }
-    result = {
-        "saved": False,
-        "validation": {**record, "current": passed, "stale": False, "reason": reason},
+    return execution, record
+
+
+def validate_question_candidate(payload: Mapping, sample_source: str, actor: str, ip: str) -> dict:
+    """Validate a complete, possibly unsaved candidate question against a reference source.
+
+    The candidate is validated and executed entirely in memory; no Question Bank record is
+    created or updated. The returned result corresponds to the exact candidate payload.
+    """
+    if not isinstance(sample_source, str) or not sample_source.strip():
+        raise QuestionError("Cần nhập mã nguồn đáp án mẫu để xác thực.", 400, "SAMPLE_REQUIRED")
+    candidate = _validate_question(payload, question_id=payload.get("id") or "candidate", actor=actor)
+    execution, record = _run_candidate(candidate, sample_source)
+    infra_error = execution.get("error_category") in _INFRA_CATEGORIES
+    return {
+        "validation": {**record, "current": True, "stale": False, "reason": None if record["passed"] else (execution.get("error") if infra_error else "Sample solution must pass every configured check/test")},
         "verdict": execution.get("verdict"),
         "score": execution.get("score"),
         "total_points": execution.get("total_points"),
@@ -1545,10 +1560,196 @@ def update_published_question(question_id: str, payload: Mapping, sample_source:
         "error_category": execution.get("error_category"),
         "compile_result": _compiler_summary(execution),
         "results": _normalized_results(candidate, execution, visible_only=False),
+        "spec_hash": record["spec_hash"],
+        "sample_sha256": record["sample_sha256"],
     }
-    if not passed:
-        audit("code.question_edit_rejected", actor, ip, {"question_id": question_id, "spec_hash": spec_hash, "sample_sha256": source_hash})
-        return result
+
+
+def publish_question_candidate(payload: Mapping, sample_source: str, actor: str, ip: str) -> dict:
+    """Publish a candidate question only after a fresh server-side validation passes.
+
+    The complete candidate and reference source are validated and executed in memory. If the
+    sample passes, the question is created (or, for an existing draft, updated) atomically as
+    published with the reference source and validation metadata. If validation fails or the
+    grading infrastructure errors, the candidate is saved as a Nháp (never published) and the
+    original question is never overwritten with failed publication data.
+    """
+    if not isinstance(sample_source, str) or not sample_source.strip():
+        raise QuestionError("Cần nhập mã nguồn đáp án mẫu để xác thực trước khi xuất bản.", 400, "SAMPLE_REQUIRED")
+    requested_id = payload.get("id") if isinstance(payload, Mapping) else None
+    question_id = requested_id or uuid.uuid4().hex
+    candidate = _validate_question(payload, question_id=question_id, actor=actor)
+    execution, record = _run_candidate(candidate, sample_source, validated_by=actor)
+    infra_error = execution.get("error_category") in _INFRA_CATEGORIES
+    passed = record["passed"]
+
+    result = {
+        "published": False,
+        "validation": {**record, "current": True, "stale": False, "reason": None if passed else (execution.get("error") if infra_error else "Sample solution must pass every configured check/test")},
+        "verdict": execution.get("verdict"),
+        "score": execution.get("score"),
+        "total_points": execution.get("total_points"),
+        "duration_ms": execution.get("duration_ms", 0),
+        "error": execution.get("error"),
+        "error_category": execution.get("error_category"),
+        "compile_result": _compiler_summary(execution),
+        "results": _normalized_results(candidate, execution, visible_only=False),
+        "spec_hash": record["spec_hash"],
+        "sample_sha256": record["sample_sha256"],
+    }
+
+    def commit(questions):
+        existing = questions.get(question_id)
+        if existing and existing.get("status") == "published":
+            raise QuestionError("Câu hỏi đã được xuất bản.", 409, "ALREADY_PUBLISHED")
+        prior_source = existing.get("source", {}) if existing else {}
+        base_source = {
+            "created_by": prior_source.get("created_by", actor),
+            "created_at": prior_source.get("created_at", utc_now()),
+            "updated_by": actor,
+            "updated_at": utc_now(),
+        }
+        if passed and not infra_error:
+            candidate.update(
+                {
+                    "status": "published",
+                    "source": base_source,
+                    "usage_count": existing.get("usage_count", 0) if existing else 0,
+                    "version": int(existing.get("version", 1)) + 1 if existing else 1,
+                    "validation": record,
+                    "reference_source": _clean_sample_source(sample_source),
+                }
+            )
+            questions[question_id] = candidate
+            return deepcopy(candidate)
+        # Validation failed or infra error: retain the complete candidate as Nháp.
+        candidate.update(
+            {
+                "status": "draft",
+                "source": base_source,
+                "usage_count": existing.get("usage_count", 0) if existing else 0,
+                "version": int(existing.get("version", 1)) + 1 if existing else 1,
+                "validation": record,
+                "reference_source": _clean_sample_source(sample_source),
+            }
+        )
+        questions[question_id] = candidate
+        return deepcopy(candidate)
+
+    saved = update_json("questions.json", commit)
+    if passed and not infra_error:
+        audit("code.question_published", actor, ip, {"question_id": question_id, "spec_hash": record["spec_hash"], "version": saved["version"]})
+        result["published"] = True
+    else:
+        audit("code.question_publish_rejected", actor, ip, {"question_id": question_id, "spec_hash": record["spec_hash"], "passed": passed, "infra": infra_error})
+    result["question"] = saved
+    return result
+
+
+def update_published_question(question_id: str, payload: Mapping, sample_source: str, actor: str, ip: str) -> dict:
+    """Commit an edit of a published question only after its sample solution passes the new spec.
+
+    The stored question is untouched unless validation succeeds, so a failed attempt leaves the
+    previous published version intact. Code-exam snapshots are separate copies and are never modified.
+
+    The reference source is private question data. It is persisted alongside the question so the
+    editing form can restore it. When the grading-relevant specification and the reference source
+    are unchanged and the previous validation passed, that validation is reused without re-executing
+    the sample. Otherwise the candidate is revalidated with the candidate reference source.
+    """
+    current = get_question(question_id)
+    if not current:
+        raise QuestionError("Không tìm thấy câu hỏi.", 404)
+    if current.get("status") != "published":
+        raise QuestionError("Chỉ câu hỏi đã xuất bản mới dùng luồng này.", 409, "QUESTION_NOT_PUBLISHED")
+    base_version = current.get("version")
+    candidate = _validate_question(payload, question_id=question_id, actor=actor)
+
+    # The reference source is private question data, separate from validation metadata.
+    # If the Teacher did not supply one, fall back to the previously stored source so that
+    # metadata-only edits do not force re-entry.
+    if not isinstance(sample_source, str) or not sample_source.strip():
+        sample_source = current.get("reference_source")
+    if not isinstance(sample_source, str) or not sample_source.strip():
+        raise QuestionError("Cần nhập mã nguồn đáp án mẫu để xác thực trước khi lưu thay đổi.", 400, "SAMPLE_REQUIRED")
+    source_hash = _validate_source(sample_source)
+    sample_source = _clean_sample_source(sample_source)
+    spec_hash = compute_spec_hash(candidate)
+    grading_hash = compute_grading_hash(candidate)
+
+    previous = current.get("validation")
+    previous_valid = (
+        isinstance(previous, Mapping)
+        and previous.get("passed") is True
+        and previous.get("sample_sha256") == source_hash
+    )
+    grading_unchanged = grading_hash == compute_grading_hash(current)
+
+    if previous_valid and grading_unchanged:
+        # Reuse the previous successful validation: the grading-relevant specification and the
+        # reference source are unchanged, so the stored validation still describes this exact
+        # grading specification. Metadata-only edits (title, statement, category, tags,
+        # difficulty) do not force a new sample execution.
+        record = dict(previous)
+        # The grading spec and source are unchanged, so the validation remains valid for the new
+        # specification. Refresh the spec_hash so a later revoke→publish cycle still matches.
+        record["spec_hash"] = spec_hash
+        result = {
+            "saved": False,
+            "validation": {**record, "current": True, "stale": False, "reason": None},
+            "verdict": record.get("verdict"),
+            "score": record.get("score"),
+            "total_points": record.get("total_points"),
+            "duration_ms": 0,
+            "error": None,
+            "error_category": None,
+            "compile_result": None,
+            "results": [],
+            "reused": True,
+        }
+    else:
+        if not _RUN_SLOTS.acquire(blocking=False):
+            raise QuestionError("Hệ thống chấm đang bận, hãy thử lại sau giây lát.", 429)
+        try:
+            try:
+                execution = execute_question(candidate, sample_source)
+            except Exception as exc:
+                execution = {
+                    "verdict": "JUDGE_INFRA_ERROR", "score": 0, "total_points": candidate["total_points"], "duration_ms": 0,
+                    "error": f"{type(exc).__name__}: {exc}", "error_category": "JUDGE_INFRA_ERROR", "checks": [], "tests": [],
+                }
+        finally:
+            _RUN_SLOTS.release()
+
+        if execution.get("error_category") in _INFRA_CATEGORIES:
+            raise QuestionError("Hệ thống chấm gặp lỗi hạ tầng (không phải lỗi câu hỏi); thay đổi chưa được lưu.", 503, "JUDGE_INFRA_ERROR")
+        passed, reason = _sample_passes(candidate, execution)
+        record = {
+            "spec_hash": spec_hash,
+            "passed": passed,
+            "validated_at": utc_now(),
+            "validated_by": actor,
+            "sample_sha256": source_hash,
+            "verdict": execution.get("verdict"),
+            "score": execution.get("score"),
+            "total_points": execution.get("total_points"),
+        }
+        result = {
+            "saved": False,
+            "validation": {**record, "current": passed, "stale": False, "reason": reason},
+            "verdict": execution.get("verdict"),
+            "score": execution.get("score"),
+            "total_points": execution.get("total_points"),
+            "duration_ms": execution.get("duration_ms", 0),
+            "error": execution.get("error"),
+            "error_category": execution.get("error_category"),
+            "compile_result": _compiler_summary(execution),
+            "results": _normalized_results(candidate, execution, visible_only=False),
+            "reused": False,
+        }
+        if not passed:
+            audit("code.question_edit_rejected", actor, ip, {"question_id": question_id, "spec_hash": spec_hash, "sample_sha256": source_hash})
+            return result
 
     def commit(questions):
         stored = questions.get(question_id)
@@ -1561,13 +1762,14 @@ def update_published_question(question_id: str, payload: Mapping, sample_source:
                 "usage_count": stored.get("usage_count", 0),
                 "version": int(stored.get("version", 1)) + 1,
                 "validation": record,
+                "reference_source": sample_source,
             }
         )
         questions[question_id] = candidate
         return deepcopy(candidate)
 
     saved = update_json("questions.json", commit)
-    audit("code.question_updated", actor, ip, {"question_id": question_id, "version": saved["version"], "spec_hash": spec_hash, "published": True})
+    audit("code.question_updated", actor, ip, {"question_id": question_id, "version": saved["version"], "spec_hash": spec_hash, "published": True, "reused": result.get("reused", False)})
     return {**result, "saved": True, "question": saved}
 
 
