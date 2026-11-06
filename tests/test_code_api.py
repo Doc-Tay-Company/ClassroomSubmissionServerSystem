@@ -1105,6 +1105,54 @@ class CodeApiTests(unittest.TestCase):
         )
         self.assertEqual(status, 409, rejected)
 
+    def test_question_delete_handles_legacy_submission_wrapper(self):
+        question = {
+            "id": "wrapper-question",
+            "title": "Wrapper question",
+            "language": "python",
+            "grading_mode": "stdio",
+            "total_points": 10,
+            "tests": [_VISIBLE, _HIDDEN],
+        }
+        status, created = self.request(
+            "POST", "/api/admin/questions", cookie=self.admin_cookie, payload=question
+        )
+        self.assertEqual(status, 201, created)
+
+        storage.write_json(
+            "code_submissions.json",
+            {
+                "code_submissions": {
+                    "legacy-student": [{"question_id": "wrapper-question"}]
+                },
+                "student-1": [],
+            },
+        )
+        status, blocked = self.request(
+            "POST",
+            "/api/admin/questions/wrapper-question/delete",
+            cookie=self.admin_cookie,
+            raw_body=b"",
+        )
+        self.assertEqual(status, 409, blocked)
+
+        storage.write_json(
+            "code_submissions.json",
+            {
+                "code_submissions": {
+                    "legacy-student": [{"question_id": "unrelated-question"}]
+                },
+                "student-1": [],
+            },
+        )
+        status, deleted = self.request(
+            "POST",
+            "/api/admin/questions/wrapper-question/delete",
+            cookie=self.admin_cookie,
+            raw_body=b"",
+        )
+        self.assertEqual(status, 200, deleted)
+
     def test_admin_can_regrade_after_question_update_and_history_is_retained(self):
         exam_id = self.create_started_code_exam()
         with patch("app.code_exams.execute_question", return_value=_execution()):

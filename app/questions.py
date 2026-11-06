@@ -325,9 +325,24 @@ def delete_question(question_id: str, actor: str, ip: str) -> None:
         any(item.get("question_id") == question_id for item in exam.get("questions", []))
         for exam in read_json("code_exams.json").values()
     )
+    submissions = read_json("code_submissions.json")
+    if not isinstance(submissions, Mapping):
+        raise QuestionError("Cannot verify question usage because submission data is invalid.", 409)
+    submission_groups = []
+    for student_id, records in submissions.items():
+        if student_id == "code_submissions":
+            if not isinstance(records, Mapping):
+                raise QuestionError("Cannot verify question usage because submission data is invalid.", 409)
+            submission_groups.extend(records.values())
+        else:
+            submission_groups.append(records)
+    if any(not isinstance(records, list) for records in submission_groups):
+        raise QuestionError("Cannot verify question usage because submission data is invalid.", 409)
+    if any(not isinstance(item, Mapping) for records in submission_groups for item in records):
+        raise QuestionError("Cannot verify question usage because submission data is invalid.", 409)
     submission_used = any(
         item.get("question_id") == question_id
-        for records in read_json("code_submissions.json").values()
+        for records in submission_groups
         for item in records
     )
     run_used = any(
