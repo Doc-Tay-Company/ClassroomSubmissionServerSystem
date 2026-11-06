@@ -61,8 +61,10 @@ from .code_exams import (
     get_code_exam,
     list_code_exams,
     publish_question,
-    update_published_question,
-    validate_question_sample,
+        publish_question_candidate,
+        update_published_question,
+        validate_question_candidate,
+        validate_question_sample,
     regrade_submission,
     regrade_student_exam,
     submit_code,
@@ -476,6 +478,16 @@ class Handler(BaseHTTPRequestHandler):
                 sess=self._auth(req,"admin"); question_id=urllib.parse.unquote(path[len("/api/admin/questions/"):-len("/validate")].strip("/")); payload=self._json_body(req)
                 if not question_id or "/" in question_id: raise ClientError(404,"Question was not found.")
                 result=validate_question_sample(question_id,payload.get("sample_source"),sess["user_id"],client_ip(req))
+                infra=result.get("error_category") in {"INVALID_REQUEST","JDK_NOT_FOUND","JUDGE_INFRA_ERROR","PROTOCOL_ERROR"}
+                return self._json({"ok":not infra,**result},503 if infra else 200)
+            if path=="/api/admin/questions/validate-candidate":
+                sess=self._auth(req,"admin"); payload=self._json_body(req)
+                result=validate_question_candidate(payload,payload.get("sample_source"),sess["user_id"],client_ip(req))
+                infra=result.get("error_category") in {"INVALID_REQUEST","JDK_NOT_FOUND","JUDGE_INFRA_ERROR","PROTOCOL_ERROR"}
+                return self._json({"ok":not infra,**result},503 if infra else 200)
+            if path=="/api/admin/questions/publish-candidate":
+                sess=self._auth(req,"admin"); payload=self._json_body(req)
+                result=publish_question_candidate(payload,payload.get("sample_source"),sess["user_id"],client_ip(req))
                 infra=result.get("error_category") in {"INVALID_REQUEST","JDK_NOT_FOUND","JUDGE_INFRA_ERROR","PROTOCOL_ERROR"}
                 return self._json({"ok":not infra,**result},503 if infra else 200)
             if path.startswith("/api/admin/questions/") and path.endswith("/publish"):

@@ -61,7 +61,7 @@
   const listNotice = document.getElementById("q-notice");
   let questions = [];
 
-  const SERVER_OWNED = ["id", "status", "source", "usage_count", "version", "validation"];
+  const SERVER_OWNED = ["id", "status", "source", "usage_count", "version", "validation", "reference_source"];
   const CHECK_KINDS = {
     field: "Thuộc tính (field)",
     constructor: "Constructor",
@@ -394,6 +394,7 @@
   function renderValidation(result) {
     const validation = result.validation || {};
     const box = h("div", { class: "validation-result" });
+    if (result.reused) box.append(h("div", { class: "alert alert-success" }, "Đặc tả chấm và mã nguồn đáp án mẫu không thay đổi: kết quả xác thực trước đó được tái sử dụng, không cần chạy lại."));
     const verdictClass = validation.passed ? "status-green" : "status-red";
     box.append(h("p", {},
       h("span", { class: `status-pill ${verdictClass}` }, validation.passed ? "Đạt toàn bộ" : "Chưa đạt"), " ",
@@ -623,7 +624,7 @@
     editorView.replaceChildren(h("p", { class: "muted pad" }, "Đang tải câu hỏi..."));
     try {
       const data = await request(`/api/admin/questions/${encodeURIComponent(id)}`);
-      editing = { id, draft: toEditorQuestion(data.question), original: data.question };
+      editing = { id, draft: toEditorQuestion(data.question), original: data.question, sample: data.question.reference_source || "" };
       renderEditor();
     } catch (error) {
       editorView.replaceChildren(backButton(), errorBox(error, () => openEditor(id)));
@@ -645,6 +646,7 @@
         input.classList.add("invalid");
       }
       if (key === "points") refreshTotal();
+      markValidationDirty();
     });
     return input;
   }
@@ -680,12 +682,13 @@
     language.addEventListener("change", () => {
       d.language = language.value;
       if (d.language === "python") d.grading_mode = "stdio";
+      markValidationDirty();
       collectAndRender();
     });
     const mode = h("select", {}, h("option", { value: "reflection" }, "reflection (kiểm tra cấu trúc class)"), h("option", { value: "stdio" }, "stdio (so sánh đầu ra)"));
     mode.value = d.grading_mode;
     mode.disabled = d.language === "python";
-    mode.addEventListener("change", () => { d.grading_mode = mode.value; collectAndRender(); });
+    mode.addEventListener("change", () => { d.grading_mode = mode.value; markValidationDirty(); collectAndRender(); });
 
     const statement = bindInput(h("textarea", { rows: 6 }), d, "statement");
     const starter = bindInput(h("textarea", { rows: 8, class: "code-area", spellcheck: "false" }), d, "starter_code");
@@ -695,7 +698,7 @@
       h("div", {}, backButton(), isNew ? null : " ", isNew ? null : h("strong", {}, `Sửa: ${d.title || editing.id}`)),
       h("div", { class: "form-actions" }, h("button", { type: "button", class: "btn btn-ghost btn-small", on: { click: exportSpec } }, h("i", { class: "fa fa-download" }), " Xuất JSON")));
 
-    const form = h("form", { class: "stack-form", novalidate: true, on: { submit: (e) => { e.preventDefault(); save(); } } },
+    const form = h("form", { class: "stack-form", novalidate: true, on: { submit: (e) => { e.preventDefault(); if (editing.original?.status === "published") save(); else saveDraft(); } } },
       isNew ? null : heading,
       !isNew && editing.original?.status === "published"
         ? h("div", { class: "alert alert-warning" }, "Câu hỏi đang ở trạng thái Đã xuất bản. Thay đổi chỉ được áp dụng khi đáp án mẫu mới chạy đạt; nếu không đạt, phiên bản đã xuất bản hiện tại được giữ nguyên. Các đề đã tạo giữ nguyên phiên bản cũ.")
@@ -722,22 +725,26 @@
       h("div", { class: "two-cols" },
         field("Giới hạn output (bytes)", bindInput(h("input", { type: "number", min: 1024, max: 1048576, step: 1 }), d, "max_output_bytes", num)),
         field("Số lần chạy thử tối đa", bindInput(h("input", { type: "number", min: 1, max: 1000, step: 1 }), d, "max_pretest_runs", num))),
-      h("label", { class: "checkbox-row" }, h("input", { type: "checkbox", checked: d.allow_pretest !== false, on: { change: (e) => { d.allow_pretest = e.target.checked; } } }), " Cho phép chạy thử (pretest)"),
+      h("label", { class: "checkbox-row" }, h("input", { type: "checkbox", checked: d.allow_pretest !== false, on: { change: (e) => { d.allow_pretest = e.target.checked; markValidationDirty(); } } }), " Cho phép chạy thử (pretest)"),
       h("h3", {}, isReflection ? "Checks" : "Tests"),
       h("div", { id: "q-items" }),
       h("div", { class: "form-actions" }, addMenu(isReflection)),
       h("p", {}, "Tổng điểm (tự cộng): ", totalNode),
-      !isNew && editing.original?.status === "published"
-        ? h("div", {}, h("label", { for: "q-edit-sample" }, "Mã nguồn đáp án mẫu * (dùng để xác thực thay đổi)"),
-            h("textarea", { id: "q-edit-sample", rows: 10, class: "code-area", spellcheck: "false", on: { input: (e) => { editing.sample = e.target.value; } } }, editing.sample || ""))
-        : null,
+      editing.original?.status === "published"
+        ? h("div", {}, h("label", { for: "q-edit-sample" }, "Mã nguồn đáp án mẫu (đã lưu; chỉ cần sửa khi thay đổi đặc tả chấm)"),
+            h("textarea", { id: "q-edit-sample", rows: 10, class: "code-area", spellcheck: "false", on: { input: (e) => { editing.sample = e.target.value; markValidationDirty(); } } }, editing.sample || ""))
+        : h("div", {}, h("label", { for: "q-edit-sample" }, "Mã nguồn đáp án mẫu (dùng để chạy thử và xuất bản)"),
+            h("textarea", { id: "q-edit-sample", rows: 10, class: "code-area", spellcheck: "false", on: { input: (e) => { editing.sample = e.target.value; markValidationDirty(); } } }, editing.sample || "")),
       h("div", { id: "q-editor-notice", class: "notice hidden" }),
       h("div", { id: "q-editor-result" }),
       h("div", { class: "form-actions" },
-        h("button", { type: "submit", class: "btn btn-primary" }, h("i", { class: "fa fa-save" }), isNew ? " Tạo câu hỏi" : editing.original?.status === "draft" ? " Lưu và chuyển sang xác thực" : " Lưu thay đổi"),
-        !isNew && editing.original?.status === "draft"
-          ? h("button", { type: "button", class: "btn btn-secondary", on: { click: () => { if (window.confirm("Chuyển sang bước xác thực & xuất bản mà không lưu các chỉnh sửa vừa nhập?")) { const id = editing.id; editing = null; openDetail(id); } } } }, h("i", { class: "fa fa-upload" }), " Đến bước xác thực & xuất bản")
-          : null,
+        editing.original?.status === "published"
+          ? h("button", { type: "submit", class: "btn btn-primary" }, h("i", { class: "fa fa-save" }), " Lưu thay đổi")
+          : h("button", { type: "button", class: "btn btn-primary", on: { click: saveDraft } }, h("i", { class: "fa fa-save" }), " Lưu Nháp"),
+        h("button", { type: "button", class: "btn btn-secondary", on: { click: runCandidate } }, h("i", { class: "fa fa-play" }), " Chạy thử mã nguồn mẫu"),
+        editing.original?.status === "published"
+          ? null
+          : h("button", { type: "button", class: "btn btn-success", on: { click: publishCandidate } }, h("i", { class: "fa fa-upload" }), " Xuất bản"),
         h("button", { type: "button", class: "btn btn-ghost", on: { click: discardCreation } }, isNew ? "Hủy và xóa bản nháp" : "Hủy bỏ")));
     if (!isNew) {
       editorView.replaceChildren(form);
@@ -780,6 +787,9 @@
     if (editing && editing.id) {
       const id = editing.id;
       const published = editing.original?.status === "published";
+      if (published && hasUnsavedChanges()) {
+        if (!window.confirm("Bạn có thay đổi chưa lưu. Hủy bỏ và quay lại bản đã xuất bản hiện tại?")) return;
+      }
       editing = null;
       if (published) { openDetail(id); return; }
     }
@@ -789,6 +799,15 @@
 
   // inputs are bound live, so a re-render after structural change keeps the draft
   function collectAndRender() { renderEditor(); }
+
+  // Whether the current form differs from the original question (used for the Hủy bỏ confirmation).
+  function hasUnsavedChanges() {
+    if (!editing || !editing.original) return false;
+    const original = toEditorQuestion(editing.original);
+    const current = editing.draft;
+    const sampleChanged = (editing.sample || "") !== (editing.original.reference_source || "");
+    return sampleChanged || JSON.stringify(current) !== JSON.stringify(original);
+  }
 
   function addMenu(isReflection) {
     if (!isReflection) {
@@ -1052,8 +1071,8 @@
       const isUpdate = Boolean(editing.id);
       const published = isUpdate && editing.original?.status === "published";
       if (published) {
-        if (!(editing.sample || "").trim()) { setNotice(notice, VALIDATION_MESSAGES.SAMPLE_REQUIRED, true); return; }
-        payload.sample_source = editing.sample;
+        // Published editing is handled separately (unchanged in this task).
+        payload.sample_source = editing.sample || "";
         setNotice(notice, "Đang xác thực đáp án mẫu với thay đổi...", false);
       }
       const url = isUpdate ? `/api/admin/questions/${encodeURIComponent(editing.id)}/update` : "/api/admin/questions";
@@ -1069,6 +1088,115 @@
       openDetail(data.question.id);
     } catch (error) {
       setNotice(notice, friendly(error), true);
+    }
+  }
+
+  // Save a new or Draft question and stay in the editor (Nháp lifecycle).
+  async function saveDraft() {
+    const notice = document.getElementById("q-editor-notice");
+    const problems = validateLocal();
+    if (problems.length) { setNotice(notice, problems.join(" "), true); return; }
+    setNotice(notice, "Đang lưu nháp...", false);
+    try {
+      const payload = buildPayload();
+      payload.reference_source = editing.sample || "";
+      const isUpdate = Boolean(editing.id);
+      const url = isUpdate ? `/api/admin/questions/${encodeURIComponent(editing.id)}/update` : "/api/admin/questions";
+      const data = await post(url, payload);
+      if (!isUpdate) { clearCreation(); }
+      editing = { id: data.question.id, draft: toEditorQuestion(data.question), original: data.question, sample: data.question.reference_source || "" };
+      setNotice(notice, "Đã lưu nháp. Câu hỏi vẫn ở trạng thái Nháp.", false);
+      renderEditor();
+    } catch (error) {
+      setNotice(notice, friendly(error), true);
+    }
+  }
+
+  // Run the reference source against the current (possibly unsaved) candidate, in memory.
+  async function runCandidate() {
+    const notice = document.getElementById("q-editor-notice");
+    const resultHost = document.getElementById("q-editor-result");
+    const problems = validateLocal();
+    if (problems.length) { setNotice(notice, problems.join(" "), true); return; }
+    if (!(editing.sample || "").trim()) { setNotice(notice, "Hãy nhập mã nguồn đáp án mẫu trước khi chạy thử.", true); return; }
+    setNotice(notice, "Đang biên dịch và chạy đáp án mẫu...", false);
+    if (resultHost) resultHost.replaceChildren(h("p", { class: "muted" }, h("i", { class: "fa fa-spinner fa-spin" }), " Đang chạy..."));
+    try {
+      const payload = buildPayload();
+      payload.sample_source = editing.sample;
+      const result = await post("/api/admin/questions/validate-candidate", payload);
+      editing.lastValidation = { spec_hash: result.spec_hash, sample_sha256: result.sample_sha256, passed: result.validation?.passed === true };
+      editing.validationDirty = false;
+      if (resultHost) resultHost.replaceChildren(renderValidation(result));
+      setNotice(notice, result.validation?.passed ? "Đáp án mẫu đạt toàn bộ." : "Đáp án mẫu chưa đạt. Bạn có thể sửa và chạy lại.", result.validation?.passed ? false : true);
+    } catch (error) {
+      const body = error.body && typeof error.body === "object" ? error.body : {};
+      const lines = [friendly(error)];
+      if (error.error_category || body.error_category) lines.push(`Loại lỗi: ${error.error_category || body.error_category}`);
+      if (error.status === 503) lines.unshift("Hệ thống chấm gặp lỗi hạ tầng (không phải lỗi câu hỏi). Kết quả này KHÔNG được ghi nhận.");
+      if (resultHost) resultHost.replaceChildren(h("div", { class: "alert alert-warning" }, ...lines.map((l) => h("div", {}, l))));
+      setNotice(notice, "Chạy thử thất bại.", true);
+    }
+  }
+
+  // Mark the last displayed validation result as outdated when the candidate or source changes.
+  function markValidationDirty() {
+    if (!editing || !editing.lastValidation) return;
+    editing.validationDirty = true;
+    const resultHost = document.getElementById("q-editor-result");
+    if (resultHost && resultHost.firstChild) {
+      const existing = resultHost.firstChild;
+      if (!existing.querySelector?.(".validation-outdated")) {
+        existing.prepend(h("div", { class: "alert alert-warning validation-outdated" }, "Đã có thay đổi sau lần chạy gần nhất: kết quả xác thực không còn khớp. Hãy chạy lại đáp án mẫu."));
+      }
+    }
+  }
+
+  // Publish: always revalidate server-side with the exact current candidate + reference source.
+  async function publishCandidate() {
+    const notice = document.getElementById("q-editor-notice");
+    const resultHost = document.getElementById("q-editor-result");
+    const problems = validateLocal();
+    if (problems.length) { setNotice(notice, problems.join(" "), true); return; }
+    if (!(editing.sample || "").trim()) { setNotice(notice, "Hãy nhập mã nguồn đáp án mẫu trước khi xuất bản.", true); return; }
+    if (!window.confirm(`Xuất bản câu hỏi “${editing.draft.title || "chưa có tiêu đề"}”? Hệ thống sẽ chạy lại đáp án mẫu để xác thực.`)) return;
+    setNotice(notice, "Đang xác thực và xuất bản...", false);
+    if (resultHost) resultHost.replaceChildren(h("p", { class: "muted" }, h("i", { class: "fa fa-spinner fa-spin" }), " Đang chạy..."));
+    try {
+      const payload = buildPayload();
+      if (editing.id) payload.id = editing.id;
+      payload.sample_source = editing.sample;
+      const data = await post("/api/admin/questions/publish-candidate", payload);
+      if (data.published) {
+        setNotice(listNotice, "Đã xuất bản câu hỏi.", false);
+        openDetail(data.question.id);
+      } else {
+        // Validation failed or infra error: candidate retained as Nháp.
+        editing = { id: data.question.id, draft: toEditorQuestion(data.question), original: data.question, sample: data.question.reference_source || "" };
+        const infra = data.error_category && ["INVALID_REQUEST", "JDK_NOT_FOUND", "JUDGE_INFRA_ERROR", "PROTOCOL_ERROR"].includes(data.error_category);
+        setNotice(notice, infra ? "Hệ thống chấm gặp lỗi hạ tầng. Câu hỏi được giữ ở trạng thái Nháp, chưa xuất bản." : "Đáp án mẫu chưa đạt. Câu hỏi được giữ ở trạng thái Nháp, chưa xuất bản. Hãy sửa và thử lại.", true);
+        renderEditor();
+        const freshResult = document.getElementById("q-editor-result");
+        if (freshResult) freshResult.replaceChildren(renderValidation(data));
+      }
+    } catch (error) {
+      const body = error.body && typeof error.body === "object" ? error.body : {};
+      const lines = [friendly(error)];
+      if (error.error_category || body.error_category) lines.push(`Loại lỗi: ${error.error_category || body.error_category}`);
+      if (error.status === 503) lines.unshift("Hệ thống chấm gặp lỗi hạ tầng (không phải lỗi câu hỏi). Câu hỏi chưa được xuất bản.");
+      // If the backend persisted the candidate as Nháp, adopt its ID so a retry updates the
+      // existing Draft instead of creating a duplicate. Keep the current form data and source.
+      const savedQuestion = body.question;
+      if (savedQuestion && savedQuestion.id) {
+        editing.id = savedQuestion.id;
+        editing.original = savedQuestion;
+        renderEditor();
+        const freshResult = document.getElementById("q-editor-result");
+        if (freshResult) freshResult.replaceChildren(renderValidation(body));
+      } else if (resultHost) {
+        resultHost.replaceChildren(h("div", { class: "alert alert-warning" }, ...lines.map((l) => h("div", {}, l))));
+      }
+      setNotice(notice, "Xuất bản thất bại. Câu hỏi chưa được xuất bản.", true);
     }
   }
 
