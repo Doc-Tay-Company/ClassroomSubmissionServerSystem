@@ -1073,6 +1073,99 @@ def submit_code(student_id: str, question_id: str, source_code: str, ip: str) ->
     return _public_submission(completed, reveal_score=reveal, reveal_exam_score=reveal_exam), completed["status"] != "error"
 
 
+def submit_code_exam(student_id: str, answers: Mapping, ip: str) -> dict:
+    """Submit every unanswered question of the active code exam in one action.
+
+    Questions that already have a graded (or in-flight) submission for this
+    release are left untouched, so the action is safe to press again and does
+    not consume extra per-question attempts.
+    """
+    if not isinstance(answers, Mapping) or not answers:
+        raise CodeExamError("answers must be a non-empty object", 422)
+
+    _, _, exam = _active_context(student_id)
+    questions = exam.get("questions", [])
+    question_by_id = {question["question_id"]: question for question in questions}
+    unknown = [key for key in answers if not isinstance(key, str) or key not in question_by_id]
+    if unknown:
+        raise CodeExamError("answers contains question ids that are not part of this exam", 400)
+    missing = [question_id for question_id in question_by_id if question_id not in answers]
+    if missing:
+        raise CodeExamError("answers must include every question in the exam", 400)
+
+    records = read_json("code_submissions.json").get(student_id, [])
+    counts: dict[str, int] = {}
+    latest_by_question: dict[str, dict] = {}
+    for item in records:
+        if item.get("exam_id") != exam["id"] or item.get("release_id") != exam.get("release_id"):
+            continue
+        question_id = item.get("question_id")
+        counts[question_id] = counts.get(question_id, 0) + 1
+        latest_by_question[question_id] = item
+
+    max_allowed = 1 if exam.get("submission_policy") == "once" else int(exam.get("max_submissions", 1))
+    pending: list[dict] = []
+    skipped: list[str] = []
+    for question in questions:
+        question_id = question["question_id"]
+        latest = latest_by_question.get(question_id)
+        if latest and latest.get("status") in {"grading", "graded"}:
+            skipped.append(question_id)
+        elif counts.get(question_id, 0) >= max_allowed:
+            skipped.append(question_id)
+        else:
+            pending.append(question)
+
+    for question in pending:
+        _validate_source(answers[question["question_id"]])
+
+    submissions = []
+    for question in pending:
+        question_id = question["question_id"]
+        try:
+            public, _graded = submit_code(student_id, question_id, answers[question_id], ip)
+        except CodeExamError as exc:
+            if exc.status == 409 and "Submission limit" in str(exc):
+                skipped.append(question_id)
+                continue
+            raise
+        submissions.append(public)
+
+    records = read_json("code_submissions.json").get(student_id, [])
+    latest_graded: dict[str, dict] = {}
+    for item in records:
+        if item.get("exam_id") != exam["id"] or item.get("release_id") != exam.get("release_id"):
+            continue
+        if item.get("status") == "graded":
+            latest_graded[item.get("question_id")] = item
+    all_submitted = all(question["question_id"] in latest_graded for question in questions)
+    summary = get_student_code_exam(student_id)
+    result = {
+        "ok": all_submitted,
+        "submissions": submissions,
+        "skipped_question_ids": skipped,
+        "all_questions_submitted": all_submitted,
+        "exam_total_points": summary.get("total_points"),
+        "progress": summary.get("progress", []),
+    }
+    if "exam_score" in summary:
+        result["exam_score"] = summary["exam_score"]
+    audit(
+        "code.submit_exam",
+        student_id,
+        ip,
+        {
+            "exam_id": exam["id"],
+            "release_id": exam.get("release_id"),
+            "question_ids": [question["question_id"] for question in questions],
+            "submission_ids": [item.get("submission_id") for item in submissions],
+            "skipped_question_ids": skipped,
+            "all_questions_submitted": all_submitted,
+        },
+    )
+    return result
+
+
 def get_student_submission(student_id: str, question_id: str) -> dict:
     assignment = read_json("assignments.json").get(student_id)
     if not assignment or not assignment.get("code_exam_id"):

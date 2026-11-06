@@ -1,6 +1,8 @@
 .student-code-panel{margin-top:24px;padding-top:20px;border-top:1px solid #e8edf4}
 .code-exam-heading,.code-editor-heading{display:flex;align-items:center;justify-content:space-between;gap:12px}
 .code-exam-heading h2{margin:0 0 8px}
+.code-exam-heading-actions{display:flex;align-items:center;justify-content:flex-end;gap:10px;flex-wrap:wrap}
+.code-result-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:12px}
 .code-question-meta{display:grid;grid-template-columns:minmax(150px,1fr) 2fr;gap:6px 12px;margin:14px 0}
 .code-question-meta dt{font-size:12px;font-weight:700;color:#66748a}
 .code-question-meta dd{margin:0;overflow-wrap:anywhere}

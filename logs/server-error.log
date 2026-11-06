@@ -1,0 +1,114 @@
+----------------------------------------
+Exception occurred during processing of request from ('127.0.0.1', 52059)
+Traceback (most recent call last):
+  File "C:\Users\teedy\AppData\Local\Programs\Python\Python313\Lib\socketserver.py", line 697, in process_request_thread
+    self.finish_request(request, client_address)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\teedy\AppData\Local\Programs\Python\Python313\Lib\socketserver.py", line 362, in finish_request
+    self.RequestHandlerClass(request, client_address, self)
+    ~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\teedy\AppData\Local\Programs\Python\Python313\Lib\socketserver.py", line 766, in __init__
+    self.handle()
+    ~~~~~~~~~~~^^
+  File "C:\Users\teedy\AppData\Local\Programs\Python\Python313\Lib\http\server.py", line 438, in handle
+    self.handle_one_request()
+    ~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\teedy\AppData\Local\Programs\Python\Python313\Lib\http\server.py", line 404, in handle_one_request
+    self.raw_requestline = self.rfile.readline(65537)
+                           ~~~~~~~~~~~~~~~~~~~^^^^^^^
+  File "C:\Users\teedy\AppData\Local\Programs\Python\Python313\Lib\socket.py", line 719, in readinto
+    return self._sock.recv_into(b)
+           ~~~~~~~~~~~~~~~~~~~~^^^
+ConnectionResetError: [WinError 10054] An existing connection was forcibly closed by the remote host
+----------------------------------------
+----------------------------------------
+Exception occurred during processing of request from ('127.0.0.1', 56124)
+Traceback (most recent call last):
+  File "C:\Users\teedy\AppData\Local\Programs\Python\Python313\Lib\socketserver.py", line 697, in process_request_thread
+    self.finish_request(request, client_address)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\teedy\AppData\Local\Programs\Python\Python313\Lib\socketserver.py", line 362, in finish_request
+    self.RequestHandlerClass(request, client_address, self)
+    ~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\teedy\AppData\Local\Programs\Python\Python313\Lib\socketserver.py", line 766, in __init__
+    self.handle()
+    ~~~~~~~~~~~^^
+  File "C:\Users\teedy\AppData\Local\Programs\Python\Python313\Lib\http\server.py", line 438, in handle
+    self.handle_one_request()
+    ~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\teedy\AppData\Local\Programs\Python\Python313\Lib\http\server.py", line 404, in handle_one_request
+    self.raw_requestline = self.rfile.readline(65537)
+                           ~~~~~~~~~~~~~~~~~~~^^^^^^^
+  File "C:\Users\teedy\AppData\Local\Programs\Python\Python313\Lib\socket.py", line 719, in readinto
+    return self._sock.recv_into(b)
+           ~~~~~~~~~~~~~~~~~~~~^^^
+ConnectionResetError: [WinError 10054] An existing connection was forcibly closed by the remote host
+----------------------------------------
+----------------------------------------
+Exception occurred during processing of request from ('127.0.0.1', 57978)
+Traceback (most recent call last):
+  File "C:\Users\teedy\AppData\Local\Programs\Python\Python313\Lib\socketserver.py", line 697, in process_request_thread
+    self.finish_request(request, client_address)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\teedy\AppData\Local\Programs\Python\Python313\Lib\socketserver.py", line 362, in finish_request
+    self.RequestHandlerClass(request, client_address, self)
+    ~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\teedy\AppData\Local\Programs\Python\Python313\Lib\socketserver.py", line 766, in __init__
+    self.handle()
+    ~~~~~~~~~~~^^
+  File "C:\Users\teedy\AppData\Local\Programs\Python\Python313\Lib\http\server.py", line 438, in handle
+    self.handle_one_request()
+    ~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\teedy\AppData\Local\Programs\Python\Python313\Lib\http\server.py", line 404, in handle_one_request
+    self.raw_requestline = self.rfile.readline(65537)
+                           ~~~~~~~~~~~~~~~~~~~^^^^^^^
+  File "C:\Users\teedy\AppData\Local\Programs\Python\Python313\Lib\socket.py", line 719, in readinto
+    return self._sock.recv_into(b)
+           ~~~~~~~~~~~~~~~~~~~~^^^
+ConnectionResetError: [WinError 10054] An existing connection was forcibly closed by the remote host
+----------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\teedy\OneDrive\Desktop\project\JSD_project\SubmissionSystemV2\ClassroomSubmissionServerSystem\app\main.py", line 520, in do_POST
+    if action in actions: return self._json({"ok":True,"exam":actions[action](exam_id,actor,ip)})
+                                                              ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^
+  File "C:\Users\teedy\OneDrive\Desktop\project\JSD_project\SubmissionSystemV2\ClassroomSubmissionServerSystem\app\general_exams.py", line 845, in end_exam
+    release_student_exam_scores(ended["release_id"])
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\teedy\OneDrive\Desktop\project\JSD_project\SubmissionSystemV2\ClassroomSubmissionServerSystem\app\code_exams.py", line 1240, in release_student_exam_scores
+    update_json("code_submissions.json", update_scores)
+    ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\teedy\OneDrive\Desktop\project\JSD_project\SubmissionSystemV2\ClassroomSubmissionServerSystem\app\storage.py", line 113, in update_json
+    result = mutator(value)
+  File "C:\Users\teedy\OneDrive\Desktop\project\JSD_project\SubmissionSystemV2\ClassroomSubmissionServerSystem\app\code_exams.py", line 1206, in update_scores
+    item.get("exam_id") == exam.get("id")
+    ^^^^^^^^
+AttributeError: 'str' object has no attribute 'get'
+Traceback (most recent call last):
+  File "C:\Users\teedy\OneDrive\Desktop\project\JSD_project\SubmissionSystemV2\ClassroomSubmissionServerSystem\app\main.py", line 712, in do_POST
+    sess=self._auth(req,"student")
+  File "C:\Users\teedy\OneDrive\Desktop\project\JSD_project\SubmissionSystemV2\ClassroomSubmissionServerSystem\app\main.py", line 249, in _auth
+    try: return require_user(req, role)
+                ~~~~~~~~~~~~^^^^^^^^^^^
+  File "C:\Users\teedy\OneDrive\Desktop\project\JSD_project\SubmissionSystemV2\ClassroomSubmissionServerSystem\app\security.py", line 63, in require_user
+    session = get_session(request)
+  File "C:\Users\teedy\OneDrive\Desktop\project\JSD_project\SubmissionSystemV2\ClassroomSubmissionServerSystem\app\security.py", line 59, in get_session
+    write_json("sessions.json", sessions)
+    ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\teedy\OneDrive\Desktop\project\JSD_project\SubmissionSystemV2\ClassroomSubmissionServerSystem\app\storage.py", line 104, in write_json
+    atomic_write(_path(name), value)
+    ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\teedy\OneDrive\Desktop\project\JSD_project\SubmissionSystemV2\ClassroomSubmissionServerSystem\app\storage.py", line 87, in atomic_write
+    os.replace(tmp, path)
+    ~~~~~~~~~~^^^^^^^^^^^
+PermissionError: [WinError 5] Access is denied: 'C:\\Users\\teedy\\OneDrive\\Desktop\\project\\JSD_project\\SubmissionSystemV2\\ClassroomSubmissionServerSystem\\data\\sessions.json.tmp' -> 'C:\\Users\\teedy\\OneDrive\\Desktop\\project\\JSD_project\\SubmissionSystemV2\\ClassroomSubmissionServerSystem\\data\\sessions.json'
+Traceback (most recent call last):
+  File "C:\Users\teedy\OneDrive\Desktop\project\JSD_project\SubmissionSystemV2\ClassroomSubmissionServerSystem\app\main.py", line 721, in do_POST
+    current["last_seen"]=utc_now(); sessions[token_key]=current; write_json("sessions.json",sessions)
+                                                                 ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\teedy\OneDrive\Desktop\project\JSD_project\SubmissionSystemV2\ClassroomSubmissionServerSystem\app\storage.py", line 104, in write_json
+    atomic_write(_path(name), value)
+    ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\teedy\OneDrive\Desktop\project\JSD_project\SubmissionSystemV2\ClassroomSubmissionServerSystem\app\storage.py", line 87, in atomic_write
+    os.replace(tmp, path)
+    ~~~~~~~~~~^^^^^^^^^^^
+PermissionError: [WinError 5] Access is denied: 'C:\\Users\\teedy\\OneDrive\\Desktop\\project\\JSD_project\\SubmissionSystemV2\\ClassroomSubmissionServerSystem\\data\\sessions.json.tmp' -> 'C:\\Users\\teedy\\OneDrive\\Desktop\\project\\JSD_project\\SubmissionSystemV2\\ClassroomSubmissionServerSystem\\data\\sessions.json'

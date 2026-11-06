@@ -44,13 +44,39 @@
           `<div><strong>Thông báo</strong>: ${window.cssEscape(item.message)}</div>`).join("");
       }
       const panel = document.getElementById("student-panel");
-      const waiting = panel && ["idle", "ended", "distributed"].includes(panel.dataset.examState);
       const published = (status.published_exams || []).map((item) => item.id).sort().join(",");
-      if (waiting && (status.exam_state === "started" || (panel.dataset.published ?? published) !== published)) window.location.reload();
+      if (panel && panel.dataset.homeView === "true") {
+        const previous = [
+          panel.dataset.assigned || "",
+          panel.dataset.assignmentRelease || "",
+          panel.dataset.assignmentStatus || "",
+          panel.dataset.assignmentStartedAt || "",
+          panel.dataset.examState || "idle",
+          (panel.dataset.published || "").split(",").filter(Boolean).sort().join(","),
+        ].join("|");
+        const current = [
+          status.assigned ? "1" : "0",
+          status.release_id || "",
+          status.assigned ? (status.status || "") : "",
+          status.started_at || "",
+          status.exam_state || "idle",
+          published,
+        ].join("|");
+        if (current !== previous) {
+          window.location.reload();
+          return;
+        }
+      }
+      const waiting = panel && ["idle", "ended", "distributed"].includes(panel.dataset.examState);
+      const publishedBefore = (panel?.dataset.published || "").split(",").filter(Boolean).sort().join(",");
+      if (waiting && (status.exam_state === "started" || publishedBefore !== published)) window.location.reload();
     } catch (error) { reportBackgroundError("Student heartbeat", error); }
   };
-  document.addEventListener("visibilitychange", sendTelemetry);
-  window.addEventListener("focus", sendTelemetry);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") heartbeat();
+    else sendTelemetry();
+  });
+  window.addEventListener("focus", heartbeat);
   window.addEventListener("blur", sendTelemetry);
   window.addEventListener("storage", sendTelemetry);
   heartbeat();

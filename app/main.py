@@ -65,7 +65,9 @@ from .code_exams import (
     validate_question_sample,
     regrade_submission,
     regrade_student_exam,
+    run_pretest,
     submit_code,
+    submit_code_exam,
     transition_code_exam,
     update_draft_code_exam,
     release_student_exam_scores,
@@ -268,7 +270,7 @@ class Handler(BaseHTTPRequestHandler):
                 if not sess: return self._redirect("/login")
                 if sess["role"]=="admin": return self._redirect("/admin")
                 student=self._get_user_record(sess); assignment=current_exam_for(sess["user_id"]); settings=read_json("settings.json")
-                return self._html(self._render("student.html",session=sess,student=student,published_exams=general_exams.published_for_students(sess["user_id"]),assignment=assignment,settings=settings,remaining=remaining_seconds(assignment or {}) if assignment and assignment.get("started_at") else None))
+                return self._html(self._render("student.html",session=sess,student=student,published_exams=general_exams.published_for_students(sess["user_id"]),assignment=assignment,current_exam=general_exams.assignment_exam(assignment),settings=settings,home_view=req.query.get("view",[""])[0]=="home",remaining=remaining_seconds(assignment or {}) if assignment and assignment.get("started_at") else None))
             admin_sections={
                 "/admin/dashboard":"dashboard",
                 "/admin/monitor":"monitor",
@@ -365,7 +367,7 @@ class Handler(BaseHTTPRequestHandler):
                 sess=self._auth(req,"student"); item=current_exam_for(sess["user_id"]); settings=read_json("settings.json")
                 notifications=read_json("notifications.json", [])
                 personal=[item for item in notifications if item.get("student_id") in (None, sess["user_id"])]
-                return self._json({"assigned":bool(item),"started":bool(item and item.get("started_at")),"exam_file":item.get("exam_file") if item and item.get("started_at") else None,"status":item.get("status") if item else "not_assigned","remaining_seconds":remaining_seconds(item or {}) if item and item.get("started_at") else None,"started_at":item.get("started_at") if item else None,"ends_at":item.get("ends_at") if item else None,"server_time":utc_now(),"exam_state":settings.get("exam_state","idle"),"notifications":personal[-10:],"exam_password_enabled":settings.get("exam_password_enabled",False),                "accepted_submission_extensions":settings.get("accepted_submission_extensions",[".zip"]),"published_exams":general_exams.published_for_students(sess["user_id"])})
+                return self._json({"assigned":bool(item),"started":bool(item and item.get("started_at")),"exam_file":item.get("exam_file") if item and item.get("started_at") else None,"status":item.get("status") if item else "not_assigned","release_id":item.get("release_id") if item else None,"remaining_seconds":remaining_seconds(item or {}) if item and item.get("started_at") else None,"started_at":item.get("started_at") if item else None,"ends_at":item.get("ends_at") if item else None,"server_time":utc_now(),"exam_state":settings.get("exam_state") or "idle","notifications":personal[-10:],"exam_password_enabled":settings.get("exam_password_enabled",False),                "accepted_submission_extensions":settings.get("accepted_submission_extensions",[".zip"]),"published_exams":general_exams.published_for_students(sess["user_id"])})
             if path=="/api/student/code-exam":
                 sess=self._auth(req,"student"); return self._json(get_student_code_exam(sess["user_id"]))
             if path=="/api/student/code/submission":
@@ -695,6 +697,9 @@ class Handler(BaseHTTPRequestHandler):
                 if not graded:
                     return self._json({"ok":False,"submission":submission},503)
                 return self._json({"ok":True,"submission":submission},201)
+            if path=="/api/student/code/submit-exam":
+                sess=self._auth(req,"student"); payload=self._json_body(req)
+                return self._json(submit_code_exam(sess["user_id"],payload.get("answers"),client_ip(req)))
             if path=="/api/student/submit":
                 sess=self._auth(req,"student"); file=req.files.get("file")
                 if not file or not file.get("filename") or not file["filename"].lower().endswith(".zip"): raise ClientError(400,"Chỉ chấp nhận file .zip.")
