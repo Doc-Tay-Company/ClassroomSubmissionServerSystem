@@ -200,6 +200,24 @@ class CodeApiTests(unittest.TestCase):
         self.assertEqual(status, 201, result)
         return result["code_exam"]
 
+    def distribute_and_start_code_exam(self, exam_id, *, start_student=True):
+        distribution = {"mode": "random", "code_exam_id": exam_id, "code_only": "true"}
+        body = urllib.parse.urlencode(distribution).encode()
+        with patch("app.exams.list_exam_files", return_value=[]):
+            status, distributed = self.request(
+                "POST",
+                "/api/admin/distribute",
+                cookie=self.admin_cookie,
+                raw_body=body,
+                content_type="application/x-www-form-urlencoded",
+            )
+        self.assertEqual(status, 200, distributed)
+        status, started = self.request("POST", "/api/admin/start-exam", cookie=self.admin_cookie, raw_body=b"")
+        self.assertEqual(status, 200, started)
+        if start_student:
+            status, student_started = self.request("POST", "/api/student/start", cookie=self.student_cookie, raw_body=b"")
+            self.assertEqual(status, 200, student_started)
+
     def create_started_code_exam(self, *, use_real_runner=False):
         question = {
             "id": "echo-question",
@@ -743,6 +761,237 @@ class CodeApiTests(unittest.TestCase):
         self.assertEqual(final["score"], 10)
         self.assertEqual([item["id"] for item in final["results"]], ["visible"])
         self.assertNotIn("secret-expected", json.dumps(final))
+
+    def test_bulk_submit_grades_all_questions_and_marks_exam_submitted(self):
+        self.create_published_question("first-question")
+        self.create_published_question("second-question")
+        status, created = self.request(
+            "POST",
+            "/api/admin/code-exams",
+            cookie=self.admin_cookie,
+            payload={
+                "title": "Bulk exam",
+                "question_ids": ["first-question", "second-question"],
+                "show_final_score_immediately": True,
+                "pretest_cooldown_seconds": 0,
+            },
+        )
+        self.assertEqual(status, 201, created)
+        self.distribute_and_start_code_exam(created["code_exam"]["id"])
+
+        answers = {
+            "first-question": "print(input())\n",
+            "second-question": "print(input())\n",
+        }
+        with patch("app.code_exams.execute_question", return_value=_execution()) as execute:
+            status, result = self.request(
+                "POST",
+                "/api/student/code/submit-exam",
+                cookie=self.student_cookie,
+                payload={"answers": answers},
+            )
+        self.assertEqual(status, 200, result)
+        self.assertTrue(result["all_questions_submitted"])
+        self.assertEqual(result["exam_score"], 20)
+        self.assertEqual(result["exam_total_points"], 20)
+        self.assertEqual(len(result["submissions"]), 2)
+        self.assertEqual([item["question_id"] for item in result["submissions"]], ["first-question", "second-question"])
+        self.assertEqual(execute.call_count, 2)
+        records = storage.read_json("code_submissions.json")["student-1"]
+        self.assertEqual([item["status"] for item in records], ["graded", "graded"])
+        self.assertEqual(storage.read_json("assignments.json")["student-1"]["status"], "submitted")
+
+        with patch("app.code_exams.execute_question") as execute_again:
+            status, repeated = self.request(
+                "POST",
+                "/api/student/code/submit-exam",
+                cookie=self.student_cookie,
+                payload={"answers": answers},
+            )
+        self.assertEqual(status, 200, repeated)
+        self.assertTrue(repeated["all_questions_submitted"])
+        self.assertEqual(repeated["submissions"], [])
+        self.assertEqual(sorted(repeated["skipped_question_ids"]), ["first-question", "second-question"])
+        execute_again.assert_not_called()
+
+    def test_bulk_submit_requires_every_question_and_hides_scores(self):
+        self.create_published_question("first-question")
+        self.create_published_question("second-question")
+        status, created = self.request(
+            "POST",
+            "/api/admin/code-exams",
+            cookie=self.admin_cookie,
+            payload={
+                "title": "Bulk exam",
+                "question_ids": ["first-question", "second-question"],
+                "show_final_score_immediately": False,
+                "pretest_cooldown_seconds": 0,
+            },
+        )
+        self.assertEqual(status, 201, created)
+        self.distribute_and_start_code_exam(created["code_exam"]["id"])
+
+        status, missing = self.request(
+            "POST",
+            "/api/student/code/submit-exam",
+            cookie=self.student_cookie,
+            payload={"answers": {"first-question": "print(input())\n"}},
+        )
+        self.assertEqual(status, 400, missing)
+
+        with patch("app.code_exams.execute_question", return_value=_execution()):
+            status, result = self.request(
+                "POST",
+                "/api/student/code/submit-exam",
+                cookie=self.student_cookie,
+                payload={
+                    "answers": {
+                        "first-question": "print(input())\n",
+                        "second-question": "print(input())\n",
+                    }
+                },
+            )
+        self.assertEqual(status, 200, result)
+        self.assertNotIn("exam_score", result)
+        self.assertNotIn("score", json.dumps(result["submissions"]))
+        self.assertNotIn("secret-expected", json.dumps(result))
+
+    def test_bulk_submit_skips_already_submitted_question_without_consuming_attempts(self):
+        self.create_published_question("first-question")
+        self.create_published_question("second-question")
+        status, created = self.request(
+            "POST",
+            "/api/admin/code-exams",
+            cookie=self.admin_cookie,
+            payload={
+                "title": "Bulk exam",
+                "question_ids": ["first-question", "second-question"],
+                "show_final_score_immediately": True,
+                "pretest_cooldown_seconds": 0,
+            },
+        )
+        self.assertEqual(status, 201, created)
+        self.distribute_and_start_code_exam(created["code_exam"]["id"])
+
+        with patch("app.code_exams.execute_question", return_value=_execution()):
+            status, first = self.request(
+                "POST",
+                "/api/student/code/submit",
+                cookie=self.student_cookie,
+                payload={"question_id": "first-question", "source_code": "print(input())\n"},
+            )
+        self.assertEqual(status, 201, first)
+
+        with patch("app.code_exams.execute_question", return_value=_execution()) as execute:
+            status, result = self.request(
+                "POST",
+                "/api/student/code/submit-exam",
+                cookie=self.student_cookie,
+                payload={
+                    "answers": {
+                        "first-question": "",
+                        "second-question": "print(input())\n",
+                    }
+                },
+            )
+        self.assertEqual(status, 200, result)
+        self.assertEqual([item["question_id"] for item in result["submissions"]], ["second-question"])
+        self.assertEqual(result["skipped_question_ids"], ["first-question"])
+        self.assertTrue(result["all_questions_submitted"])
+        self.assertEqual(result["exam_score"], 20)
+        self.assertEqual(execute.call_count, 1)
+        records = storage.read_json("code_submissions.json")["student-1"]
+        self.assertEqual(
+            sorted(item["question_id"] for item in records),
+            ["first-question", "second-question"],
+        )
+        self.assertEqual(storage.read_json("assignments.json")["student-1"]["status"], "submitted")
+
+    def test_student_page_exposes_bulk_submit_and_home_view(self):
+        self.create_started_code_exam()
+        status, page = self.request("GET", "/", cookie=self.student_cookie, parse_json=False)
+        self.assertEqual(status, 200)
+        self.assertIn("Nộp cả bài", page.decode("utf-8"))
+
+        status, home = self.request("GET", "/?view=home", cookie=self.student_cookie, parse_json=False)
+        self.assertEqual(status, 200)
+        self.assertIn("Màn hình chính", home.decode("utf-8"))
+        self.assertIn("Quay lại bài thi", home.decode("utf-8"))
+
+    def test_home_view_offers_the_next_exam_before_the_student_starts(self):
+        self.create_published_question("echo-question")
+        status, created = self.request(
+            "POST",
+            "/api/admin/code-exams",
+            cookie=self.admin_cookie,
+            payload={
+                "title": "Next code exam",
+                "question_ids": ["echo-question"],
+                "show_final_score_immediately": False,
+                "pretest_cooldown_seconds": 0,
+            },
+        )
+        self.assertEqual(status, 201, created)
+        self.distribute_and_start_code_exam(created["code_exam"]["id"], start_student=False)
+
+        status, home = self.request("GET", "/?view=home", cookie=self.student_cookie, parse_json=False)
+        self.assertEqual(status, 200)
+        page = home.decode("utf-8")
+        self.assertIn('data-home-view="true"', page)
+        self.assertIn("Next code exam", page)
+        self.assertIn("Vào làm bài", page)
+        self.assertNotIn("Hiện tại bạn chưa có bài thi đang làm.", page)
+
+        assignment = storage.read_json("assignments.json")["student-1"]
+        self.assertIn(f'data-assignment-release="{assignment["release_id"]}"', page)
+        self.assertIn('data-assignment-status="assigned"', page)
+        self.assertIn('data-assignment-started-at=""', page)
+        self.assertIn('data-exam-state="started"', page)
+        status, live = self.request("GET", "/api/student/status", cookie=self.student_cookie)
+        self.assertEqual(status, 200, live)
+        self.assertEqual(live["release_id"], assignment["release_id"])
+        self.assertEqual(live["status"], "assigned")
+        self.assertEqual(live["exam_state"], "started")
+        self.assertIsNone(live["started_at"])
+        self.assertFalse(live["started"])
+
+    def test_home_view_moves_to_the_next_exam_after_the_previous_one_ends(self):
+        self.create_started_code_exam()
+        with patch("app.code_exams.execute_question", return_value=_execution()):
+            status, submitted = self.request(
+                "POST",
+                "/api/student/code/submit",
+                cookie=self.student_cookie,
+                payload={"question_id": "echo-question", "source_code": "print(input())\n"},
+            )
+        self.assertEqual(status, 201, submitted)
+        status, _ = self.request("POST", "/api/admin/end-exam", cookie=self.admin_cookie, raw_body=b"")
+        self.assertEqual(status, 200)
+
+        status, home = self.request("GET", "/?view=home", cookie=self.student_cookie, parse_json=False)
+        self.assertEqual(status, 200)
+        self.assertIn("Code exam", home.decode("utf-8"))
+
+        self.create_published_question("second-question")
+        status, created = self.request(
+            "POST",
+            "/api/admin/code-exams",
+            cookie=self.admin_cookie,
+            payload={
+                "title": "Second code exam",
+                "question_ids": ["second-question"],
+                "pretest_cooldown_seconds": 0,
+            },
+        )
+        self.assertEqual(status, 201, created)
+        self.distribute_and_start_code_exam(created["code_exam"]["id"], start_student=False)
+
+        status, next_home = self.request("GET", "/?view=home", cookie=self.student_cookie, parse_json=False)
+        self.assertEqual(status, 200)
+        page = next_home.decode("utf-8")
+        self.assertIn("Second code exam", page)
+        self.assertIn("Vào làm bài", page)
+        self.assertNotIn("Hiện tại bạn chưa có bài thi đang làm.", page)
 
     def test_code_only_exam_rejects_file_submission(self):
         self.create_started_code_exam()

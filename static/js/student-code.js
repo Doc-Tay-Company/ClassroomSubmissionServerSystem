@@ -11,6 +11,8 @@
   const editor = $("student-code-editor");
   const runButton = $("code-run");
   const submitButton = $("code-submit");
+  const submitAllButton = $("code-submit-all");
+  const homeLink = $("code-home");
   const countdown = $("countdown");
   const reportedErrors = new Set();
   const verdictMessages = {
@@ -104,6 +106,7 @@
     $("code-restore-starter").disabled = expired || requestPending || !draftReady;
     runButton.disabled = unavailable;
     submitButton.disabled = unavailable;
+    submitAllButton.disabled = unavailable;
     if (expired) {
       $("code-exam-state").textContent = "Đã khóa";
       $("code-exam-state").className = "status-pill status-gray";
@@ -182,6 +185,14 @@
     }
   }
 
+  function showRunFailure(message) {
+    const host = $("code-run-result");
+    host.replaceChildren();
+    host.classList.remove("hidden");
+    host.append(node("h3", "", "Kết quả chạy thử — chưa phải điểm cuối"));
+    host.append(node("p", "alert alert-warning", message));
+  }
+
   function showSubmission(record, message) {
     const host = $("code-submission-result");
     host.replaceChildren();
@@ -206,6 +217,75 @@
     if (record?.error && record?.error_category && ["JDK_NOT_FOUND", "JUDGE_INFRA_ERROR", "PROTOCOL_ERROR"].includes(record.error_category)) {
       host.append(node("p", "alert alert-warning", "Máy chủ chưa thể hoàn tất chấm bài. Hãy báo giảng viên."));
     }
+  }
+
+  function showExamSubmission(result) {
+    const host = $("code-submission-result");
+    host.replaceChildren();
+    host.classList.remove("hidden");
+    host.append(node("h3", "", "Kết quả nộp cả bài"));
+
+    if (result.exam_score !== undefined) {
+      host.append(node("p", "code-verdict", `Tổng điểm: ${result.exam_score}/${result.exam_total_points}`));
+    } else if (result.all_questions_submitted) {
+      host.append(node("p", "code-verdict", "Đã nộp toàn bộ bài làm."));
+      host.append(node("p", "muted", "Điểm sẽ được hiển thị theo cài đặt của kỳ thi."));
+    } else {
+      host.append(node("p", "code-verdict", "Một số câu chưa nộp hoặc chưa chấm xong."));
+    }
+
+    const submissions = new Map((result.submissions || []).map((item) => [item.question_id, item]));
+    const progressById = new Map((result.progress || []).map((item) => [item.question_id, item]));
+    const table = node("table", "data-table");
+    const head = node("thead");
+    const header = node("tr");
+    for (const label of ["Câu hỏi", "Trạng thái", "Kết quả", "Điểm"]) header.append(node("th", "", label));
+    head.append(header);
+    const body = node("tbody");
+    exam.questions.forEach((q) => {
+      const entry = progressById.get(q.question_id) || {};
+      const submission = submissions.get(q.question_id);
+      const submitted = Boolean(entry.submitted || submission);
+      let statusText = submitted ? "Đã nộp" : "Chưa nộp";
+      let resultText = "";
+      if (submission?.error_category) {
+        statusText = "Lỗi chấm";
+        resultText = "Hãy báo giảng viên hoặc nộp lại câu này.";
+      } else if (submission?.verdict) {
+        resultText = verdictMessages[submission.verdict] || submission.verdict;
+      } else if (entry.verdict) {
+        resultText = verdictMessages[entry.verdict] || entry.verdict;
+      }
+      const score = entry.score ?? submission?.score;
+      const total = entry.total_points ?? submission?.total_points ?? q.total_points;
+      const row = node("tr");
+      row.append(node("td", "", q.title || q.question_id));
+      row.append(node("td", "", statusText));
+      row.append(node("td", "code-result-value", resultText));
+      row.append(node("td", "", score !== undefined ? `${score}/${total}` : "—"));
+      body.append(row);
+    });
+    table.append(head, body);
+    host.append(table);
+
+    if ((result.skipped_question_ids || []).length) {
+      host.append(node("p", "fine-print", "Các câu đã nộp trước đó được giữ nguyên."));
+    }
+    if (result.all_questions_submitted) {
+      const actions = node("div", "code-result-actions");
+      const home = node("a", "btn btn-primary", "Quay về màn hình chính");
+      home.href = "/?view=home";
+      actions.append(home);
+      host.append(actions);
+    }
+  }
+
+  function showExamSubmissionFailure(message) {
+    const host = $("code-submission-result");
+    host.replaceChildren();
+    host.classList.remove("hidden");
+    host.append(node("h3", "", "Kết quả nộp cả bài"));
+    host.append(node("p", "alert alert-warning", message));
   }
 
   function starterFilename(q) {
@@ -272,6 +352,18 @@
     return [`Đã nộp${times}`, "code-nav-submitted"];
   }
 
+  function allQuestionsSubmitted() {
+    return Boolean(exam) && exam.questions.every((q) => {
+      const entry = progress.get(q.question_id);
+      return Boolean(entry && entry.submitted);
+    });
+  }
+
+  function updateHomeLink() {
+    if (!homeLink) return;
+    homeLink.classList.toggle("hidden", !allQuestionsSubmitted());
+  }
+
   function renderNav() {
     const nav = $("code-question-nav");
     nav.replaceChildren();
@@ -294,6 +386,7 @@
     const summary = [`${exam.questions.length} câu`, `tổng ${exam.total_points ?? 0} điểm`];
     if (exam.exam_score !== undefined) summary.push(`điểm của bạn: ${exam.exam_score}/${exam.total_points}`);
     $("code-exam-summary").textContent = summary.join(" · ");
+    updateHomeLink();
   }
 
   async function refreshProgress() {
@@ -389,14 +482,32 @@
     saveDraft();
   }
 
-  function initializeDraft(q) {
-    starterCode = typeof q.starter_code === "string" ? q.starter_code : "";
-    storageKey = [
+  function storageKeyFor(q) {
+    return [
       "css-code-draft-v1",
       root.dataset.studentId,
       exam.exam_id,
       q.question_id,
     ].map((part) => encodeURIComponent(part || "")).join(":");
+  }
+
+  function sourceForQuestion(q) {
+    if (question && q.question_id === question.question_id) return editor.value;
+    try {
+      const raw = localStorage.getItem(storageKeyFor(q));
+      if (raw) {
+        const value = JSON.parse(raw);
+        if (value && typeof value.source_code === "string") return value.source_code;
+      }
+    } catch (error) {
+      reportBackgroundError("Student code draft read", error);
+    }
+    return typeof q.starter_code === "string" ? q.starter_code : "";
+  }
+
+  function initializeDraft(q) {
+    starterCode = typeof q.starter_code === "string" ? q.starter_code : "";
+    storageKey = storageKeyFor(q);
     const cached = readDraft();
     if (!cached) {
       editor.value = starterCode;
@@ -497,13 +608,71 @@
       showRunResult(result);
     } catch (error) {
       if (error.status === 401) showLoginLink();
-      showAlert(errorMessage(error));
+      const message = errorMessage(error);
+      if (error.body && Array.isArray(error.body.results)) {
+        showRunResult(error.body);
+        showAlert(message);
+      } else {
+        showRunFailure(message);
+      }
       if (error.status === 403) {
         exam.read_only = true;
         syncServerStatus().catch((statusError) => reportBackgroundError("Student code status refresh", statusError));
       }
     } finally {
       setPending(false);
+    }
+  }
+
+  function collectExamAnswers() {
+    saveDraft();
+    const answers = {};
+    for (const q of exam.questions) {
+      const source = sourceForQuestion(q);
+      const alreadySubmitted = Boolean(progress.get(q.question_id)?.submitted);
+      if (!source.trim() && !alreadySubmitted) return { missing: q };
+      answers[q.question_id] = source;
+    }
+    return { answers };
+  }
+
+  async function submitWholeExam() {
+    if (requestPending || submissionUnknown || currentRemaining() <= 0) return;
+    const collected = collectExamAnswers();
+    if (collected.missing) {
+      showAlert(`Câu "${collected.missing.title || collected.missing.question_id}" chưa có mã nguồn. Hãy hoàn thành câu này trước khi nộp cả bài.`);
+      await switchQuestion(collected.missing.question_id);
+      return;
+    }
+    if (!window.confirm("Bạn chắc chắn muốn nộp cả bài? Tất cả câu chưa nộp sẽ được chấm theo quy định của kỳ thi; các câu đã nộp trước đó được giữ nguyên.")) return;
+    setPending(true);
+    clearAlert();
+    const host = $("code-submission-result");
+    host.replaceChildren(node("p", "muted", "Đang nộp và chấm toàn bộ bài thi..."));
+    host.classList.remove("hidden");
+    try {
+      const result = await window.cssRequest("/api/student/code/submit-exam", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ answers: collected.answers }),
+      });
+      showExamSubmission(result);
+    } catch (error) {
+      if (error.status === 401) showLoginLink();
+      const message = errorMessage(error);
+      if (error.body && Array.isArray(error.body.submissions)) {
+        showExamSubmission(error.body);
+        showAlert(message);
+      } else {
+        showExamSubmissionFailure(message);
+      }
+      if (error.status === 403) {
+        exam.read_only = true;
+        syncServerStatus().catch((statusError) => reportBackgroundError("Student code status refresh", statusError));
+      }
+    } finally {
+      setPending(false);
+      await refreshProgress();
     }
   }
 
@@ -570,6 +739,7 @@
       }
       for (const entry of exam.progress || []) progress.set(entry.question_id, entry);
       runButton.addEventListener("click", runPretest);
+      submitAllButton.addEventListener("click", submitWholeExam);
       submitButton.addEventListener("click", submitAnswer);
       await syncServerStatus();
       revealContent();

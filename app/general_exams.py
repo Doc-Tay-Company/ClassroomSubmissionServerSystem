@@ -479,6 +479,29 @@ def published_for_students(student_id: str | None = None) -> list[dict]:
     ]
 
 
+def assignment_exam(assignment: dict | None) -> dict | None:
+    """Return a short exam summary matching a student's current assignment.
+
+    Newer exams are linked by release_id in exams.json; legacy code exams are
+    linked through the snapshot id stored on the assignment.
+    """
+    if not assignment:
+        return None
+    release_id = assignment.get("release_id")
+    if release_id:
+        for exam in _load().values():
+            if exam.get("deleted_at"):
+                continue
+            release = exam.get("release") or {}
+            if release.get("release_id") == release_id:
+                return {"id": exam["id"], "title": exam["title"], "tag": exam.get("tag", "")}
+    code_exam_id = assignment.get("code_exam_id")
+    code_exam = read_json("code_exams.json").get(code_exam_id) if isinstance(code_exam_id, str) else None
+    if code_exam and not code_exam.get("deleted_at"):
+        return {"id": code_exam["id"], "title": code_exam.get("title", ""), "tag": ""}
+    return None
+
+
 # ---------------------------------------------------------------- commands
 
 def create_exam(payload, actor: str, ip: str) -> dict:
