@@ -9,8 +9,6 @@ submissions/*
 !submissions/.gitkeep
 data/*
 !data/.gitkeep
-!data/code_exams.json
-!data/code_submissions.json
 data/*.bak
 .DS_Store
 ._*
