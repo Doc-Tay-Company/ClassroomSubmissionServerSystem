@@ -39,12 +39,20 @@
     const body = $("monitor-body");
     if (!body) return;
     const query = ($("monitor-search")?.value || "").toLowerCase();
-    const labels = { tab_hidden: "Tab bị ẩn", window_unfocused: "Mất focus", multiple_tabs: "Nhiều tab" };
+    const labels = { tab_hidden: "Tab bị ẩn", window_unfocused: "Mất focus", multiple_tabs: "Nhiều tab", proctoring_violation: "Vi phạm giám sát", proctoring_pending: "Chờ xác nhận vi phạm", proctoring_terminated: "Đình chỉ · 0 điểm" };
     const rows = monitorRows.filter((row) => [row.student_id, row.full_name, row.ip].join(" ").toLowerCase().includes(query));
     body.innerHTML = rows.map((row) => {
+      const proctor = row.proctoring || {};
+      const violation = proctor.terminated
+        ? `<span class="status-pill status-red">Đình chỉ · 0 điểm</span>`
+        : proctor.warning_pending
+          ? `<span class="status-pill status-amber">Chờ xác nhận ${proctor.violation_count || 0}/${proctor.max_warnings || 3}</span>`
+          : proctor.violation_count
+            ? `<span class="status-pill status-amber">Vi phạm ${proctor.violation_count}/${proctor.max_warnings || 3}</span>`
+            : "";
       const alerts = (row.alerts || []).map((alert) => `<span class="status-pill status-red">${labels[alert] || escape(alert)}</span>`).join("");
       const remaining = row.remaining_seconds == null ? "—" : `${Math.floor(row.remaining_seconds / 60)}:${String(row.remaining_seconds % 60).padStart(2, "0")}`;
-      return `<tr class="${alerts ? "row-warning" : ""}"><td><div class="cell-main">${escape(row.student_id)}</div><div class="cell-sub">${escape(row.full_name)}</div></td><td class="code-text">${escape(row.ip || "—")}</td><td>${row.logged_in ? '<span class="status-pill status-green">Đang đăng nhập</span>' : '<span class="status-pill status-gray">Ngoại tuyến / chưa đăng nhập</span>'}<div class="cell-sub">${escape(row.last_seen || "")}</div></td><td>${escape(row.exam_file || "—")}</td><td>${remaining}</td><td>${row.submission_count || 0} lần</td><td><div class="user-agent">${escape(row.user_agent || "—")}</div></td><td>${alerts || '<span class="muted">Bình thường</span>'}</td><td><button class="btn btn-secondary btn-small" data-force="${escape(row.student_id)}">Ép nộp</button> <button class="btn btn-secondary btn-small" data-adjust="${escape(row.student_id)}">Điều chỉnh giờ</button></td></tr>`;
+      return `<tr class="${alerts || violation ? "row-warning" : ""}"><td><div class="cell-main">${escape(row.student_id)}</div><div class="cell-sub">${escape(row.full_name)}</div></td><td class="code-text">${escape(row.ip || "—")}</td><td>${row.logged_in ? '<span class="status-pill status-green">Đang đăng nhập</span>' : '<span class="status-pill status-gray">Ngoại tuyến / chưa đăng nhập</span>'}<div class="cell-sub">${escape(row.last_seen || "")}</div></td><td>${escape(row.exam_file || "—")}</td><td>${remaining}</td><td>${row.submission_count || 0} lần</td><td><div class="user-agent">${escape(row.user_agent || "—")}</div></td><td>${violation}${alerts || (!violation ? '<span class="muted">Bình thường</span>' : "")}</td><td><button class="btn btn-secondary btn-small" data-force="${escape(row.student_id)}">Ép nộp</button> <button class="btn btn-secondary btn-small" data-adjust="${escape(row.student_id)}">Điều chỉnh giờ</button></td></tr>`;
     }).join("") || '<tr><td colspan="9" class="empty-cell">Không có dữ liệu.</td></tr>';
   }
 
@@ -185,24 +193,33 @@
 
   $("import-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
+    const formEl = event.currentTarget;
     try {
-      const data = await window.cssRequest("/api/admin/accounts/import", { method: "POST", body: new FormData(event.currentTarget) });
+      const data = await window.cssRequest("/api/admin/accounts/import", { method: "POST", body: new FormData(formEl) });
       show("import-result", `Đã tạo ${data.created_count} tài khoản.` + (data.errors?.length ? ` Có ${data.errors.length} dòng lỗi.` : ""));
-      if (!data.errors?.length) event.currentTarget.reset();
+      if (!data.errors?.length) formEl.reset();
       await Promise.all([loadAccounts(), loadMonitor()]);
     } catch (error) { show("import-result", error.message, true); toastError(error); }
   });
   $("notification-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
+    const formEl = event.currentTarget;
     const selected = [...document.querySelectorAll('input[name="notification_student"]:checked')].map((input) => input.value);
-    const scope = event.currentTarget.querySelector('input[name="notification_scope"]:checked')?.value;
+    const scope = formEl.querySelector('input[name="notification_scope"]:checked')?.value;
     if (scope === "selected" && !selected.length) return window.cssToast("Hãy chọn ít nhất một sinh viên.", "error");
-    const form = new FormData(event.currentTarget); form.delete("notification_scope"); form.set("student_ids", selected.join(","));
-    try { await window.cssRequest("/api/admin/notifications", { method: "POST", body: form }); event.currentTarget.reset(); show("notification-result", "Đã gửi thông báo thành công."); } catch (error) { show("notification-result", error.message, true); toastError(error); }
+    const form = new FormData(formEl); form.delete("notification_scope"); form.set("student_ids", selected.join(","));
+    try {
+      await window.cssRequest("/api/admin/notifications", { method: "POST", body: form });
+      formEl.reset();
+      $("notification-picker")?.classList.add("hidden");
+      updateSelectedCount();
+      show("notification-result", "Đã gửi thông báo thành công.");
+    } catch (error) { show("notification-result", error.message, true); toastError(error); }
   });
   $("create-admin-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
-    try { const data = await window.cssRequest("/api/admin/admins", { method: "POST", body: new FormData(event.currentTarget) }); event.currentTarget.reset(); show("admin-create-result", `Đã tạo Admin ${data.username}.`); await loadAdmins(); } catch (error) { show("admin-create-result", error.message, true); toastError(error); }
+    const formEl = event.currentTarget;
+    try { const data = await window.cssRequest("/api/admin/admins", { method: "POST", body: new FormData(formEl) }); formEl.reset(); show("admin-create-result", `Đã tạo Admin ${data.username}.`); await loadAdmins(); } catch (error) { show("admin-create-result", error.message, true); toastError(error); }
   });
   $("monitor-body")?.addEventListener("click", async (event) => {
     const force = event.target.closest("[data-force]"); const adjust = event.target.closest("[data-adjust]");
