@@ -221,7 +221,7 @@
         h("td", {}, statusPill(q.status)),
         h("td", {}, q.version ?? 1),
         h("td", {}, q.usage_count ?? 0),
-        h("td", { class: "row-actions" }, ...actions));
+        h("td", { class: "q-actions-cell" }, h("div", { class: "row-actions" }, ...actions)));
     });
     listHost.replaceChildren(h("table", { class: "data-table" }, h("thead", {}, head), h("tbody", {}, body)));
   }
