@@ -42,6 +42,8 @@ def accept_submission(student_id: str, original_name: str, data: bytes, ip: str)
     assignment = assignments.get(student_id)
     if not settings.get("exam_released") or not assignment or assignment.get("release_id") != settings.get("exam_release_id"):
         raise ValueError("Lượt thi đã kết thúc hoặc bạn chưa được giao đề.")
+    if assignment.get("terminated_by_proctoring"):
+        raise ValueError("Bài thi đã bị kết thúc do vi phạm quy chế; không thể nộp thêm.")
     if not assignment.get("exam_file"):
         raise ValueError("Kỳ thi này không nhận bài nộp file.")
     extension = Path(original_name).suffix.lower()

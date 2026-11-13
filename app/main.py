@@ -37,7 +37,7 @@ from .http import inline_filename_header
 from .storage import initialize, read_json, write_json, audit, utc_now
 from .security import hash_password, verify_password, new_session, get_session, require_user, client_ip, login_allowed, record_login_failure, clear_login_failures, logout_session, SecurityError
 from .exams import list_exam_files, distribute_exams, start_exam, start_exam_session, end_exam_session, remaining_seconds
-from . import general_exams
+from . import general_exams, proctoring
 from .general_exams import ExamError
 from .submissions import accept_submission
 from .questions import (
@@ -123,10 +123,23 @@ def monitoring_snapshot() -> dict:
             if item.get("release_id") == assignment.get("release_id")
         ]
         telemetry=sess.get("telemetry",{}) if sess else {}
+        violation_count=int(assignment.get("proctoring_violation_count",0) or 0)
+        proctoring_info={
+            "violation_count":violation_count,
+            "max_warnings":proctoring.MAX_WARNINGS,
+            "warning_pending":bool(assignment.get("proctoring_pending_since")),
+            "terminated":proctoring.is_terminated(assignment),
+            "termination_reason":assignment.get("proctoring_termination_reason"),
+            "terminated_at":assignment.get("proctoring_terminated_at"),
+            "final_score":0 if proctoring.is_terminated(assignment) else None,
+        }
         alerts=[]
         if telemetry.get("visibility") == "hidden": alerts.append("tab_hidden")
         if telemetry.get("focused") is False: alerts.append("window_unfocused")
         if int(telemetry.get("tab_count",1) or 1)>1: alerts.append("multiple_tabs")
+        if proctoring_info["terminated"]: alerts.append("proctoring_terminated")
+        elif proctoring_info["warning_pending"]: alerts.append("proctoring_pending")
+        elif violation_count: alerts.append("proctoring_violation")
         latest_code = code_records[-1] if code_records else None
         code_summary = (
             {
@@ -148,7 +161,7 @@ def monitoring_snapshot() -> dict:
             if latest_code
             else None
         )
-        result.append({"student_id":sid,"full_name":student.get("full_name",""),"active":student.get("active",True),"logged_in":online,"ip":sess.get("ip") if sess else student.get("last_ip"),"user_agent":sess.get("user_agent","") if sess else "","last_seen":sess.get("last_seen") if sess else student.get("last_seen"),"exam_file":assignment.get("exam_file"),"exam_status":assignment.get("status","not_assigned"),"started_at":assignment.get("started_at"),"ends_at":assignment.get("ends_at"),"remaining_seconds":remaining_seconds(assignment) if assignment.get("started_at") else None,"submission_count":len(records),"latest_submission":records[-1] if records else None,"code_submission_count":len(code_records),"latest_code_submission":code_summary,"telemetry":telemetry,"alerts":alerts})
+        result.append({"student_id":sid,"full_name":student.get("full_name",""),"active":student.get("active",True),"logged_in":online,"ip":sess.get("ip") if sess else student.get("last_ip"),"user_agent":sess.get("user_agent","") if sess else "","last_seen":sess.get("last_seen") if sess else student.get("last_seen"),"exam_file":assignment.get("exam_file"),"exam_status":assignment.get("status","not_assigned"),"started_at":assignment.get("started_at"),"ends_at":assignment.get("ends_at"),"remaining_seconds":remaining_seconds(assignment) if assignment.get("started_at") else None,"submission_count":len(records),"latest_submission":records[-1] if records else None,"code_submission_count":len(code_records),"latest_code_submission":code_summary,"telemetry":telemetry,"proctoring":proctoring_info,"alerts":alerts})
     abnormal_count=sum(1 for row in result if row["alerts"])
     return {"occurred_at":utc_now(),"students":result,"online_count":sum(1 for row in result if row["logged_in"]),"abnormal_count":abnormal_count}
 
@@ -271,8 +284,10 @@ class Handler(BaseHTTPRequestHandler):
                 sess=get_session(req)
                 if not sess: return self._redirect("/login")
                 if sess["role"]=="admin": return self._redirect("/admin")
-                student=self._get_user_record(sess); assignment=current_exam_for(sess["user_id"]); settings=read_json("settings.json")
-                return self._html(self._render("student.html",session=sess,student=student,published_exams=general_exams.published_for_students(sess["user_id"]),assignment=assignment,current_exam=general_exams.assignment_exam(assignment),settings=settings,home_view=req.query.get("view",[""])[0]=="home",remaining=remaining_seconds(assignment or {}) if assignment and assignment.get("started_at") else None))
+                student=self._get_user_record(sess)
+                proctoring_state=proctoring.state_for(sess["user_id"],ip=client_ip(req))
+                assignment=current_exam_for(sess["user_id"]); settings=read_json("settings.json")
+                return self._html(self._render("student.html",session=sess,student=student,published_exams=general_exams.published_for_students(sess["user_id"]),assignment=assignment,current_exam=general_exams.assignment_exam(assignment),settings=settings,home_view=req.query.get("view",[""])[0]=="home",remaining=remaining_seconds(assignment or {}) if assignment and assignment.get("started_at") else None,proctoring_state=proctoring_state))
             admin_sections={
                 "/admin/dashboard":"dashboard",
                 "/admin/monitor":"monitor",
@@ -301,7 +316,10 @@ class Handler(BaseHTTPRequestHandler):
                 self._auth(req,"admin")
                 content="21010001|01/02/2003|Nguyen Van A\n21010002|15/08/2003|Tran Thi B\n"
                 return self._send(200,content,"text/plain; charset=utf-8",{"Content-Disposition":"attachment; filename=student_accounts_template.txt"})
-            if path=="/api/admin/monitor": self._auth(req,"admin"); return self._json(monitoring_snapshot())
+            if path=="/api/admin/monitor":
+                self._auth(req,"admin")
+                proctoring.sweep_abandoned()
+                return self._json(monitoring_snapshot())
             if path=="/api/admin/exams": self._auth(req,"admin"); return self._json({"exams":list_exam_files()})
             if path=="/api/admin/accounts":
                 self._auth(req,"admin")
@@ -366,10 +384,12 @@ class Handler(BaseHTTPRequestHandler):
                 ctype=mimetypes.guess_type(target.name)[0] or "application/octet-stream"
                 return self._send(200,target.read_bytes(),ctype,{"Content-Disposition":inline_filename_header(target.name)})
             if path=="/api/student/status":
-                sess=self._auth(req,"student"); item=current_exam_for(sess["user_id"]); settings=read_json("settings.json")
+                sess=self._auth(req,"student")
+                proctoring_state=proctoring.state_for(sess["user_id"],ip=client_ip(req))
+                item=current_exam_for(sess["user_id"]); settings=read_json("settings.json")
                 notifications=read_json("notifications.json", [])
                 personal=[item for item in notifications if item.get("student_id") in (None, sess["user_id"])]
-                return self._json({"assigned":bool(item),"started":bool(item and item.get("started_at")),"exam_file":item.get("exam_file") if item and item.get("started_at") else None,"status":item.get("status") if item else "not_assigned","release_id":item.get("release_id") if item else None,"remaining_seconds":remaining_seconds(item or {}) if item and item.get("started_at") else None,"started_at":item.get("started_at") if item else None,"ends_at":item.get("ends_at") if item else None,"server_time":utc_now(),"exam_state":settings.get("exam_state") or "idle","notifications":personal[-10:],"exam_password_enabled":settings.get("exam_password_enabled",False),                "accepted_submission_extensions":settings.get("accepted_submission_extensions",[".zip"]),"published_exams":general_exams.published_for_students(sess["user_id"])})
+                return self._json({"assigned":bool(item),"started":bool(item and item.get("started_at")),"exam_file":item.get("exam_file") if item and item.get("started_at") else None,"status":item.get("status") if item else "not_assigned","release_id":item.get("release_id") if item else None,"remaining_seconds":remaining_seconds(item or {}) if item and item.get("started_at") else None,"started_at":item.get("started_at") if item else None,"ends_at":item.get("ends_at") if item else None,"server_time":utc_now(),"exam_state":settings.get("exam_state") or "idle","notifications":personal[-10:],"exam_password_enabled":settings.get("exam_password_enabled",False),                "accepted_submission_extensions":settings.get("accepted_submission_extensions",[".zip"]),"published_exams":general_exams.published_for_students(sess["user_id"]),"proctoring":proctoring_state})
             if path=="/api/student/code-exam":
                 sess=self._auth(req,"student"); return self._json(get_student_code_exam(sess["user_id"]))
             if path=="/api/student/code/submission":
@@ -732,6 +752,14 @@ class Handler(BaseHTTPRequestHandler):
                 current["telemetry"]={"visibility":"hidden" if f.get("visibility")=="hidden" else "visible","focused":flag("focused",True),"tab_count":tab_count,"browser":f.get("browser","")[:80],"updated_at":utc_now()}
                 current["last_seen"]=utc_now(); sessions[token_key]=current; write_json("sessions.json",sessions)
                 return self._json({"ok":True})
+            if path=="/api/student/proctoring/violation":
+                sess=self._auth(req,"student")
+                state=proctoring.register_violation(sess["user_id"],f.get("event","leave"),client_ip(req))
+                return self._json({"ok":True,"proctoring":state})
+            if path=="/api/student/proctoring/ack":
+                sess=self._auth(req,"student")
+                state=proctoring.acknowledge_warning(sess["user_id"],client_ip(req))
+                return self._json({"ok":True,"proctoring":state})
             if path=="/api/admin/admins":
                 sess=self._auth(req,"admin"); username=f.get("username","").strip(); password=f.get("password","")
                 if not username or len(username)>80 or not all(c.isalnum() or c in "._-@" for c in username): raise ClientError(400,"Tên Admin không hợp lệ.")
@@ -785,6 +813,7 @@ def main():
     else:
         print("WARNING   : Code grading is unavailable outside Windows; ZIP submission remains enabled.")
     print(f"Exam dir  : {EXAM_DIR}"); print(f"Upload dir: {UPLOAD_DIR}"); print("Ctrl+C to stop. Keep this terminal open during the exam."); print("="*66)
+    threading.Thread(target=proctoring.watchdog_loop,name="proctoring-watchdog",daemon=True).start()
     server=ThreadingHTTPServer((HOST,PORT),Handler); server.daemon_threads=True
     if cert and key:
         context=ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER); context.load_cert_chain(cert,key); server.socket=context.wrap_socket(server.socket,server_side=True)

@@ -17,6 +17,7 @@ from .grading import GradingError, grade_exam, grade_reflection, grade_stdio
 from .java_runner import run_reflection_judge
 from .questions import QuestionError, _validate_question, compute_grading_hash, compute_spec_hash, get_question
 from .storage import audit, read_json, update_json, utc_now
+from . import proctoring
 from .windows_job import DEFAULT_JOB_LIMITS, MIN_JAVA_JOB_MEMORY_MB, JobLimits
 
 
@@ -454,6 +455,18 @@ def get_student_code_exam(student_id: str) -> dict:
     }
     if reveal and all_submitted and all("score" in item for item in progress):
         result["exam_score"] = sum(float(item["score"] or 0) for item in progress)
+    if proctoring.is_terminated(assignment):
+        result.update(
+            {
+                "read_only": True,
+                "exam_score": 0,
+                "proctoring_terminated": True,
+                "proctoring_reason": assignment.get("proctoring_termination_reason"),
+            }
+        )
+        for entry in progress:
+            if "score" in entry:
+                entry["score"] = 0
     return result
 
 
@@ -955,6 +968,8 @@ def _refresh_exam_score(student_id: str, submission: dict) -> dict:
     exam = get_code_exam(submission.get("exam_id"))
     if not exam:
         return submission
+    assignment = read_json("assignments.json").get(student_id) or {}
+    terminated = proctoring.is_terminated(assignment) and assignment.get("release_id") == exam.get("release_id")
     student_records = read_json("code_submissions.json").get(student_id, [])
     latest_graded = {}
     for item in student_records:
@@ -986,6 +1001,8 @@ def _refresh_exam_score(student_id: str, submission: dict) -> dict:
             "exam_ended": exam.get("status") == "ended",
         }
     )
+    if terminated:
+        submission.update({"exam_score": 0, "proctoring_terminated": True})
 
     def persist(submissions):
         for item in submissions.get(student_id, []):
@@ -996,6 +1013,7 @@ def _refresh_exam_score(student_id: str, submission: dict) -> dict:
                         "exam_total_points": submission["exam_total_points"],
                         "all_questions_submitted": all_questions_submitted,
                         "exam_ended": submission["exam_ended"],
+                        **({"proctoring_terminated": True} if terminated else {}),
                     }
                 )
                 break
@@ -1010,6 +1028,7 @@ def _refresh_exam_score(student_id: str, submission: dict) -> dict:
                 and assignment.get("exam_file") is None
                 and assignment.get("status") == "in_progress"
                 and not assignment.get("forced_submit")
+                and not terminated
             ):
                 assignment.update({"status": "submitted", "submitted_at": utc_now()})
 
@@ -1196,7 +1215,10 @@ def get_student_submission(student_id: str, question_id: str) -> dict:
     reveal_exam = reveal and (
         latest.get("all_questions_submitted") or exam.get("status") == "ended"
     )
-    return _public_submission(latest, reveal_score=reveal, reveal_exam_score=reveal_exam)
+    result = _public_submission(latest, reveal_score=reveal, reveal_exam_score=reveal_exam)
+    if proctoring.is_terminated(assignment):
+        result.update({"score": 0, "exam_score": 0, "proctoring_terminated": True})
+    return result
 
 
 def release_student_exam_scores(release_id: str) -> None:
@@ -1208,8 +1230,12 @@ def release_student_exam_scores(release_id: str) -> None:
     if not exam:
         return
 
+    assignments = read_json("assignments.json")
+
     def update_scores(submissions):
-        for records in submissions.values():
+        for student_id, records in submissions.items():
+            student_assignment = assignments.get(student_id) or {}
+            terminated = proctoring.is_terminated(student_assignment) and student_assignment.get("release_id") == release_id
             latest_by_question = {}
             for item in records:
                 if (
@@ -1240,10 +1266,11 @@ def release_student_exam_scores(release_id: str) -> None:
                     raise CodeExamError(f"Could not aggregate the code exam score: {exc}", 503) from exc
                 record.update(
                     {
-                        "exam_score": total.score,
+                        "exam_score": 0 if terminated else total.score,
                         "exam_total_points": total.total_points,
                         "all_questions_submitted": all_submitted,
                         "exam_ended": True,
+                        **({"proctoring_terminated": True} if terminated else {}),
                     }
                 )
 
@@ -1259,6 +1286,13 @@ def get_admin_code_results(
     if not exam:
         raise CodeExamError("Code exam was not found", 404)
     submissions = read_json("code_submissions.json")
+    assignments = read_json("assignments.json")
+    terminated_ids = {
+        owner_id
+        for owner_id, assignment in assignments.items()
+        if assignment.get("release_id") == exam.get("release_id")
+        and proctoring.is_terminated(assignment)
+    }
     rows = []
     for owner_id, records in submissions.items():
         if student_id is not None and owner_id != student_id:
@@ -1268,7 +1302,10 @@ def get_admin_code_results(
                 continue
             if question_id is not None and record.get("question_id") != question_id:
                 continue
-            rows.append({"student_id": owner_id, **deepcopy(record)})
+            row = {"student_id": owner_id, **deepcopy(record)}
+            if owner_id in terminated_ids:
+                row["proctoring_terminated"] = True
+            rows.append(row)
     rows.sort(key=lambda item: (item.get("submitted_at", ""), item["student_id"], item.get("attempt", 0)))
     return {
         "exam_id": exam_id,
@@ -1287,6 +1324,7 @@ def get_admin_code_results(
 def _results_matrix(exam: dict, submissions: Mapping, only_student: str | None) -> list[dict]:
     """One row per student, one cell per question in exam order; scores follow the latest graded submission."""
     names = {sid: item.get("full_name", "") for sid, item in read_json("students.json").items()}
+    assignments = read_json("assignments.json")
     matrix = []
     for owner_id, records in submissions.items():
         if only_student is not None and owner_id != only_student:
@@ -1294,6 +1332,8 @@ def _results_matrix(exam: dict, submissions: Mapping, only_student: str | None) 
         mine = [r for r in records if r.get("exam_id") == exam["id"] and r.get("release_id") == exam.get("release_id")]
         if not mine:
             continue
+        student_assignment = assignments.get(owner_id) or {}
+        terminated = proctoring.is_terminated(student_assignment) and student_assignment.get("release_id") == exam.get("release_id")
         cells, scores = [], []
         for question in exam.get("questions", []):
             qid = question["question_id"]
@@ -1301,6 +1341,8 @@ def _results_matrix(exam: dict, submissions: Mapping, only_student: str | None) 
             graded = [r for r in attempts if r.get("status") == "graded"]
             latest = attempts[-1] if attempts else None
             score = graded[-1].get("score", 0) if graded else 0
+            if terminated:
+                score = 0
             scores.append({"question_id": qid, "score": score, "total_points": question["total_points"]})
             cells.append(
                 {
@@ -1316,10 +1358,13 @@ def _results_matrix(exam: dict, submissions: Mapping, only_student: str | None) 
             )
         try:
             total = grade_exam(scores)
-            total_score, total_points = total.score, total.total_points
+            total_score, total_points = (0 if terminated else total.score), total.total_points
         except GradingError:
             total_score, total_points = None, None
-        matrix.append({"student_id": owner_id, "full_name": names.get(owner_id, ""), "cells": cells, "total_score": total_score, "total_points": total_points})
+        row = {"student_id": owner_id, "full_name": names.get(owner_id, ""), "cells": cells, "total_score": total_score, "total_points": total_points}
+        if terminated:
+            row["proctoring_terminated"] = True
+        matrix.append(row)
     matrix.sort(key=lambda item: item["student_id"])
     return matrix
 

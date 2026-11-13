@@ -13,3 +13,16 @@ main.page-wrap:has(.exam-settings-panel){display:flex;flex-direction:column}main
 .participant-list{max-height:240px;overflow:auto;border:1px solid #dbe2ed;border-radius:9px;background:#f8faff;padding:6px;margin:8px 0}.participant-list .student-option{grid-template-columns:18px minmax(0,1fr)}#participant-paste{width:100%;border:1px solid #dbe2ed;background:#fff;border-radius:9px;padding:11px 12px;resize:vertical}
 .ui-page{color:#172033;background:#f4f7fb}.ui-header{background:#fff;border-bottom:1px solid #e7ebf3}.ui-card,#student-panel{border-color:#e4eaf2;box-shadow:0 4px 14px #12294a08}.ui-form{gap:12px}.ui-form label{color:#36445b}.ui-form input:not([type=checkbox]):not([type=radio]),.ui-form select,.ui-form textarea,.ui-form input[type=file]{border:1px solid #dbe2ed;border-radius:9px;background:#fff;color:#1e293b;padding:11px 12px}.ui-form input[type=file]{cursor:pointer}.ui-form input:focus,.ui-form select:focus,.ui-form textarea:focus{border-color:#6693f5;box-shadow:0 0 0 3px #2563eb18;outline:0}.ui-action{min-height:40px}.login-shell.ui-page{background:radial-gradient(circle at top left,#dbeafe 0,transparent 38%),#f4f7fb}.login-card.ui-card{border:1px solid #e5eaf2}.login-card .brand-mark{margin-bottom:18px}.login-card h1{color:#1f3150}.ui-page .alert,.ui-page .notice{border-radius:10px}.ui-page .panel-heading h2 i,.ui-page .empty-state>i{color:#527bd0}
 .custom-rule-fields fieldset{margin-top:12px;border:1px solid #e1e8f3;border-radius:10px;padding:12px}.custom-rule-fields legend{padding:0 6px;font-size:12px}.remainder-rules{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.remainder-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px;background:#f8faff;border:1px solid #e6ebf4;border-radius:8px}.remainder-row span{font-size:12px}.remainder-row select{min-width:150px;border:1px solid #dbe2ed;border-radius:7px;padding:7px;background:#fff}@media(max-width:700px){.remainder-rules{grid-template-columns:1fr}.remainder-row{align-items:stretch;flex-direction:column}.remainder-row select{width:100%}}
+
+/* Strict exam proctoring */
+.proctoring-overlay{position:fixed;inset:0;z-index:2000;display:grid;place-items:center;padding:24px;background:#101a2ee6;backdrop-filter:blur(3px)}
+.proctoring-card{width:min(100%,560px);background:#fff;border:1px solid #f0c9c9;border-radius:18px;padding:30px;box-shadow:0 30px 90px #00000040;text-align:center}
+.proctoring-icon{width:58px;height:58px;margin:0 auto 14px;display:grid;place-items:center;border-radius:50%;background:#ffebeb;color:#b33232;font-size:26px}
+.proctoring-eyebrow{font-size:11px;font-weight:800;letter-spacing:.16em;color:#a33a3a;margin:0 0 8px}
+.proctoring-card h2{font-size:24px;letter-spacing:-.03em;color:#7f1d1d;margin:0 0 12px}
+.proctoring-message{font-size:14px;line-height:1.65;color:#3f4b60;margin:0 0 16px}
+.proctoring-countdown{font-size:18px;font-weight:800;font-variant-numeric:tabular-nums;color:#245edb;background:#eef5ff;border:1px solid #d8e8ff;border-radius:10px;padding:12px 14px;margin:0 0 16px}
+.proctoring-countdown-urgent{color:#a32e32;background:#fff0f0;border-color:#ffd9d9}
+.proctoring-card .alert{text-align:left;margin:0 0 14px}
+.proctoring-card .btn-wide{width:100%;margin-top:8px}
+body.proctoring-locked,body.proctoring-terminated{overflow:hidden}
