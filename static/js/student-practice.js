@@ -704,25 +704,21 @@
         }
 
         return `
-          <div class="practice-card" data-qid="${escape(item.question_id)}">
-            <div class="practice-card-title">
-              <div>
-                <span>${escape(item.title || item.question_id || "Câu hỏi không tên")}</span>
-                ${isUnavailable ? `<span class="practice-badge badge-unavailable ml-2"><i class="fa fa-ban"></i> Câu hỏi không khả dụng</span>` : ""}
-                ${isStaleRevision ? `<span class="practice-badge badge-updated ml-2"><i class="fa fa-exclamation-circle"></i> Đề đã cập nhật</span>` : ""}
-              </div>
-              <div class="practice-card-actions">
-                ${scoreBadgeHtml}
-                ${actionButtonsHtml}
-              </div>
-            </div>
+          <article class="practice-card" data-qid="${escape(item.question_id)}">
             <div class="practice-meta">
               <span class="practice-badge ${langBadge}">${escape(item.language || "code").toUpperCase()}</span>
               ${item.difficulty ? `<span class="practice-badge badge-diff">${escape(item.difficulty)}</span>` : ""}
-              ${item.category ? `<span class="practice-badge badge-diff"><i class="fa fa-folder-o"></i> ${escape(item.category)}</span>` : ""}
-              <small class="muted">Phiên bản: ${escape(item.version || 1)}</small>
+              ${scoreBadgeHtml}
             </div>
-          </div>
+            <h3 class="practice-card-title">${escape(item.title || item.question_id || "Câu hỏi không tên")}</h3>
+            <div class="practice-meta practice-card-details">
+              ${item.category ? `<span><i class="fa fa-folder-o" aria-hidden="true"></i> ${escape(item.category)}</span>` : ""}
+              <small>Phiên bản ${escape(item.version || 1)}</small>
+              ${isUnavailable ? `<span class="practice-badge badge-unavailable"><i class="fa fa-ban"></i> Câu hỏi không khả dụng</span>` : ""}
+              ${isStaleRevision ? `<span class="practice-badge badge-updated"><i class="fa fa-exclamation-circle"></i> Đề đã cập nhật</span>` : ""}
+            </div>
+            <div class="practice-card-actions">${actionButtonsHtml}</div>
+          </article>
         `;
       })
       .join("");

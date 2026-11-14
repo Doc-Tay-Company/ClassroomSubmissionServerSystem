@@ -1,38 +1,42 @@
 {% extends "base.html" %}
 {% block title %}Luyện tập · Classroom Submission Server{% endblock %}
 {% block extra_styles %}
+<link rel="stylesheet" href="/static/css/student-code.css">
 <link rel="stylesheet" href="/static/css/student-practice.css">
 {% endblock %}
 {% block body %}
-<header class="topbar ui-header">
-  <div class="brand"><i class="fa fa-laptop"></i> Classroom Submission Server</div>
+<header class="topbar ui-header practice-topbar">
+  <div class="brand"><i class="fa fa-laptop" aria-hidden="true"></i> Classroom Submission Server</div>
   <div class="practice-nav-actions">
     <a href="/" class="btn btn-ghost ui-action" id="practice-nav-exam"><i class="fa fa-arrow-left"></i> Về trang thi</a>
     <form action="/logout" method="post"><button class="btn btn-ghost ui-action" type="submit"><i class="fa fa-sign-out"></i> Đăng xuất</button></form>
   </div>
 </header>
-<main class="page-wrap ui-page mx-auto max-w-6xl px-6 py-6" id="practice-root" data-student-id="{{ session.user_id }}">
+<main class="page-wrap ui-page practice-page" id="practice-root" data-student-id="{{ session.user_id }}">
   <div id="practice-notice" class="hidden" role="status" aria-live="polite"></div>
   <!-- VIEW 1: Library View -->
   <section id="practice-library-view">
     <div class="welcome-panel">
       <div>
-        <p class="eyebrow">CHẾ ĐỘ TỰ LUYỆN TẬP</p>
-        <h1>Thư viện câu hỏi luyện tập</h1>
-        <p class="muted">Sinh viên: <strong>{{ student.full_name }}</strong> (MSSV: {{ session.user_id }})</p>
+        <p class="eyebrow">KHU VỰC SINH VIÊN</p>
+        <h1>Thư viện luyện tập</h1>
+        <p class="muted">Sinh viên: <strong>{{ student.full_name }}</strong> · MSSV {{ session.user_id }}</p>
       </div>
-      <span class="status-pill status-blue"><i class="fa fa-book"></i> Thư viện</span>
     </div>
 
-    <div class="panel bg-white rounded-2xl border p-6 mb-5">
+    <section class="practice-library" aria-labelledby="practice-library-heading">
+      <h2 id="practice-library-heading">Danh sách câu hỏi</h2>
       <div class="practice-filters">
-        <input type="text" id="practice-search" class="form-input practice-search-input" placeholder="Tìm theo tiêu đề, danh mục...">
-        <select id="practice-lang-filter" class="form-select practice-select-auto">
+        <div class="practice-search-field">
+          <i class="fa fa-search" aria-hidden="true"></i>
+          <input type="text" id="practice-search" aria-label="Tìm câu hỏi" placeholder="Tìm theo tiêu đề, danh mục...">
+        </div>
+        <select id="practice-lang-filter" aria-label="Ngôn ngữ">
           <option value="">Tất cả ngôn ngữ</option>
           <option value="java">Java</option>
           <option value="python">Python</option>
         </select>
-        <select id="practice-diff-filter" class="form-select practice-select-auto">
+        <select id="practice-diff-filter" aria-label="Độ khó">
           <option value="">Tất cả độ khó</option>
           <option value="Dễ">Dễ</option>
           <option value="Trung bình">Trung bình</option>
@@ -41,10 +45,10 @@
         <button type="button" id="practice-refresh-btn" class="btn btn-secondary"><i class="fa fa-refresh"></i> Làm mới</button>
       </div>
 
-      <div id="practice-catalog-list">
+      <div id="practice-catalog-list" class="practice-catalog">
         <p class="muted pad"><i class="fa fa-spinner fa-spin"></i> Đang tải danh sách câu hỏi...</p>
       </div>
-    </div>
+    </section>
   </section>
 
   <!-- VIEW 2: Workspace View -->
@@ -73,7 +77,7 @@
     <div id="practice-storage-warning" class="alert alert-warning hidden mb-4"></div>
     <div id="practice-revision-notice" class="alert alert-info hidden mb-4">
       <span id="practice-revision-notice-text"></span>
-      <button type="button" class="btn btn-secondary btn-small hidden" id="practice-retry-details-btn">Retry question details</button>
+      <button type="button" class="btn btn-secondary btn-small hidden" id="practice-retry-details-btn">Tải lại đề bài</button>
     </div>
 
     <div class="practice-workspace-grid">
@@ -106,14 +110,14 @@
           <label for="practice-code-editor" id="practice-editor-lang-label" class="practice-editor-label">Mã nguồn</label>
           <span id="practice-editor-filename" class="code-filename">Solution</span>
         </div>
-        <textarea id="practice-code-editor" class="practice-code-editor" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="// Viết code tại đây..."></textarea>
+        <textarea id="practice-code-editor" class="student-code-editor practice-code-editor" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="// Viết code tại đây..."></textarea>
         <p class="fine-print practice-editor-hint"><i class="fa fa-keyboard-o"></i> Nhấn Tab để thụt lề 4 khoảng trắng. Code được lưu cục bộ trên trình duyệt này.</p>
 
         <div class="practice-editor-actions">
           <button type="button" class="btn btn-secondary" id="practice-restore-starter-btn">
             <i class="fa fa-undo"></i> Khôi phục mã khởi tạo
           </button>
-          <button type="button" class="btn btn-primary" id="practice-run-btn" disabled aria-disabled="true" title="Edit code before the first Practice Run">
+          <button type="button" class="btn btn-primary" id="practice-run-btn" disabled aria-disabled="true" title="Chỉnh sửa mã trước khi chạy thử lần đầu">
             <i class="fa fa-play"></i> Chạy thử (Run Test)
           </button>
         </div>
