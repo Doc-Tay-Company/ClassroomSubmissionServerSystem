@@ -1,0 +1,78 @@
+{
+  "id": "R01",
+  "title": "Parcel Fields and Constructor",
+  "statement": "Create class model.Parcel with private int massGrams and private String label, plus a public constructor Parcel(int massGrams, String label). Add public getters getMassGrams() and getLabel(). The checks focus on declared field types/modifiers, the constructor signature, and a getter signature.",
+  "language": "java",
+  "grading_mode": "reflection",
+  "problem_kind": "java_reflection",
+  "starter_code": "package model;\n\npublic class Parcel {\n    // Declare the required fields, constructor, and getters.\n}\n",
+  "time_limit_seconds": 5,
+  "memory_limit_mb": 256,
+  "max_output_bytes": 65536,
+  "allow_pretest": true,
+  "max_pretest_runs": 20,
+  "category": "Java Reflection",
+  "tags": [
+    "java",
+    "reflection",
+    "fields",
+    "constructors"
+  ],
+  "difficulty": "easy",
+  "practice_enabled": false,
+  "total_points": 100,
+  "checks": [
+    {
+      "id": "r01-mass-field",
+      "kind": "field",
+      "points": 20,
+      "is_visible": true,
+      "name": "massGrams",
+      "type": "int",
+      "modifier": "private"
+    },
+    {
+      "id": "r01-label-field",
+      "kind": "field",
+      "points": 20,
+      "is_visible": true,
+      "name": "label",
+      "type": "String",
+      "modifier": "private"
+    },
+    {
+      "id": "r01-constructor",
+      "kind": "constructor",
+      "points": 20,
+      "is_visible": true,
+      "parameter_types": [
+        "int",
+        "String"
+      ],
+      "modifier": "public"
+    },
+    {
+      "id": "r01-getter",
+      "kind": "method",
+      "points": 20,
+      "is_visible": true,
+      "name": "getMassGrams",
+      "return_type": "int",
+      "parameter_types": [],
+      "modifier": "public"
+    },
+    {
+      "id": "r01-get-label",
+      "kind": "method",
+      "points": 20,
+      "is_visible": false,
+      "name": "getLabel",
+      "return_type": "String",
+      "parameter_types": [],
+      "modifier": "public"
+    }
+  ],
+  "target_class": "model.Parcel",
+  "target_package": "model",
+  "target_file": "Parcel.java"
+}

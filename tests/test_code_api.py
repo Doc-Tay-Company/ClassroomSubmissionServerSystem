@@ -16,13 +16,10 @@ import urllib.parse
 from app import storage
 
 
-_TEST_TEMP = None
-_TEST_DATA_ROOT = os.getenv("CSS_CODE_API_TEST_DATA")
-if _TEST_DATA_ROOT:
-    _TEST_DATA_ROOT = Path(_TEST_DATA_ROOT)
-else:
-    _TEST_TEMP = tempfile.TemporaryDirectory(prefix="css-code-api-")
-    _TEST_DATA_ROOT = Path(_TEST_TEMP.name)
+_ORIGINAL_DATA_DIR = storage.DATA_DIR
+_ORIGINAL_LOG_DIR = storage.LOG_DIR
+_TEST_TEMP = tempfile.TemporaryDirectory(prefix="css-code-api-")
+_TEST_DATA_ROOT = Path(_TEST_TEMP.name)
 storage.DATA_DIR = _TEST_DATA_ROOT / "data"
 storage.LOG_DIR = _TEST_DATA_ROOT / "logs"
 storage.DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -104,10 +101,13 @@ class CodeApiTests(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        cls.server.shutdown()
-        cls.server.server_close()
-        cls.thread.join(timeout=2)
-        if _TEST_TEMP is not None:
+        try:
+            cls.server.shutdown()
+            cls.server.server_close()
+            cls.thread.join(timeout=2)
+        finally:
+            storage.DATA_DIR = _ORIGINAL_DATA_DIR
+            storage.LOG_DIR = _ORIGINAL_LOG_DIR
             _TEST_TEMP.cleanup()
 
     def setUp(self):
@@ -154,6 +154,14 @@ class CodeApiTests(unittest.TestCase):
         parsed = json.loads(raw.decode("utf-8")) if raw and parse_json else raw
         return status, parsed
 
+    def question_state_tokens(self, question_id):
+        question = storage.read_json("questions.json").get(question_id)
+        self.assertIsNotNone(question, f"missing Question Bank record: {question_id}")
+        tokens = {"expected_version": question.get("version", 1)}
+        if "practice_revision" in question:
+            tokens["expected_practice_revision"] = question["practice_revision"]
+        return tokens
+
     def create_published_question(self, question_id, *, statement="Print the input."):
         question = {
             "id": question_id,
@@ -179,13 +187,14 @@ class CodeApiTests(unittest.TestCase):
                 "POST",
                 f"/api/admin/questions/{question_id}/validate",
                 cookie=self.admin_cookie,
-                payload={"sample_source": _SAMPLE_SOURCE},
+                payload={"sample_source": _SAMPLE_SOURCE, **self.question_state_tokens(question_id)},
             )
             self.assertEqual(status, 200, validation)
             status, published = self.request(
                 "POST",
                 f"/api/admin/questions/{question_id}/publish",
                 cookie=self.admin_cookie,
+                payload=self.question_state_tokens(question_id),
             )
         self.assertEqual(status, 200, published)
         return published["question"]
@@ -241,7 +250,7 @@ class CodeApiTests(unittest.TestCase):
                 "POST",
                 "/api/admin/questions/echo-question/validate",
                 cookie=self.admin_cookie,
-                payload={"sample_source": _SAMPLE_SOURCE},
+                payload={"sample_source": _SAMPLE_SOURCE, **self.question_state_tokens("echo-question")},
             )
         else:
             with patch("app.code_exams.execute_question", return_value=_execution()):
@@ -249,13 +258,14 @@ class CodeApiTests(unittest.TestCase):
                     "POST",
                     "/api/admin/questions/echo-question/validate",
                     cookie=self.admin_cookie,
-                    payload={"sample_source": "print(input())\n"},
+                    payload={"sample_source": "print(input())\n", **self.question_state_tokens("echo-question")},
                 )
         self.assertEqual(status, 200, validation)
         status, published = self.request(
             "POST",
             "/api/admin/questions/echo-question/publish",
             cookie=self.admin_cookie,
+            payload=self.question_state_tokens("echo-question"),
         )
         self.assertEqual(status, 200, published)
         status, created_exam = self.request(
@@ -399,7 +409,10 @@ class CodeApiTests(unittest.TestCase):
         self.assertEqual(status, 200, response)
         question = response["questions"][0]
         self.assertEqual([item["id"] for item in question["tests"]], ["visible"])
-        self.assertNotIn("total_points", question)
+        # The current official exam projection exposes the question maximum but only
+        # public tests; hidden inputs and expected outputs remain private.
+        self.assertEqual(question["total_points"], 10)
+        self.assertEqual(len(question["tests"]), 1)
         self.assertNotIn("secret-input", json.dumps(response))
         self.assertEqual(storage.read_json("questions.json")["echo-question"]["usage_count"], 1)
         assignment = storage.read_json("assignments.json")["student-1"]
@@ -430,31 +443,25 @@ class CodeApiTests(unittest.TestCase):
 
         updated_bank_question = dict(first)
         updated_bank_question["statement"] = "Updated after exam creation."
-        status, updated = self.request(
-            "POST",
-            "/api/admin/questions/first-question/update",
-            cookie=self.admin_cookie,
-            payload=updated_bank_question,
-        )
+        update_payload = {
+            **updated_bank_question,
+            **self.question_state_tokens("first-question"),
+            "sample_source": _SAMPLE_SOURCE,
+        }
+        with patch("app.code_exams.execute_question", return_value=_execution()):
+            status, updated = self.request(
+                "POST",
+                "/api/admin/questions/first-question/update",
+                cookie=self.admin_cookie,
+                payload=update_payload,
+            )
         self.assertEqual(status, 200, updated)
+        self.assertTrue(updated["saved"])
+        updated_question = updated["question"]
         self.assertEqual(
             storage.read_json("code_exams.json")[exam_id]["questions"][0]["statement"],
             original_first_snapshot["statement"],
         )
-        with patch("app.code_exams.execute_question", return_value=_execution()):
-            status, validation = self.request(
-                "POST",
-                "/api/admin/questions/first-question/validate",
-                cookie=self.admin_cookie,
-                payload={"sample_source": _SAMPLE_SOURCE},
-            )
-        self.assertEqual(status, 200, validation)
-        status, republished = self.request(
-            "POST",
-            "/api/admin/questions/first-question/publish",
-            cookie=self.admin_cookie,
-        )
-        self.assertEqual(status, 200, republished)
 
         payload = {
             "title": "Reordered and refreshed",
@@ -477,7 +484,7 @@ class CodeApiTests(unittest.TestCase):
         self.assertEqual([item["question_id"] for item in refreshed["questions"]], payload["question_ids"])
         self.assertEqual([item["order"] for item in refreshed["questions"]], [0, 1])
         self.assertEqual(refreshed["questions"][1]["statement"], "Updated after exam creation.")
-        self.assertEqual(refreshed["questions"][1]["snapshot_version"], republished["question"]["version"])
+        self.assertEqual(refreshed["questions"][1]["snapshot_version"], updated_question["version"])
         self.assertEqual(refreshed["created_at"], exam["created_at"])
         usages_after_update = storage.read_json("questions.json")
         self.assertEqual(
@@ -1053,6 +1060,7 @@ class CodeApiTests(unittest.TestCase):
         self.assertEqual(status, 200, loaded)
         updated_payload = dict(loaded["question"])
         updated_payload["statement"] = "Updated statement."
+        updated_payload.update(self.question_state_tokens("draft-question"))
         status, updated = self.request(
             "POST",
             "/api/admin/questions/draft-question/update",
@@ -1067,7 +1075,7 @@ class CodeApiTests(unittest.TestCase):
             "POST",
             "/api/admin/questions/draft-question/duplicate",
             cookie=self.admin_cookie,
-            raw_body=b"",
+            payload=self.question_state_tokens("draft-question"),
         )
         self.assertEqual(status, 201, duplicate)
         duplicate_id = duplicate["question"]["id"]
@@ -1076,7 +1084,7 @@ class CodeApiTests(unittest.TestCase):
             "POST",
             f"/api/admin/questions/{duplicate_id}/delete",
             cookie=self.admin_cookie,
-            raw_body=b"",
+            payload=self.question_state_tokens(duplicate_id),
         )
         self.assertEqual(status, 200, deleted)
 
@@ -1085,14 +1093,14 @@ class CodeApiTests(unittest.TestCase):
             "POST",
             "/api/admin/questions/echo-question/delete",
             cookie=self.admin_cookie,
-            raw_body=b"",
+            payload=self.question_state_tokens("echo-question"),
         )
         self.assertEqual(status, 409, blocked)
         status, archived = self.request(
             "POST",
             "/api/admin/questions/echo-question/archive",
             cookie=self.admin_cookie,
-            raw_body=b"",
+            payload=self.question_state_tokens("echo-question"),
         )
         self.assertEqual(status, 200, archived)
         self.assertEqual(archived["question"]["status"], "archived")
@@ -1101,7 +1109,7 @@ class CodeApiTests(unittest.TestCase):
             "POST",
             "/api/admin/questions/echo-question/update",
             cookie=self.admin_cookie,
-            payload=archived["question"],
+            payload={**archived["question"], **self.question_state_tokens("echo-question")},
         )
         self.assertEqual(status, 409, rejected)
 
@@ -1132,7 +1140,7 @@ class CodeApiTests(unittest.TestCase):
             "POST",
             "/api/admin/questions/wrapper-question/delete",
             cookie=self.admin_cookie,
-            raw_body=b"",
+            payload=self.question_state_tokens("wrapper-question"),
         )
         self.assertEqual(status, 409, blocked)
 
@@ -1149,7 +1157,7 @@ class CodeApiTests(unittest.TestCase):
             "POST",
             "/api/admin/questions/wrapper-question/delete",
             cookie=self.admin_cookie,
-            raw_body=b"",
+            payload=self.question_state_tokens("wrapper-question"),
         )
         self.assertEqual(status, 200, deleted)
 
@@ -1171,28 +1179,20 @@ class CodeApiTests(unittest.TestCase):
         self.assertEqual(status, 200)
         current = storage.read_json("questions.json")["echo-question"]
         current["statement"] = "Corrected statement."
-        status, updated = self.request(
-            "POST",
-            "/api/admin/questions/echo-question/update",
-            cookie=self.admin_cookie,
-            payload=current,
-        )
-        self.assertEqual(status, 200, updated)
+        update_payload = {
+            **current,
+            **self.question_state_tokens("echo-question"),
+            "sample_source": _SAMPLE_SOURCE,
+        }
         with patch("app.code_exams.execute_question", return_value=_execution()):
-            status, validation = self.request(
+            status, updated = self.request(
                 "POST",
-                "/api/admin/questions/echo-question/validate",
+                "/api/admin/questions/echo-question/update",
                 cookie=self.admin_cookie,
-                payload={"sample_source": _SAMPLE_SOURCE},
+                payload=update_payload,
             )
-        self.assertEqual(status, 200, validation)
-        status, republished = self.request(
-            "POST",
-            "/api/admin/questions/echo-question/publish",
-            cookie=self.admin_cookie,
-        )
-        self.assertEqual(status, 200, republished)
-        new_version = republished["question"]["version"]
+        self.assertEqual(status, 200, updated)
+        new_version = updated["question"]["version"]
 
         with patch(
             "app.code_exams.execute_question",
@@ -1319,13 +1319,14 @@ class CodeApiTests(unittest.TestCase):
                 "POST",
                 "/api/admin/questions/echo-question/validate",
                 cookie=self.admin_cookie,
-                payload={"sample_source": _SAMPLE_SOURCE},
+                payload={"sample_source": _SAMPLE_SOURCE, **self.question_state_tokens("echo-question")},
             )
         self.assertEqual(status, 200, validation)
         status, published = self.request(
             "POST",
             "/api/admin/questions/echo-question/publish",
             cookie=self.admin_cookie,
+            payload=self.question_state_tokens("echo-question"),
         )
         self.assertEqual(status, 200, published)
         status, created = self.request(

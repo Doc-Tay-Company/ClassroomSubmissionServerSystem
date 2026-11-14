@@ -1,0 +1,306 @@
+/* CSS for Student Practice Library (Phase 1) - CSP compliant (style-src 'self') */
+.practice-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 1.5rem;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+.practice-filters {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-bottom: 1.5rem;
+}
+.practice-search-input {
+  flex: 1;
+  min-width: 200px;
+}
+.practice-select-auto {
+  width: auto;
+}
+.practice-nav-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+.practice-card {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.75rem;
+  padding: 1.25rem;
+  margin-bottom: 1rem;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.practice-card:hover {
+  border-color: #cbd5e1;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.04);
+}
+.practice-card-title {
+  font-size: 1.15rem;
+  font-weight: 600;
+  margin: 0 0 0.5rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.practice-badge {
+  display: inline-block;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.2rem 0.5rem;
+  border-radius: 0.375rem;
+}
+.badge-java {
+  background: #fee2e2;
+  color: #991b1b;
+}
+.badge-python {
+  background: #fef3c7;
+  color: #92400e;
+}
+.badge-diff {
+  background: #f1f5f9;
+  color: #475569;
+}
+.practice-meta {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 0.75rem;
+}
+.practice-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+  padding: 1rem;
+}
+.practice-modal {
+  background: #fff;
+  border-radius: 1rem;
+  max-width: 48rem;
+  width: 100%;
+  max-height: 90vh;
+  overflow-y: auto;
+  padding: 1.75rem;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+}
+.practice-modal-panel-heading {
+  margin-bottom: 1rem;
+}
+.practice-modal-title {
+  margin: 0;
+}
+.practice-modal-meta {
+  margin-top: 0.5rem;
+}
+.practice-section {
+  margin-bottom: 1.5rem;
+}
+.practice-section-title {
+  font-size: 1rem;
+  margin-bottom: 0.5rem;
+}
+.practice-statement-box {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  padding: 1rem;
+  border-radius: 0.5rem;
+  white-space: pre-wrap;
+  font-family: inherit;
+}
+.practice-starter-box {
+  background: #0f172a;
+  color: #f8fafc;
+  padding: 1rem;
+  border-radius: 0.5rem;
+  overflow-x: auto;
+  font-family: monospace;
+}
+.practice-modal-actions {
+  justify-content: flex-end;
+}
+
+/* Phase 2: Workspace & Local Recovery Layout */
+.practice-workspace-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 1.5rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid #e2e8f0;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+.practice-ws-header-left {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.practice-ws-header-right {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.practice-ws-title {
+  font-size: 1.35rem;
+  font-weight: 700;
+  margin: 0.25rem 0 0.15rem;
+  color: #0f172a;
+}
+.practice-workspace-grid {
+  display: grid;
+  grid-template-columns: minmax(320px, 1.1fr) minmax(340px, 1.2fr);
+  gap: 1.5rem;
+  align-items: start;
+}
+@media (max-width: 900px) {
+  .practice-workspace-grid {
+    grid-template-columns: 1fr;
+  }
+}
+.practice-pane {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 1rem;
+  padding: 1.5rem;
+}
+.practice-pane-left {
+  max-height: 85vh;
+  overflow-y: auto;
+}
+.practice-pane-right {
+  display: flex;
+  flex-direction: column;
+}
+.practice-editor-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+.practice-editor-label {
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: #1e293b;
+}
+.practice-code-editor {
+  width: 100%;
+  min-height: 440px;
+  font-family: "Fira Code", Consolas, Monaco, monospace;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  background: #0f172a;
+  color: #f8fafc;
+  border: 1px solid #334155;
+  border-radius: 0.5rem;
+  padding: 1rem;
+  resize: vertical;
+  tab-size: 4;
+  outline: none;
+  box-sizing: border-box;
+}
+.practice-code-editor:focus {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.25);
+}
+.practice-editor-hint {
+  margin: 0.5rem 0 1rem;
+  color: #64748b;
+  font-size: 0.8rem;
+}
+.practice-editor-actions {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: flex-end;
+  margin-bottom: 0.75rem;
+}
+.practice-target-box {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.5rem;
+  padding: 0.75rem 1rem;
+  font-size: 0.875rem;
+  color: #334155;
+}
+
+/* Badges and Progress presentation */
+.badge-retest-warning {
+  background: #fef3c7;
+  color: #92400e;
+  border: 1px solid #fde68a;
+  font-weight: 600;
+}
+.badge-retest-clean {
+  background: #ecfdf5;
+  color: #065f46;
+  border: 1px solid #a7f3d0;
+  font-weight: 600;
+}
+.badge-unavailable {
+  background: #fee2e2;
+  color: #991b1b;
+  border: 1px solid #fca5a5;
+  font-weight: 600;
+}
+.badge-updated {
+  background: #e0f2fe;
+  color: #0369a1;
+  border: 1px solid #bae6fd;
+  font-weight: 600;
+}
+.practice-pill-green {
+  background: #dcfce7;
+  color: #15803d;
+  font-weight: 600;
+}
+.practice-pill-orange {
+  background: #ffedd5;
+  color: #c2410c;
+  font-weight: 600;
+}
+.practice-pill-red {
+  background: #fee2e2;
+  color: #b91c1c;
+  font-weight: 600;
+}
+.practice-pill-neutral {
+  background: #f1f5f9;
+  color: #475569;
+}
+.practice-progress-bar {
+  height: 0.75rem;
+  background: #e2e8f0;
+  border-radius: 9999px;
+  overflow: hidden;
+  margin: 0.5rem 0 1rem;
+}
+.practice-progress-fill {
+  height: 100%;
+  border-radius: 9999px;
+  transition: width 0.3s ease;
+}
+.fill-green {
+  background: #16a34a;
+}
+.fill-orange {
+  background: #ea580c;
+}
+.fill-red {
+  background: #dc2626;
+}
+.fill-neutral {
+  background: #94a3b8;
+}
+.practice-card-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}

@@ -10,12 +10,13 @@ import os
 import threading
 import time
 import uuid
+from pathlib import Path
 from typing import Mapping
 
 from .code_runner import run_stdio
 from .grading import GradingError, grade_exam, grade_reflection, grade_stdio
 from .java_runner import run_reflection_judge
-from .questions import QuestionError, _validate_question, compute_grading_hash, compute_spec_hash, get_question
+from .questions import QuestionError, _validate_question, compute_grading_hash, compute_spec_hash, get_question, require_expected_question_state
 from .storage import audit, read_json, update_json, utc_now
 from .windows_job import DEFAULT_JOB_LIMITS, MIN_JAVA_JOB_MEMORY_MB, JobLimits
 
@@ -576,7 +577,11 @@ def _reflection_judge_checks(checks: list[Mapping]) -> list[dict]:
 
 
 def execute_question(
-    question: Mapping, source_code: str, *, visible_only: bool = False
+    question: Mapping,
+    source_code: str,
+    *,
+    visible_only: bool = False,
+    workspace_parent: str | Path | None = None,
 ) -> dict:
     limits = _job_limits(question)
     if question["grading_mode"] == "reflection":
@@ -599,6 +604,7 @@ def execute_question(
             judge_timeout_seconds=question["time_limit_seconds"],
             max_output_bytes=question["max_output_bytes"],
             job_limits=limits,
+            workspace_parent=workspace_parent,
         )
     else:
         result = run_stdio(
@@ -612,6 +618,7 @@ def execute_question(
             max_output_bytes=question["max_output_bytes"],
             visible_only=visible_only,
             job_limits=limits,
+            workspace_parent=workspace_parent,
         )
     return result.to_dict()
 
@@ -1502,7 +1509,7 @@ def _clean_sample_source(sample_source):
     return sample_source.translate({ord(k): v for k, v in _PASTE_ARTIFACTS.items()})
 
 
-def validate_question_sample(question_id: str, sample_source: str, actor: str, ip: str) -> dict:
+def validate_question_sample(question_id: str, sample_source: str, payload: Mapping, actor: str, ip: str) -> dict:
     """Run a sample solution against the current draft spec and record the outcome bound to its spec hash.
 
     Never changes the question status. A record is stored only when the spec is unchanged
@@ -1551,6 +1558,8 @@ def validate_question_sample(question_id: str, sample_source: str, actor: str, i
 
     def store(questions):
         current = questions.get(question_id)
+        if current:
+            require_expected_question_state(current, payload)
         if (
             not current
             or current.get("status") != "draft"
@@ -1693,6 +1702,8 @@ def publish_question_candidate(payload: Mapping, sample_source: str, actor: str,
 
     def commit(questions):
         existing = questions.get(question_id)
+        if existing:
+            require_expected_question_state(existing, payload)
         if existing and existing.get("status") == "published":
             raise QuestionError("Câu hỏi đã được xuất bản.", 409, "ALREADY_PUBLISHED")
         prior_source = existing.get("source", {}) if existing else {}
@@ -1702,6 +1713,12 @@ def publish_question_candidate(payload: Mapping, sample_source: str, actor: str,
             "updated_by": actor,
             "updated_at": utc_now(),
         }
+        new_practice_enabled = (
+            candidate["practice_enabled"]
+            if "practice_enabled" in candidate
+            else (existing.get("practice_enabled", False) if existing else False)
+        )
+        practice_rev = uuid.uuid4().hex
         if passed and not infra_error:
             candidate.update(
                 {
@@ -1711,6 +1728,8 @@ def publish_question_candidate(payload: Mapping, sample_source: str, actor: str,
                     "version": int(existing.get("version", 1)) + 1 if existing else 1,
                     "validation": record,
                     "reference_source": _clean_sample_source(sample_source),
+                    "practice_enabled": new_practice_enabled,
+                    "practice_revision": practice_rev,
                 }
             )
             questions[question_id] = candidate
@@ -1724,6 +1743,8 @@ def publish_question_candidate(payload: Mapping, sample_source: str, actor: str,
                 "version": int(existing.get("version", 1)) + 1 if existing else 1,
                 "validation": record,
                 "reference_source": _clean_sample_source(sample_source),
+                "practice_enabled": new_practice_enabled,
+                "practice_revision": practice_rev,
             }
         )
         questions[question_id] = candidate
@@ -1848,6 +1869,12 @@ def update_published_question(question_id: str, payload: Mapping, sample_source:
         stored = questions.get(question_id)
         if not stored or stored.get("status") != "published" or stored.get("version") != base_version:
             raise QuestionError("Câu hỏi đã bị thay đổi trong lúc xác thực; hãy tải lại và thử lại.", 409, "QUESTION_CHANGED")
+        require_expected_question_state(stored, payload)
+        new_practice_enabled = (
+            candidate["practice_enabled"]
+            if "practice_enabled" in candidate
+            else stored.get("practice_enabled", False)
+        )
         candidate.update(
             {
                 "status": "published",
@@ -1856,6 +1883,8 @@ def update_published_question(question_id: str, payload: Mapping, sample_source:
                 "version": int(stored.get("version", 1)) + 1,
                 "validation": record,
                 "reference_source": sample_source,
+                "practice_enabled": new_practice_enabled,
+                "practice_revision": uuid.uuid4().hex,
             }
         )
         questions[question_id] = candidate
@@ -1866,13 +1895,14 @@ def update_published_question(question_id: str, payload: Mapping, sample_source:
     return {**result, "saved": True, "question": saved}
 
 
-def publish_question(question_id: str, actor: str, ip: str) -> dict:
+def publish_question(question_id: str, payload: Mapping, actor: str, ip: str) -> dict:
     """Publish a draft question only if its exact current spec has a successful server-side validation."""
 
     def publish(questions):
         question = questions.get(question_id)
         if not question:
             raise QuestionError("question not found", 404)
+        require_expected_question_state(question, payload)
         if question.get("status") == "published":
             raise QuestionError("question is already published", 409, "ALREADY_PUBLISHED")
         if question.get("status") != "draft":
@@ -1885,6 +1915,7 @@ def publish_question(question_id: str, actor: str, ip: str) -> dict:
         if record.get("passed") is not True:
             raise QuestionError("The last sample validation failed; fix the question and validate again", 409, "VALIDATION_FAILED")
         question["status"] = "published"
+        question["practice_revision"] = uuid.uuid4().hex
         question.setdefault("source", {}).update({"updated_by": actor, "updated_at": utc_now()})
         question["version"] = int(question.get("version", 1)) + 1
         return deepcopy(question)

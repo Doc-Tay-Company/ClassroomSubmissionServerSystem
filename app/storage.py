@@ -41,6 +41,7 @@ DEFAULTS = {
     "login_attempts.json": {},
     "machines.json": {},
     "notifications.json": [],
+    "practice_progress.json": {},
 }
 
 def utc_now() -> str:
@@ -52,6 +53,8 @@ def _path(name: str) -> Path:
     return DATA_DIR / name
 
 def initialize() -> None:
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
     with _LOCK:
         for name, default in DEFAULTS.items():
             p = _path(name)

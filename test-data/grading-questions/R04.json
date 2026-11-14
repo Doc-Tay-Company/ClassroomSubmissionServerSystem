@@ -1,0 +1,123 @@
+{
+  "id": "R04",
+  "title": "Counter State and Behavior",
+  "statement": "Create class model.Counter with private int value and a public constructor Counter(int initialValue). Implement public int getValue(), public void increment(), and public void add(int amount). increment increases value by one. add increases value by amount and throws IllegalArgumentException for negative amounts.",
+  "language": "java",
+  "grading_mode": "reflection",
+  "problem_kind": "java_reflection",
+  "starter_code": "package model;\n\npublic class Counter {\n    // Implement the private state, constructor, and methods.\n}\n",
+  "time_limit_seconds": 5,
+  "memory_limit_mb": 256,
+  "max_output_bytes": 65536,
+  "allow_pretest": true,
+  "max_pretest_runs": 20,
+  "category": "Java Reflection",
+  "tags": [
+    "java",
+    "reflection",
+    "behavior",
+    "state"
+  ],
+  "difficulty": "medium",
+  "practice_enabled": false,
+  "total_points": 100,
+  "checks": [
+    {
+      "id": "r04-value-field",
+      "kind": "field",
+      "points": 15,
+      "is_visible": true,
+      "name": "value",
+      "type": "int",
+      "modifier": "private"
+    },
+    {
+      "id": "r04-constructor",
+      "kind": "constructor",
+      "points": 15,
+      "is_visible": true,
+      "parameter_types": [
+        "int"
+      ],
+      "modifier": "public"
+    },
+    {
+      "id": "r04-getter",
+      "kind": "method",
+      "points": 10,
+      "is_visible": true,
+      "name": "getValue",
+      "return_type": "int",
+      "parameter_types": [],
+      "modifier": "public"
+    },
+    {
+      "id": "r04-increment-state",
+      "kind": "behavior",
+      "points": 20,
+      "is_visible": true,
+      "setup": [],
+      "constructor_parameter_types": [
+        "int"
+      ],
+      "constructor_args": [
+        4
+      ],
+      "method": "increment",
+      "parameter_types": [],
+      "args": [],
+      "expect_state": {
+        "getter": "getValue",
+        "value": 5
+      }
+    },
+    {
+      "id": "r04-add-state",
+      "kind": "behavior",
+      "points": 20,
+      "is_visible": true,
+      "setup": [],
+      "constructor_parameter_types": [
+        "int"
+      ],
+      "constructor_args": [
+        4
+      ],
+      "method": "add",
+      "parameter_types": [
+        "int"
+      ],
+      "args": [
+        6
+      ],
+      "expect_state": {
+        "getter": "getValue",
+        "value": 10
+      }
+    },
+    {
+      "id": "r04-negative-add",
+      "kind": "behavior",
+      "points": 20,
+      "is_visible": false,
+      "setup": [],
+      "constructor_parameter_types": [
+        "int"
+      ],
+      "constructor_args": [
+        4
+      ],
+      "method": "add",
+      "parameter_types": [
+        "int"
+      ],
+      "args": [
+        -1
+      ],
+      "expect_exception": "java.lang.IllegalArgumentException"
+    }
+  ],
+  "target_class": "model.Counter",
+  "target_package": "model",
+  "target_file": "Counter.java"
+}

@@ -1,0 +1,53 @@
+{
+  "id": "P04",
+  "title": "Most Frequent Integer",
+  "statement": "The first line contains n (n >= 1). The second line contains n integers. Print the integer with the highest frequency followed by its frequency. If several integers share the highest frequency, print the smallest such integer.",
+  "language": "python",
+  "grading_mode": "stdio",
+  "problem_kind": "python_stdio",
+  "starter_code": "n = int(input())\nvalues = list(map(int, input().split()))\n# Print: most_frequent_value frequency\n",
+  "time_limit_seconds": 2,
+  "memory_limit_mb": 128,
+  "max_output_bytes": 65536,
+  "allow_pretest": true,
+  "max_pretest_runs": 20,
+  "category": "Frequency Counting",
+  "tags": [
+    "python",
+    "frequency",
+    "dictionary"
+  ],
+  "difficulty": "medium",
+  "practice_enabled": false,
+  "total_points": 100,
+  "tests": [
+    {
+      "id": "p04-simple",
+      "stdin": "7\n4 2 4 3 2 4 2\n",
+      "expected_stdout": "2 3\n",
+      "points": 25,
+      "is_visible": true
+    },
+    {
+      "id": "p04-negative-tie",
+      "stdin": "6\n-1 2 -1 2 0 0\n-1 2\n",
+      "expected_stdout": "-1 2\n",
+      "points": 25,
+      "is_visible": true
+    },
+    {
+      "id": "p04-single",
+      "stdin": "1\n9\n",
+      "expected_stdout": "9 1\n",
+      "points": 25,
+      "is_visible": true
+    },
+    {
+      "id": "p04-one-mode",
+      "stdin": "5\n8 8 8 1 2\n",
+      "expected_stdout": "8 3\n",
+      "points": 25,
+      "is_visible": false
+    }
+  ]
+}

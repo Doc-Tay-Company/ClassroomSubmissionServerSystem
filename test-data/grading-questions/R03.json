@@ -1,0 +1,147 @@
+{
+  "id": "R03",
+  "title": "Comparable Ranked Label",
+  "statement": "Create class model.RankedLabel with private int rank and private String label, plus a public constructor RankedLabel(int rank, String label). Implement Comparable<RankedLabel>; compareTo orders by rank ascending, then by label lexicographically. Override compareTo with public int compareTo(RankedLabel other). The supported Reflection checks verify the interface contract, declared override signature, and comparison outcomes.",
+  "language": "java",
+  "grading_mode": "reflection",
+  "problem_kind": "java_reflection",
+  "starter_code": "package model;\n\npublic class RankedLabel {\n    // Implement Comparable<RankedLabel>, its ordering, fields, and constructor.\n}\n",
+  "time_limit_seconds": 5,
+  "memory_limit_mb": 256,
+  "max_output_bytes": 65536,
+  "allow_pretest": true,
+  "max_pretest_runs": 20,
+  "category": "Java Reflection",
+  "tags": [
+    "java",
+    "reflection",
+    "interfaces",
+    "overriding"
+  ],
+  "difficulty": "hard",
+  "practice_enabled": false,
+  "total_points": 100,
+  "checks": [
+    {
+      "id": "r03-comparable-interface",
+      "kind": "implements",
+      "points": 20,
+      "is_visible": true,
+      "interface": "java.lang.Comparable"
+    },
+    {
+      "id": "r03-rank-field",
+      "kind": "field",
+      "points": 15,
+      "is_visible": true,
+      "name": "rank",
+      "type": "int",
+      "modifier": "private"
+    },
+    {
+      "id": "r03-compare-override",
+      "kind": "method",
+      "points": 20,
+      "is_visible": true,
+      "name": "compareTo",
+      "return_type": "int",
+      "parameter_types": [
+        "model.RankedLabel"
+      ],
+      "modifier": "public"
+    },
+    {
+      "id": "r03-ordering",
+      "kind": "comparable",
+      "points": 30,
+      "is_visible": true,
+      "instances": [
+        {
+          "constructor_parameter_types": [
+            "int",
+            "String"
+          ],
+          "constructor_args": [
+            2,
+            "Beta"
+          ]
+        },
+        {
+          "constructor_parameter_types": [
+            "int",
+            "String"
+          ],
+          "constructor_args": [
+            1,
+            "Zulu"
+          ]
+        },
+        {
+          "constructor_parameter_types": [
+            "int",
+            "String"
+          ],
+          "constructor_args": [
+            2,
+            "Alpha"
+          ]
+        }
+      ],
+      "comparisons": [
+        {
+          "left": 1,
+          "right": 0,
+          "expected_sign": -1
+        },
+        {
+          "left": 2,
+          "right": 0,
+          "expected_sign": -1
+        }
+      ],
+      "expected_order": [
+        1,
+        2,
+        0
+      ]
+    },
+    {
+      "id": "r03-tie-label",
+      "kind": "comparable",
+      "points": 15,
+      "is_visible": false,
+      "instances": [
+        {
+          "constructor_parameter_types": [
+            "int",
+            "String"
+          ],
+          "constructor_args": [
+            4,
+            "A"
+          ]
+        },
+        {
+          "constructor_parameter_types": [
+            "int",
+            "String"
+          ],
+          "constructor_args": [
+            4,
+            "B"
+          ]
+        }
+      ],
+      "comparisons": [
+        {
+          "left": 0,
+          "right": 1,
+          "expected_sign": -1
+        }
+      ]
+    }
+  ],
+  "target_class": "model.RankedLabel",
+  "target_package": "model",
+  "target_file": "RankedLabel.java"
+}

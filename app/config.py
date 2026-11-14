@@ -18,5 +18,3 @@ SESSION_TTL_SECONDS = 12 * 60 * 60
 LOCKOUT_SECONDS = 15 * 60
 MAX_FAILED_LOGINS = 3
 ALLOWED_EXAM_EXTENSIONS = {".pdf", ".txt", ".png", ".jpg", ".jpeg", ".gif", ".webp"}
-for path in (DATA_DIR, LOG_DIR, EXAM_DIR, UPLOAD_DIR, STATIC_DIR, TEMPLATE_DIR):
-    path.mkdir(parents=True, exist_ok=True)

@@ -1,0 +1,54 @@
+{
+  "id": "P03",
+  "title": "Reverse and Count Vowels",
+  "statement": "Read one line of ASCII text (it may contain spaces and punctuation). Print that line reversed on the first output line. Print the number of ASCII vowels (a, e, i, o, u, case-insensitive) on the second output line.",
+  "language": "python",
+  "grading_mode": "stdio",
+  "problem_kind": "python_stdio",
+  "starter_code": "text = input()\n# Print the reversed line and then its vowel count.\n",
+  "time_limit_seconds": 2,
+  "memory_limit_mb": 128,
+  "max_output_bytes": 65536,
+  "allow_pretest": true,
+  "max_pretest_runs": 20,
+  "category": "Strings",
+  "target_file": "main.py",
+  "tags": [
+    "python",
+    "string",
+    "characters"
+  ],
+  "difficulty": "medium",
+  "practice_enabled": false,
+  "total_points": 100,
+  "tests": [
+    {
+      "id": "p03-phrase",
+      "stdin": "Hello, World!\n",
+      "expected_stdout": "!dlroW ,olleH\n3\n",
+      "points": 25,
+      "is_visible": true
+    },
+    {
+      "id": "p03-empty",
+      "stdin": "\n",
+      "expected_stdout": "\n0\n",
+      "points": 25,
+      "is_visible": true
+    },
+    {
+      "id": "p03-case",
+      "stdin": "Education\n",
+      "expected_stdout": "noitacudE\n5\n",
+      "points": 25,
+      "is_visible": true
+    },
+    {
+      "id": "p03-punctuation",
+      "stdin": "Rhythm!\n",
+      "expected_stdout": "!mhtyhR\n0\n",
+      "points": 25,
+      "is_visible": false
+    }
+  ]
+}

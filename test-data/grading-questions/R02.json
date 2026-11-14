@@ -1,0 +1,127 @@
+{
+  "id": "R02",
+  "title": "Encapsulated Wallet",
+  "statement": "Create class model.Wallet with private int balance and a public constructor Wallet(int initialBalance). Implement public int getBalance(), public void deposit(int amount), and public void withdraw(int amount). deposit and withdraw throw IllegalArgumentException when amount <= 0; withdraw also throws when amount exceeds the balance. Otherwise update balance.",
+  "language": "java",
+  "grading_mode": "reflection",
+  "problem_kind": "java_reflection",
+  "starter_code": "package model;\n\npublic class Wallet {\n    // Keep balance private and implement the required operations.\n}\n",
+  "time_limit_seconds": 5,
+  "memory_limit_mb": 256,
+  "max_output_bytes": 65536,
+  "allow_pretest": true,
+  "max_pretest_runs": 20,
+  "category": "Java Reflection",
+  "tags": [
+    "java",
+    "reflection",
+    "encapsulation",
+    "state"
+  ],
+  "difficulty": "medium",
+  "practice_enabled": false,
+  "total_points": 100,
+  "checks": [
+    {
+      "id": "r02-balance-field",
+      "kind": "field",
+      "points": 20,
+      "is_visible": true,
+      "name": "balance",
+      "type": "int",
+      "modifier": "private"
+    },
+    {
+      "id": "r02-constructor",
+      "kind": "constructor",
+      "points": 15,
+      "is_visible": true,
+      "parameter_types": [
+        "int"
+      ],
+      "modifier": "public"
+    },
+    {
+      "id": "r02-getter",
+      "kind": "method",
+      "points": 10,
+      "is_visible": true,
+      "name": "getBalance",
+      "return_type": "int",
+      "parameter_types": [],
+      "modifier": "public"
+    },
+    {
+      "id": "r02-deposit-state",
+      "kind": "behavior",
+      "points": 20,
+      "is_visible": true,
+      "setup": [],
+      "constructor_parameter_types": [
+        "int"
+      ],
+      "constructor_args": [
+        50
+      ],
+      "method": "deposit",
+      "parameter_types": [
+        "int"
+      ],
+      "args": [
+        25
+      ],
+      "expect_state": {
+        "getter": "getBalance",
+        "value": 75
+      }
+    },
+    {
+      "id": "r02-withdraw-state",
+      "kind": "behavior",
+      "points": 20,
+      "is_visible": true,
+      "setup": [],
+      "constructor_parameter_types": [
+        "int"
+      ],
+      "constructor_args": [
+        50
+      ],
+      "method": "withdraw",
+      "parameter_types": [
+        "int"
+      ],
+      "args": [
+        20
+      ],
+      "expect_state": {
+        "getter": "getBalance",
+        "value": 30
+      }
+    },
+    {
+      "id": "r02-overdraw",
+      "kind": "behavior",
+      "points": 15,
+      "is_visible": false,
+      "setup": [],
+      "constructor_parameter_types": [
+        "int"
+      ],
+      "constructor_args": [
+        10
+      ],
+      "method": "withdraw",
+      "parameter_types": [
+        "int"
+      ],
+      "args": [
+        11
+      ],
+      "expect_exception": "java.lang.IllegalArgumentException"
+    }
+  ],
+  "target_class": "model.Wallet",
+  "target_package": "model",
+  "target_file": "Wallet.java"
+}

@@ -1006,11 +1006,11 @@
   },
   "97c4bced0e9e482fa23044377cf547b2": {
     "id": "97c4bced0e9e482fa23044377cf547b2",
-    "status": "distributed",
+    "status": "started",
     "release_id": "19a8cb9ad3484369b734e9c23002a117",
     "created_by": "sasuke",
     "created_at": "2026-11-06T06:41:02+00:00",
-    "updated_at": "2026-11-06T06:41:02+00:00",
+    "updated_at": "2026-11-13T03:37:16+00:00",
     "title": "JSD (bản sao)",
     "show_final_score_immediately": true,
     "allow_pretest": true,
@@ -1717,6 +1717,7 @@
         "order": 2
       }
     ],
-    "distributed_at": "2026-11-06T06:41:02+00:00"
+    "distributed_at": "2026-11-06T06:41:02+00:00",
+    "started_at": "2026-11-13T03:37:16+00:00"
   }
 }

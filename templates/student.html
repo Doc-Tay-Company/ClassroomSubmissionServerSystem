@@ -2,7 +2,7 @@
 {% block title %}Khu vực sinh viên · Classroom Submission Server{% endblock %}
 {% block extra_styles %}<link rel="stylesheet" href="/static/css/student-code.css">{% endblock %}
 {% block body %}
-<header class="topbar ui-header"><div class="brand"><i class="fa fa-laptop"></i> Classroom Submission Server</div><form action="/logout" method="post"><button class="btn btn-ghost ui-action" type="submit"><i class="fa fa-sign-out"></i> Đăng xuất</button></form></header>
+<header class="topbar ui-header"><div class="brand"><i class="fa fa-laptop"></i> Classroom Submission Server</div><div style="display:flex;gap:0.5rem;align-items:center;"><a href="/practice" class="btn btn-ghost ui-action"><i class="fa fa-code"></i> Thư viện Luyện tập</a><form action="/logout" method="post"><button class="btn btn-ghost ui-action" type="submit"><i class="fa fa-sign-out"></i> Đăng xuất</button></form></div></header>
 <main class="page-wrap narrow ui-page mx-auto max-w-4xl px-6 py-8">
   <section class="welcome-panel"><div><p class="eyebrow">KHU VỰC SINH VIÊN</p><h1>Xin chào, {{ student.full_name }}</h1><p class="muted">MSSV: <strong>{{ session.user_id }}</strong></p></div><span class="status-pill status-blue">Đã đăng nhập</span></section>
   <section class="panel bg-white rounded-2xl border p-6 mb-5" id="student-panel" data-exam-state="{{ settings.exam_state or 'idle' }}" data-published="{% for item in published_exams %}{{ item.id }}{% if not loop.last %},{% endif %}{% endfor %}" data-home-view="{{ 'true' if home_view else 'false' }}" data-assigned="{{ '1' if assignment else '0' }}" data-assignment-release="{{ assignment.release_id if assignment and assignment.release_id else '' }}" data-assignment-status="{{ assignment.status if assignment else '' }}" data-assignment-started-at="{{ assignment.started_at if assignment and assignment.started_at else '' }}">
@@ -28,6 +28,7 @@
         {% endif %}
       {% else %}
         <p>Hiện tại bạn chưa có bài thi đang làm.</p>
+        <p style="margin-top:1rem;"><a href="/practice" class="btn btn-secondary ui-action"><i class="fa fa-code"></i> Vào thư viện luyện tập</a></p>
       {% endif %}
       {% if published_exams %}
         <div class="alert alert-info"><strong>Kỳ thi đã được phát đề:</strong><ul>{% for item in published_exams %}<li>{{ item.title }}</li>{% endfor %}</ul></div>

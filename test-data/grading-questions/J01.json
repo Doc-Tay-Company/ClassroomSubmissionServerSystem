@@ -1,0 +1,55 @@
+{
+  "id": "J01",
+  "title": "Arithmetic Summary",
+  "statement": "Read two signed 32-bit integers a and b. Print exactly one line in this format: sum=<a+b>;diff=<a-b>;product=<a*b>. Do not add spaces around separators.",
+  "language": "java",
+  "grading_mode": "stdio",
+  "problem_kind": "java_stdio",
+  "starter_code": "import java.util.Scanner;\n\npublic class Main {\n    public static void main(String[] args) {\n        Scanner scanner = new Scanner(System.in);\n        int a = scanner.nextInt();\n        int b = scanner.nextInt();\n        // Print the required arithmetic summary.\n    }\n}\n",
+  "time_limit_seconds": 5,
+  "memory_limit_mb": 256,
+  "max_output_bytes": 65536,
+  "allow_pretest": true,
+  "max_pretest_runs": 20,
+  "category": "Arithmetic",
+  "tags": [
+    "java",
+    "stdio",
+    "formatting"
+  ],
+  "difficulty": "easy",
+  "practice_enabled": false,
+  "total_points": 100,
+  "tests": [
+    {
+      "id": "j01-positive",
+      "stdin": "12 5\n",
+      "expected_stdout": "sum=17;diff=7;product=60\n",
+      "points": 25,
+      "is_visible": true
+    },
+    {
+      "id": "j01-negative",
+      "stdin": "-3 8\n",
+      "expected_stdout": "sum=5;diff=-11;product=-24\n",
+      "points": 25,
+      "is_visible": true
+    },
+    {
+      "id": "j01-zero",
+      "stdin": "0 19\n",
+      "expected_stdout": "sum=19;diff=-19;product=0\n",
+      "points": 25,
+      "is_visible": false
+    },
+    {
+      "id": "j01-small",
+      "stdin": "-4 -6\n",
+      "expected_stdout": "sum=-10;diff=2;product=24\n",
+      "points": 25,
+      "is_visible": true
+    }
+  ],
+  "target_class": "Main",
+  "target_file": "Main.java"
+}

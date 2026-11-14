@@ -1,0 +1,53 @@
+{
+  "id": "P01",
+  "title": "Integer Ledger",
+  "statement": "Read two signed integers a and b separated by whitespace. Print three lines: their sum, a minus b, and their product, in that order. Inputs fit the signed 32-bit range.",
+  "language": "python",
+  "grading_mode": "stdio",
+  "problem_kind": "python_stdio",
+  "starter_code": "a, b = map(int, input().split())\n# Print sum, difference, and product on separate lines.\n",
+  "time_limit_seconds": 2,
+  "memory_limit_mb": 128,
+  "max_output_bytes": 65536,
+  "allow_pretest": true,
+  "max_pretest_runs": 20,
+  "category": "Arithmetic",
+  "tags": [
+    "python",
+    "integer",
+    "stdio"
+  ],
+  "difficulty": "easy",
+  "practice_enabled": false,
+  "total_points": 100,
+  "tests": [
+    {
+      "id": "p01-small",
+      "stdin": "7 3\n",
+      "expected_stdout": "10\n4\n21\n",
+      "points": 25,
+      "is_visible": true
+    },
+    {
+      "id": "p01-negative",
+      "stdin": "-8 5\n",
+      "expected_stdout": "-3\n-13\n-40\n",
+      "points": 25,
+      "is_visible": true
+    },
+    {
+      "id": "p01-zero",
+      "stdin": "0 0\n",
+      "expected_stdout": "0\n0\n0\n",
+      "points": 25,
+      "is_visible": false
+    },
+    {
+      "id": "p01-large",
+      "stdin": "100000 200000\n",
+      "expected_stdout": "300000\n-100000\n20000000000\n",
+      "points": 25,
+      "is_visible": true
+    }
+  ]
+}

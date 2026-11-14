@@ -26,6 +26,7 @@
       browser: navigator.userAgent,
     });
     try {
+      // send data to server
       await window.cssRequest("/api/student/telemetry", {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -36,7 +37,7 @@
   const heartbeat = async () => {
     try {
       await sendTelemetry();
-      const status = await window.cssRequest("/api/student/status");
+      const status = await window.cssRequest("/api/student/status"); //get data from server
       const box = document.getElementById("student-notifications");
       if (box && status.notifications?.length) {
         box.className = "alert alert-info";

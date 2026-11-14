@@ -60,8 +60,9 @@
   const listHost = document.getElementById("q-list");
   const listNotice = document.getElementById("q-notice");
   let questions = [];
+  let listLoadGeneration = 0;
 
-  const SERVER_OWNED = ["id", "status", "source", "usage_count", "version", "validation", "reference_source"];
+  const SERVER_OWNED = ["id", "status", "source", "usage_count", "version", "validation", "reference_source", "practice_revision", "expected_version", "expected_practice_revision"];
   const CHECK_KINDS = {
     field: "Thuộc tính (field)",
     constructor: "Constructor",
@@ -150,12 +151,15 @@
 
   // ---------- list ----------
   async function loadList() {
+    const generation = ++listLoadGeneration;
     listHost.replaceChildren(h("p", { class: "muted pad" }, "Đang tải danh sách câu hỏi..."));
     try {
       const data = await request("/api/admin/questions");
+      if (generation !== listLoadGeneration) return;
       questions = data.questions || [];
       renderList();
     } catch (error) {
+      if (generation !== listLoadGeneration) return;
       listHost.replaceChildren(errorBox(error, loadList));
     }
   }
@@ -188,6 +192,8 @@
 
   function renderList() {
     const rows = filteredQuestions();
+    // The Question Bank preserves insertion order; surface recent saves first.
+    rows.sort((a, b) => String(b.source?.created_at || "").localeCompare(String(a.source?.created_at || "")));
     document.getElementById("q-count").textContent = questions.length ? `Hiển thị ${rows.length}/${questions.length} câu hỏi` : "";
     document.getElementById("q-filter-usage-clear").classList.toggle("hidden", !document.getElementById("q-filter-usage").value);
     if (!questions.length) {
@@ -218,7 +224,7 @@
         h("td", {}, h("strong", {}, q.title), q.category ? h("div", { class: "fine-print" }, q.category) : null),
         h("td", {}, `${q.language} / ${q.grading_mode}`),
         h("td", {}, q.total_points),
-        h("td", {}, statusPill(q.status)),
+        h("td", {}, statusPill(q.status), q.practice_enabled ? h("span", { style: "display:inline-block; margin-left:4px; font-size:10px; padding:1px 5px; border-radius:8px; background:#e0f2fe; color:#0369a1; font-weight:600;" }, "Practice") : null),
         h("td", {}, q.version ?? 1),
         h("td", {}, q.usage_count ?? 0),
         h("td", { class: "row-actions" }, ...actions));
@@ -226,14 +232,20 @@
     listHost.replaceChildren(h("table", { class: "data-table" }, h("thead", {}, head), h("tbody", {}, body)));
   }
 
-  async function mutate(promiseFactory, okMessage) {
+  async function mutate(promiseFactory, okMessage, failureTarget = listNotice) {
+    let succeeded = false;
     try {
       await promiseFactory();
+      succeeded = true;
       setNotice(listNotice, okMessage, false);
     } catch (error) {
       setNotice(listNotice, friendly(error), true);
+      if (failureTarget !== listNotice) {
+        failureTarget.replaceChildren(h("div", { class: "alert alert-warning" }, friendly(error)));
+      }
     }
     await loadList();
+    return succeeded;
   }
 
   const post = (url, body) => request(url, {
@@ -241,26 +253,30 @@
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body || {}),
   });
+  const expectedState = (q) => ({
+    expected_version: q.version ?? 1,
+    ...(q.practice_revision !== undefined ? { expected_practice_revision: q.practice_revision } : {}),
+  });
 
   function duplicate(q) {
-    return mutate(() => post(`/api/admin/questions/${encodeURIComponent(q.id)}/duplicate`), "Đã nhân bản câu hỏi (bản sao ở trạng thái nháp).");
+    return mutate(() => post(`/api/admin/questions/${encodeURIComponent(q.id)}/duplicate`, expectedState(q)), "Đã nhân bản câu hỏi (bản sao ở trạng thái nháp).");
   }
-  function revoke(q) {
+  function revoke(q, failureTarget = listNotice) {
     if (!window.confirm(`Thu hồi câu hỏi “${q.title}” về trạng thái Nháp? Các đề đã tạo vẫn giữ phiên bản cũ.`)) return;
-    return mutate(() => post(`/api/admin/questions/${encodeURIComponent(q.id)}/revoke`), "Đã thu hồi câu hỏi về trạng thái Nháp.");
+    return mutate(() => post(`/api/admin/questions/${encodeURIComponent(q.id)}/revoke`, expectedState(q)), "Đã thu hồi câu hỏi về trạng thái Nháp.", failureTarget);
   }
-  function restore(q) {
-    return mutate(() => post(`/api/admin/questions/${encodeURIComponent(q.id)}/restore`), "Đã khôi phục câu hỏi về trạng thái Nháp (chưa xuất bản).");
+  function restore(q, failureTarget = listNotice) {
+    return mutate(() => post(`/api/admin/questions/${encodeURIComponent(q.id)}/restore`, expectedState(q)), "Đã khôi phục câu hỏi về trạng thái Nháp (chưa xuất bản).", failureTarget);
   }
   function archive(q) {
     if (!window.confirm(`Lưu trữ câu hỏi “${q.title}”? Câu hỏi sẽ không thể chọn cho đề mới.`)) return;
-    return mutate(() => post(`/api/admin/questions/${encodeURIComponent(q.id)}/archive`), "Đã lưu trữ câu hỏi.");
+    return mutate(() => post(`/api/admin/questions/${encodeURIComponent(q.id)}/archive`, expectedState(q)), "Đã lưu trữ câu hỏi.");
   }
   function remove(q) {
     if (!window.confirm(`Xóa vĩnh viễn câu hỏi “${q.title}”?`)) return;
     return mutate(async () => {
       try {
-        await post(`/api/admin/questions/${encodeURIComponent(q.id)}/delete`);
+        await post(`/api/admin/questions/${encodeURIComponent(q.id)}/delete`, expectedState(q));
       } catch (error) {
         if (error.status === 409) throw new Error(`Không thể xóa: câu hỏi đang được đề thi, bài nộp hoặc lượt chạy sử dụng. Hãy dùng “Lưu trữ”. (${error.message})`);
         throw error;
@@ -327,7 +343,7 @@
       runButton.disabled = true; publishButton.disabled = true;
       resultHost.replaceChildren(h("p", { class: "muted" }, h("i", { class: "fa fa-spinner fa-spin" }), " Đang biên dịch và chạy đáp án mẫu..."));
       try {
-        const result = await post(`/api/admin/questions/${encodeURIComponent(q.id)}/validate`, { sample_source: source });
+        const result = await post(`/api/admin/questions/${encodeURIComponent(q.id)}/validate`, { sample_source: source, ...expectedState(q) });
         current = { ...current, validation: result.previous_pass || result.validation };
         const view = renderValidation(result);
         if (result.previous_pass) view.prepend(h("div", { class: "alert alert-warning" }, "Lần chạy này chưa đạt, nhưng đáp án mẫu đạt trước đó cho đúng đặc tả hiện tại vẫn được giữ: có thể xuất bản."));
@@ -346,7 +362,7 @@
       if (!window.confirm(`Xuất bản câu hỏi “${q.title}”? Sau đó có thể chọn vào đề thi code.`)) return;
       publishButton.disabled = true;
       try {
-        const data = await post(`/api/admin/questions/${encodeURIComponent(q.id)}/publish`);
+        const data = await post(`/api/admin/questions/${encodeURIComponent(q.id)}/publish`, expectedState(q));
         current = data.question;
         setNotice(listNotice, "Đã xuất bản câu hỏi.", false);
         loadList();
@@ -362,15 +378,16 @@
         h("div", {}, backButton(), " ", h("strong", {}, q.title), " ", statusPill(q.status)),
         h("div", { class: "form-actions" },
           q.status === "published" ? h("button", { type: "button", class: "btn btn-secondary btn-small", on: { click: () => openEditor(q.id) } }, "Chỉnh sửa") : null,
-          q.status === "published" ? h("button", { type: "button", class: "btn btn-ghost btn-small", on: { click: async () => { await revoke(q); openDetail(q.id); } } }, "Thu hồi") : null,
+          q.status === "published" ? h("button", { type: "button", class: "btn btn-ghost btn-small", on: { click: async () => { if (await revoke(q, resultHost)) openDetail(q.id); } } }, "Thu hồi") : null,
           q.status === "draft" ? h("button", { type: "button", class: "btn btn-secondary btn-small", on: { click: () => openEditor(q.id) } }, "Chỉnh sửa") : null,
-          q.status === "archived" ? h("button", { type: "button", class: "btn btn-secondary btn-small", on: { click: async () => { await restore(q); openDetail(q.id); } } }, "Khôi phục") : null)),
+          q.status === "archived" ? h("button", { type: "button", class: "btn btn-secondary btn-small", on: { click: async () => { if (await restore(q, resultHost)) openDetail(q.id); } } }, "Khôi phục") : null)),
       h("div", { class: "kv-grid" },
         kv("Ngôn ngữ", q.language), kv("Kiểu chấm", q.grading_mode), kv("Tổng điểm", q.total_points),
         kv("Phiên bản", q.version), kv("Đã dùng", q.usage_count), kv("Danh mục", q.category),
         kv("Độ khó", q.difficulty), kv("Tags", (q.tags || []).join(", ")),
         kv("Time limit (s)", q.time_limit_seconds), kv("Memory (MB)", q.memory_limit_mb),
-        kv("Target class", q.target_class), kv("Package", q.target_package)),
+        kv("Target class", q.target_class), kv("Package", q.target_package),
+        kv("Luyện tập", q.practice_enabled ? "Bật" : "Tắt")),
       h("h3", {}, "Đề bài"),
       h("pre", { class: "code-block" }, q.statement || "(trống)"),
       q.starter_code ? [h("h3", {}, "Mã khởi tạo"), h("pre", { class: "code-block" }, q.starter_code)] : null,
@@ -605,6 +622,7 @@
       target_class: "", target_package: "", target_file: "", starter_code: "",
       time_limit_seconds: 5, memory_limit_mb: 256, max_output_bytes: 65536,
       allow_pretest: true, max_pretest_runs: 20, category: "", tags: [], difficulty: "",
+      practice_enabled: false,
       checks: [], tests: [], total_points: 0,
     };
   }
@@ -725,7 +743,9 @@
       h("div", { class: "two-cols" },
         field("Giới hạn output (bytes)", bindInput(h("input", { type: "number", min: 1024, max: 1048576, step: 1 }), d, "max_output_bytes", num)),
         field("Số lần chạy thử tối đa", bindInput(h("input", { type: "number", min: 1, max: 1000, step: 1 }), d, "max_pretest_runs", num))),
-      h("label", { class: "checkbox-row" }, h("input", { type: "checkbox", checked: d.allow_pretest !== false, on: { change: (e) => { d.allow_pretest = e.target.checked; markValidationDirty(); } } }), " Cho phép chạy thử (pretest)"),
+      h("div", { class: "two-cols" },
+        h("label", { class: "checkbox-row" }, h("input", { type: "checkbox", checked: d.allow_pretest !== false, on: { change: (e) => { d.allow_pretest = e.target.checked; markValidationDirty(); } } }), " Cho phép chạy thử (pretest)"),
+        h("label", { class: "checkbox-row" }, h("input", { type: "checkbox", checked: d.practice_enabled === true, on: { change: (e) => { d.practice_enabled = e.target.checked; } } }), " Cho phép luyện tập (Practice)")),
       h("h3", {}, isReflection ? "Checks" : "Tests"),
       h("div", { id: "q-items" }),
       h("div", { class: "form-actions" }, addMenu(isReflection)),
@@ -1002,6 +1022,12 @@
     const d = clone(editing.draft);
     for (const key of SERVER_OWNED) delete d[key];
     refreshTotalOn(d);
+    if (editing && editing.original) {
+      d.expected_version = editing.original.version ?? 1;
+      if (editing.original.practice_revision !== undefined) {
+        d.expected_practice_revision = editing.original.practice_revision;
+      }
+    }
     if (d.grading_mode === "reflection") {
       delete d.tests;
       d.problem_kind = d.problem_kind || "java_reflection";
@@ -1011,6 +1037,7 @@
       delete d.checks;
     }
     if (!d.difficulty) delete d.difficulty;
+    d.practice_enabled = Boolean(d.practice_enabled);
     return d;
   }
 
@@ -1105,8 +1132,8 @@
       const data = await post(url, payload);
       if (!isUpdate) { clearCreation(); }
       editing = { id: data.question.id, draft: toEditorQuestion(data.question), original: data.question, sample: data.question.reference_source || "" };
-      setNotice(notice, "Đã lưu nháp. Câu hỏi vẫn ở trạng thái Nháp.", false);
       renderEditor();
+      setNotice(document.getElementById("q-editor-notice"), "\u0110\u00e3 l\u01b0u nh\u00e1p. C\u00e2u h\u1ecfi v\u1eabn \u1edf tr\u1ea1ng th\u00e1i Nh\u00e1p.", false);
     } catch (error) {
       setNotice(notice, friendly(error), true);
     }

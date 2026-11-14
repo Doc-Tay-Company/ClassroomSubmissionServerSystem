@@ -75,8 +75,19 @@ from .code_exams import (
     release_student_exam_scores,
 )
 from .java_runner import JDKConfigurationError, JDKNotFoundError, verify_jdk_configuration
+from .practice import (
+    PracticeError,
+    compute_catalog_token,
+    get_practice_catalog,
+    is_practice_eligible,
+    practice_public_projection,
+    get_progress_with_availability,
+    delete_student_question_progress,
+    update_question_progress,
+    get_active_run,
+    run_practice,
+)
 
-initialize()
 TEMPLATES = Environment(loader=FileSystemLoader(str(TEMPLATE_DIR)), autoescape=select_autoescape(["html", "xml"]))
 
 class RequestData:
@@ -273,6 +284,12 @@ class Handler(BaseHTTPRequestHandler):
                 if sess["role"]=="admin": return self._redirect("/admin")
                 student=self._get_user_record(sess); assignment=current_exam_for(sess["user_id"]); settings=read_json("settings.json")
                 return self._html(self._render("student.html",session=sess,student=student,published_exams=general_exams.published_for_students(sess["user_id"]),assignment=assignment,current_exam=general_exams.assignment_exam(assignment),settings=settings,home_view=req.query.get("view",[""])[0]=="home",remaining=remaining_seconds(assignment or {}) if assignment and assignment.get("started_at") else None))
+            if route_path=="/practice" or path=="/practice":
+                sess=get_session(req)
+                if not sess: return self._redirect("/login")
+                if sess.get("role")!="student": raise ClientError(403,"Chỉ sinh viên mới có quyền truy cập trang luyện tập.")
+                student=self._get_user_record(sess)
+                return self._html(self._render("practice.html",session=sess,student=student))
             admin_sections={
                 "/admin/dashboard":"dashboard",
                 "/admin/monitor":"monitor",
@@ -376,6 +393,36 @@ class Handler(BaseHTTPRequestHandler):
                 sess=self._auth(req,"student"); question_ids=req.query.get("question_id",[])
                 if not question_ids or not question_ids[0]: raise ClientError(400,"question_id is required.")
                 return self._json(get_student_submission(sess["user_id"],question_ids[0]))
+            if path=="/api/student/practice/progress":
+                sess=self._auth(req,"student")
+                self._get_user_record(sess)
+                questions_data=read_json("questions.json")
+                progress=get_progress_with_availability(sess["user_id"],questions_data)
+                return self._json({"ok":True,"progress":progress})
+            if path.startswith("/api/student/practice/questions/") and path.endswith("/run-status"):
+                sess=self._auth(req,"student")
+                self._get_user_record(sess)
+                question_id=urllib.parse.unquote(path[len("/api/student/practice/questions/"):-len("/run-status")].strip("/"))
+                if not question_id or "/" in question_id: raise ClientError(404,"Question not found.")
+                active=get_active_run(sess["user_id"],question_id)
+                if active:
+                    return self._json({"active":True,"attempt_id":active["attempt_id"],"practice_revision":active["practice_revision"]})
+                return self._json({"active":False,"attempt_id":None,"practice_revision":None})
+            if path=="/api/student/practice/questions":
+                sess=self._auth(req,"student")
+                self._get_user_record(sess)
+                questions_data=read_json("questions.json")
+                catalog=get_practice_catalog(questions_data)
+                token=compute_catalog_token(questions_data)
+                return self._json({"ok":True,"questions":catalog,"catalog_token":token})
+            if path.startswith("/api/student/practice/questions/"):
+                sess=self._auth(req,"student")
+                self._get_user_record(sess)
+                question_id=urllib.parse.unquote(path[len("/api/student/practice/questions/"):].strip("/"))
+                if not question_id or "/" in question_id: raise ClientError(404,"Question was not found.")
+                q=get_question(question_id)
+                if not q or not is_practice_eligible(q): raise ClientError(404,"Question was not found.")
+                return self._json({"ok":True,"question":practice_public_projection(q)})
             if path.startswith("/admin/submissions/"):
                 sess=self._auth(req,"admin"); parts=[urllib.parse.unquote(x) for x in path.split("/")[3:]]
                 if len(parts)!=2: raise ClientError(404,"Không tìm thấy file bài nộp.")
@@ -386,7 +433,7 @@ class Handler(BaseHTTPRequestHandler):
                 audit("admin.submission_downloaded",sess["user_id"],client_ip(req),{"student_id":sid,"filename":filename})
                 return self._send(200,target.read_bytes(),mimetypes.guess_type(target.name)[0] or "application/octet-stream",{"Content-Disposition":f'attachment; filename="{target.name}"'})
             return self._send(404,"Không tìm thấy trang.")
-        except (ClientError, SecurityError, CodeExamError, QuestionError, ExamError) as e: return self._handle_error(e)
+        except (ClientError, SecurityError, CodeExamError, QuestionError, ExamError, PracticeError) as e: return self._handle_error(e)
         except Exception:
             traceback.print_exc(); return self._json({"detail":"Lỗi máy chủ nội bộ."},500)
 
@@ -457,29 +504,29 @@ class Handler(BaseHTTPRequestHandler):
                 question_id=urllib.parse.unquote(path[len("/api/admin/questions/"):-len("/"+action)].strip("/"))
                 if not question_id or "/" in question_id: raise ClientError(404,"Question was not found.")
                 change=revoke_question if action=="revoke" else restore_question
-                return self._json({"ok":True,"question":change(question_id,sess["user_id"],client_ip(req))})
+                return self._json({"ok":True,"question":change(question_id,self._json_body(req),sess["user_id"],client_ip(req))})
             if path.startswith("/api/admin/questions/") and path.endswith("/duplicate"):
                 sess=self._auth(req,"admin")
                 question_id=urllib.parse.unquote(path[len("/api/admin/questions/"):-len("/duplicate")].strip("/"))
                 if not question_id or "/" in question_id: raise ClientError(404,"Question was not found.")
-                question=duplicate_question(question_id,sess["user_id"],client_ip(req))
+                question=duplicate_question(question_id,self._json_body(req),sess["user_id"],client_ip(req))
                 return self._json({"ok":True,"question":question},201)
             if path.startswith("/api/admin/questions/") and path.endswith("/archive"):
                 sess=self._auth(req,"admin")
                 question_id=urllib.parse.unquote(path[len("/api/admin/questions/"):-len("/archive")].strip("/"))
                 if not question_id or "/" in question_id: raise ClientError(404,"Question was not found.")
-                question=archive_question(question_id,sess["user_id"],client_ip(req))
+                question=archive_question(question_id,self._json_body(req),sess["user_id"],client_ip(req))
                 return self._json({"ok":True,"question":question})
             if path.startswith("/api/admin/questions/") and path.endswith("/delete"):
                 sess=self._auth(req,"admin")
                 question_id=urllib.parse.unquote(path[len("/api/admin/questions/"):-len("/delete")].strip("/"))
                 if not question_id or "/" in question_id: raise ClientError(404,"Question was not found.")
-                delete_question(question_id,sess["user_id"],client_ip(req))
+                delete_question(question_id,self._json_body(req),sess["user_id"],client_ip(req))
                 return self._json({"ok":True})
             if path.startswith("/api/admin/questions/") and path.endswith("/validate"):
                 sess=self._auth(req,"admin"); question_id=urllib.parse.unquote(path[len("/api/admin/questions/"):-len("/validate")].strip("/")); payload=self._json_body(req)
                 if not question_id or "/" in question_id: raise ClientError(404,"Question was not found.")
-                result=validate_question_sample(question_id,payload.get("sample_source"),sess["user_id"],client_ip(req))
+                result=validate_question_sample(question_id,payload.get("sample_source"),payload,sess["user_id"],client_ip(req))
                 infra=result.get("error_category") in {"INVALID_REQUEST","JDK_NOT_FOUND","JUDGE_INFRA_ERROR","PROTOCOL_ERROR"}
                 return self._json({"ok":not infra,**result},503 if infra else 200)
             if path=="/api/admin/questions/validate-candidate":
@@ -495,7 +542,7 @@ class Handler(BaseHTTPRequestHandler):
             if path.startswith("/api/admin/questions/") and path.endswith("/publish"):
                 sess=self._auth(req,"admin"); question_id=urllib.parse.unquote(path[len("/api/admin/questions/"):-len("/publish")].strip("/"))
                 if not question_id or "/" in question_id: raise ClientError(404,"Question was not found.")
-                question=publish_question(question_id,sess["user_id"],client_ip(req))
+                question=publish_question(question_id,self._json_body(req),sess["user_id"],client_ip(req))
                 return self._json({"ok":True,"question":question,"validation":question.get("validation")},200)
             if path.startswith("/api/admin/code-results/") and path.endswith("/regrade-student"):
                 sess=self._auth(req,"admin")
@@ -688,6 +735,27 @@ class Handler(BaseHTTPRequestHandler):
                 write_json("notifications.json",notifications)
                 audit("admin.notification_sent",sess["user_id"],client_ip(req),{"recipient_count":len(students) if targets == [None] else len(targets),"targeted":targets != [None]})
                 return self._json({"ok":True,"recipient_count":len(students) if targets == [None] else len(targets)})
+            if path.startswith("/api/student/practice/questions/") and path.endswith("/update"):
+                sess=self._auth(req,"student")
+                self._get_user_record(sess)
+                question_id=urllib.parse.unquote(path[len("/api/student/practice/questions/"):-len("/update")].strip("/"))
+                if not question_id or "/" in question_id: raise ClientError(404,"Question not found.")
+                payload=self._json_body(req)
+                update_question_progress(
+                    sess["user_id"],question_id,
+                    payload.get("expected_attempt_id"),
+                    payload.get("old_practice_revision"),
+                    payload.get("new_practice_revision"),
+                )
+                return self._json({"ok":True})
+            if path=="/api/student/practice/run":
+                sess=self._auth(req,"student")
+                self._get_user_record(sess)
+                payload=self._json_body(req)
+                allowed={"question_id","expected_practice_revision","attempt_id","source_code"}
+                if not isinstance(payload,dict) or set(payload)-allowed:
+                    raise PracticeError("Request contains unsupported fields.",422,"INVALID_REQUEST")
+                return self._json(run_practice(sess["user_id"],payload))
             if path=="/api/student/start":
                 sess=self._auth(req,"student")
                 try: item=start_exam(sess["user_id"],f.get("exam_password",""),client_ip(req))
@@ -741,7 +809,22 @@ class Handler(BaseHTTPRequestHandler):
                 admins[username]={"username":username,"password_hash":hash_password(password),"active":True,"created_at":utc_now(),"created_by":sess["user_id"]}; write_json("admins.json",admins); audit("admin.admin_created",sess["user_id"],client_ip(req),{"new_admin":username})
                 return self._json({"ok":True,"username":username})
             return self._json({"detail":"Không tìm thấy endpoint."},404)
-        except (ClientError, SecurityError, CodeExamError, QuestionError, ExamError) as e: return self._handle_error(e)
+        except (ClientError, SecurityError, CodeExamError, QuestionError, ExamError, PracticeError) as e: return self._handle_error(e)
+        except Exception:
+            traceback.print_exc(); return self._json({"detail":"Lỗi máy chủ nội bộ."},500)
+
+    def do_DELETE(self):
+        try:
+            req=self._request(); path=req.path
+            if path.startswith("/api/student/practice/progress/"):
+                sess=self._auth(req,"student")
+                self._get_user_record(sess)
+                question_id=urllib.parse.unquote(path[len("/api/student/practice/progress/"):].strip("/"))
+                if not question_id or "/" in question_id: raise ClientError(404,"Question not found.")
+                delete_student_question_progress(sess["user_id"],question_id)
+                return self._json({"ok":True})
+            return self._json({"detail":"Không tìm thấy endpoint."},404)
+        except (ClientError, SecurityError, CodeExamError, QuestionError, ExamError, PracticeError) as e: return self._handle_error(e)
         except Exception:
             traceback.print_exc(); return self._json({"detail":"Lỗi máy chủ nội bộ."},500)
 
@@ -768,6 +851,9 @@ class Handler(BaseHTTPRequestHandler):
         return addresses
 
 def main():
+    for directory in (EXAM_DIR, UPLOAD_DIR, STATIC_DIR, TEMPLATE_DIR):
+        directory.mkdir(parents=True, exist_ok=True)
+    initialize()
     jdk = None
     if os.name == "nt":
         try:

@@ -1,6 +1,7 @@
 """Question bank validation and persistence for code grading."""
 from __future__ import annotations
 
+from copy import deepcopy
 from decimal import Decimal, InvalidOperation, localcontext
 import hashlib
 import json
@@ -14,7 +15,7 @@ from .grading import (
     plain_number,
     sum_configured_points,
 )
-from .storage import audit, read_json, update_json, utc_now
+from .storage import audit, read_json, transaction, update_json, utc_now
 from .windows_job import MIN_JAVA_JOB_MEMORY_MB
 
 
@@ -28,7 +29,7 @@ class QuestionError(ValueError):
 
 
 # Lifecycle/bookkeeping fields that do not describe what the judge executes.
-_SPEC_HASH_EXCLUDED = frozenset({"id", "status", "source", "usage_count", "version", "validation", "reference_source"})
+_SPEC_HASH_EXCLUDED = frozenset({"id", "status", "source", "usage_count", "version", "validation", "reference_source", "practice_enabled", "practice_revision", "expected_version", "expected_practice_revision"})
 
 # Fields that change what the judge executes / how it grades. A change to any of these
 # invalidates a previous sample validation. Metadata-only fields (title, statement,
@@ -95,6 +96,13 @@ def _validate_question(payload: Mapping, *, question_id: str, actor: str) -> dic
     # never be accepted from a client payload.
     question.pop("validation", None)
     question.pop("reference_source", None)
+    question.pop("practice_revision", None)
+    question.pop("expected_version", None)
+    question.pop("expected_practice_revision", None)
+
+    if "practice_enabled" in question:
+        if type(question["practice_enabled"]) is not bool:
+            raise QuestionError("practice_enabled must be a boolean", 400)
 
     title = question.get("title")
     statement = question.get("statement", "")
@@ -215,6 +223,8 @@ def create_question(payload: Mapping, actor: str, ip: str) -> dict:
     question = _validate_question(payload, question_id=question_id, actor=actor)
     if isinstance(reference_source, str) and reference_source.strip():
         question["reference_source"] = reference_source
+    question["practice_enabled"] = question.get("practice_enabled", False)
+    question["practice_revision"] = uuid.uuid4().hex
 
     def insert(questions):
         if question_id in questions:
@@ -230,6 +240,21 @@ def get_question(question_id: str) -> dict | None:
     return read_json("questions.json").get(question_id)
 
 
+def require_expected_question_state(question: Mapping, payload: Mapping) -> None:
+    """Require request tokens to match the record currently inside update_json()."""
+    expected_version = payload.get("expected_version") if isinstance(payload, Mapping) else None
+    expected_revision = payload.get("expected_practice_revision") if isinstance(payload, Mapping) else None
+    current_version = question.get("version", 1)
+    if (isinstance(expected_version, bool) or not isinstance(expected_version, int)
+            or expected_version != current_version):
+        raise QuestionError("Câu hỏi đã thay đổi; hãy tải lại trước khi thử lại.", 409, "QUESTION_CHANGED")
+    if "practice_revision" in question and (
+        not isinstance(expected_revision, str)
+        or expected_revision != question.get("practice_revision")
+    ):
+        raise QuestionError("Câu hỏi đã thay đổi; hãy tải lại trước khi thử lại.", 409, "QUESTION_CHANGED")
+
+
 def list_questions() -> list[dict]:
     return list(read_json("questions.json").values())
 
@@ -238,41 +263,57 @@ def update_question(question_id: str, payload: Mapping, actor: str, ip: str) -> 
     current = get_question(question_id)
     if not current:
         raise QuestionError("question not found", 404)
-    if current.get("status") == "archived":
-        raise QuestionError("Câu hỏi đã lưu trữ không thể chỉnh sửa. Hãy khôi phục trước.", 409)
-    if current.get("status") == "published":
-        raise QuestionError("Câu hỏi đã xuất bản phải được xác thực bằng đáp án mẫu trước khi lưu thay đổi.", 409, "SAMPLE_REQUIRED")
-
     updated = _validate_question(payload, question_id=question_id, actor=actor)
     new_reference = payload.get("reference_source") if isinstance(payload, Mapping) else None
-    updated.update(
-        {
-            # Draft edits stay draft; the stored validation is dropped because the spec changed.
-            "status": "draft",
-            "source": {
-                **current.get("source", {}),
-                "updated_by": actor,
-                "updated_at": utc_now(),
-            },
-            "usage_count": current.get("usage_count", 0),
-            "version": int(current.get("version", 1)) + 1,
-            # Preserve the private reference source across draft edits, or adopt a new one.
-            "reference_source": new_reference if isinstance(new_reference, str) and new_reference.strip() else current.get("reference_source"),
-        }
+    new_practice_enabled = (
+        updated["practice_enabled"]
+        if "practice_enabled" in updated
+        else current.get("practice_enabled", False)
     )
-    save_question(updated)
-    audit("code.question_updated", actor, ip, {"question_id": question_id, "version": updated["version"]})
-    return updated
+    def commit_update(questions):
+        stored = questions.get(question_id)
+        if not stored:
+            raise QuestionError("question not found", 404)
+        require_expected_question_state(stored, payload)
+        if stored.get("status") == "archived":
+            raise QuestionError("Câu hỏi đã lưu trữ không thể chỉnh sửa. Hãy khôi phục trước.", 409)
+        if stored.get("status") == "published":
+            raise QuestionError("Câu hỏi đã xuất bản phải được xác thực bằng đáp án mẫu trước khi lưu thay đổi.", 409, "SAMPLE_REQUIRED")
+        updated.update(
+            {
+                # Draft edits stay draft; the stored validation is dropped because the spec changed.
+                "status": "draft",
+                "source": {
+                    **stored.get("source", {}),
+                    "updated_by": actor,
+                    "updated_at": utc_now(),
+                },
+                "usage_count": stored.get("usage_count", 0),
+                "version": int(stored.get("version", 1)) + 1,
+                # Preserve the private reference source across draft edits, or adopt a new one.
+                "reference_source": new_reference if isinstance(new_reference, str) and new_reference.strip() else stored.get("reference_source"),
+                "practice_enabled": new_practice_enabled,
+                "practice_revision": uuid.uuid4().hex,
+            }
+        )
+        questions[question_id] = updated
+        return deepcopy(updated)
+
+    saved = update_json("questions.json", commit_update)
+    audit("code.question_updated", actor, ip, {"question_id": question_id, "version": saved["version"]})
+    return saved
 
 
-def _move_to_draft(question_id: str, allowed_from: str, message: str, code: str, event: str, actor: str, ip: str) -> dict:
+def _move_to_draft(question_id: str, payload: Mapping, allowed_from: str, message: str, code: str, event: str, actor: str, ip: str) -> dict:
     def change(questions):
         question = questions.get(question_id)
         if not question:
             raise QuestionError("Không tìm thấy câu hỏi.", 404)
+        require_expected_question_state(question, payload)
         if question.get("status") != allowed_from:
             raise QuestionError(message, 409, code)
         question["status"] = "draft"
+        question["practice_revision"] = uuid.uuid4().hex
         question.setdefault("source", {}).update({"updated_by": actor, "updated_at": utc_now()})
         # The spec is unchanged, so any stored validation stays bound to its spec_hash; publish re-checks it.
         return dict(question)
@@ -282,42 +323,50 @@ def _move_to_draft(question_id: str, allowed_from: str, message: str, code: str,
     return question
 
 
-def revoke_question(question_id: str, actor: str, ip: str) -> dict:
-    return _move_to_draft(question_id, "published", "Chỉ câu hỏi đã xuất bản mới có thể thu hồi.", "QUESTION_NOT_PUBLISHED", "code.question_revoked", actor, ip)
+def revoke_question(question_id: str, payload: Mapping, actor: str, ip: str) -> dict:
+    return _move_to_draft(question_id, payload, "published", "Chỉ câu hỏi đã xuất bản mới có thể thu hồi.", "QUESTION_NOT_PUBLISHED", "code.question_revoked", actor, ip)
 
 
-def restore_question(question_id: str, actor: str, ip: str) -> dict:
-    return _move_to_draft(question_id, "archived", "Chỉ câu hỏi đã lưu trữ mới có thể khôi phục.", "QUESTION_NOT_ARCHIVED", "code.question_restored", actor, ip)
+def restore_question(question_id: str, payload: Mapping, actor: str, ip: str) -> dict:
+    return _move_to_draft(question_id, payload, "archived", "Chỉ câu hỏi đã lưu trữ mới có thể khôi phục.", "QUESTION_NOT_ARCHIVED", "code.question_restored", actor, ip)
 
 
-def duplicate_question(question_id: str, actor: str, ip: str) -> dict:
-    question = get_question(question_id)
-    if not question:
-        raise QuestionError("question not found", 404)
-    duplicate = {
-        key: value
-        for key, value in question.items()
-        if key not in {"id", "status", "source", "usage_count", "version", "validation", "reference_source"}
-    }
-    return create_question(duplicate, actor, ip)
+def duplicate_question(question_id: str, payload: Mapping, actor: str, ip: str) -> dict:
+    with transaction():
+        question = read_json("questions.json").get(question_id)
+        if not question:
+            raise QuestionError("question not found", 404)
+        require_expected_question_state(question, payload)
+        duplicate = {
+            key: value
+            for key, value in question.items()
+            if key not in {"id", "status", "source", "usage_count", "version", "validation", "reference_source", "practice_revision"}
+        }
+        duplicate["practice_enabled"] = False
+        return create_question(duplicate, actor, ip)
 
 
-def archive_question(question_id: str, actor: str, ip: str) -> dict:
-    question = get_question(question_id)
-    if not question:
-        raise QuestionError("question not found", 404)
-    if question.get("status") == "archived":
-        return question
-    question["status"] = "archived"
-    question.setdefault("source", {}).update(
-        {"updated_by": actor, "updated_at": utc_now()}
-    )
-    save_question(question)
+def archive_question(question_id: str, payload: Mapping, actor: str, ip: str) -> dict:
+    def commit_archive(questions):
+        question = questions.get(question_id)
+        if not question:
+            raise QuestionError("question not found", 404)
+        require_expected_question_state(question, payload)
+        if question.get("status") == "archived":
+            return deepcopy(question)
+        question["status"] = "archived"
+        question["practice_revision"] = uuid.uuid4().hex
+        question.setdefault("source", {}).update(
+            {"updated_by": actor, "updated_at": utc_now()}
+        )
+        return deepcopy(question)
+
+    updated = update_json("questions.json", commit_archive)
     audit("code.question_archived", actor, ip, {"question_id": question_id})
-    return question
+    return updated
 
 
-def delete_question(question_id: str, actor: str, ip: str) -> None:
+def delete_question(question_id: str, payload: Mapping, actor: str, ip: str) -> None:
     question = get_question(question_id)
     if not question:
         raise QuestionError("question not found", 404)
@@ -353,8 +402,10 @@ def delete_question(question_id: str, actor: str, ip: str) -> None:
         raise QuestionError("question is in use; archive it instead of deleting", 409)
 
     def remove(questions):
-        if question_id not in questions:
+        current = questions.get(question_id)
+        if not current:
             raise QuestionError("question not found", 404)
+        require_expected_question_state(current, payload)
         del questions[question_id]
 
     update_json("questions.json", remove)

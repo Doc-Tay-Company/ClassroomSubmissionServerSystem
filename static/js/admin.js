@@ -16,7 +16,7 @@
 
   let monitorRows = [];
   let monitorServerAt = Date.now();
-  async function loadMonitor() {
+  async function loadMonitor() { // data to display in mornitor screen
     const data = await window.cssRequest("/api/admin/monitor");
     monitorRows = data.students || [];
     monitorServerAt = Date.parse(data.occurred_at) || Date.now();
@@ -27,7 +27,7 @@
     if ($("monitor-updated")) $("monitor-updated").textContent = "Đồng bộ server " + new Date(monitorServerAt).toLocaleTimeString();
     renderMonitor();
   }
-  function renderParticipants() {
+  function renderParticipants() { // data to display in select participant in exam
     const box = $("participant-list");
     if (!box) return;
     const query = ($("participant-search")?.value || "").toLowerCase();
@@ -35,7 +35,7 @@
     box.innerHTML = rows.map((row) => `<label class="student-option"><input type="checkbox" name="exam_participant" value="${escape(row.student_id)}" ${row.exam_participant ? "checked" : ""}><span><strong>${escape(row.student_id)}</strong><small>${escape(row.full_name || "")}</small></span></label>`).join("") || '<span class="muted">Không tìm thấy sinh viên.</span>';
     if ($("participant-count")) $("participant-count").textContent = `${document.querySelectorAll('input[name="exam_participant"]:checked').length} sinh viên`;
   }
-  function renderMonitor() {
+  function renderMonitor() { // data to display in student card in monitor
     const body = $("monitor-body");
     if (!body) return;
     const query = ($("monitor-search")?.value || "").toLowerCase();

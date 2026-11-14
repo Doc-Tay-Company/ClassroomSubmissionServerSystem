@@ -1,0 +1,53 @@
+{
+  "id": "P02",
+  "title": "First Matching Index",
+  "statement": "The first line contains n. The second line contains n integers. The third line contains target. Print the zero-based index of the first occurrence of target, or -1 if it is absent. Assume n is at least 1.",
+  "language": "python",
+  "grading_mode": "stdio",
+  "problem_kind": "python_stdio",
+  "starter_code": "n = int(input())\nvalues = list(map(int, input().split()))\ntarget = int(input())\n# Print the first matching zero-based index, or -1.\n",
+  "time_limit_seconds": 2,
+  "memory_limit_mb": 128,
+  "max_output_bytes": 65536,
+  "allow_pretest": true,
+  "max_pretest_runs": 20,
+  "category": "Arrays",
+  "tags": [
+    "python",
+    "array",
+    "search"
+  ],
+  "difficulty": "easy",
+  "practice_enabled": false,
+  "total_points": 100,
+  "tests": [
+    {
+      "id": "p02-first",
+      "stdin": "6\n4 8 2 8 9 8\n8\n",
+      "expected_stdout": "1\n",
+      "points": 25,
+      "is_visible": true
+    },
+    {
+      "id": "p02-last",
+      "stdin": "5\n-4 -2 0 3 7\n7\n",
+      "expected_stdout": "4\n",
+      "points": 25,
+      "is_visible": true
+    },
+    {
+      "id": "p02-absent",
+      "stdin": "4\n1 3 5 7\n2\n",
+      "expected_stdout": "-1\n",
+      "points": 25,
+      "is_visible": false
+    },
+    {
+      "id": "p02-duplicate",
+      "stdin": "3\n5 5 5\n5\n",
+      "expected_stdout": "0\n",
+      "points": 25,
+      "is_visible": true
+    }
+  ]
+}

@@ -1,0 +1,55 @@
+{
+  "id": "J02",
+  "title": "Prime Classifier",
+  "statement": "Read one integer n. Print prime if n is prime, composite if n > 1 is not prime, and neither when n <= 1.",
+  "language": "java",
+  "grading_mode": "stdio",
+  "problem_kind": "java_stdio",
+  "starter_code": "import java.util.Scanner;\n\npublic class Main {\n    public static void main(String[] args) {\n        int n = new Scanner(System.in).nextInt();\n        // Print prime, composite, or neither.\n    }\n}\n",
+  "time_limit_seconds": 5,
+  "memory_limit_mb": 256,
+  "max_output_bytes": 65536,
+  "allow_pretest": true,
+  "max_pretest_runs": 20,
+  "category": "Number Theory",
+  "tags": [
+    "java",
+    "prime",
+    "loops"
+  ],
+  "difficulty": "medium",
+  "practice_enabled": false,
+  "total_points": 100,
+  "tests": [
+    {
+      "id": "j02-prime",
+      "stdin": "97\n",
+      "expected_stdout": "prime\n",
+      "points": 25,
+      "is_visible": true
+    },
+    {
+      "id": "j02-composite",
+      "stdin": "49\n",
+      "expected_stdout": "composite\n",
+      "points": 25,
+      "is_visible": true
+    },
+    {
+      "id": "j02-neither-one",
+      "stdin": "1\n",
+      "expected_stdout": "neither\n",
+      "points": 25,
+      "is_visible": false
+    },
+    {
+      "id": "j02-small-prime",
+      "stdin": "2\n",
+      "expected_stdout": "prime\n",
+      "points": 25,
+      "is_visible": true
+    }
+  ],
+  "target_class": "Main",
+  "target_file": "Main.java"
+}

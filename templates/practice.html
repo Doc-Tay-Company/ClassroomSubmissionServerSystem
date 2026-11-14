@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+{% block title %}Luyện tập · Classroom Submission Server{% endblock %}
+{% block extra_styles %}
+<link rel="stylesheet" href="/static/css/student-practice.css">
+{% endblock %}
+{% block body %}
+<header class="topbar ui-header">
+  <div class="brand"><i class="fa fa-laptop"></i> Classroom Submission Server</div>
+  <div class="practice-nav-actions">
+    <a href="/" class="btn btn-ghost ui-action" id="practice-nav-exam"><i class="fa fa-arrow-left"></i> Về trang thi</a>
+    <form action="/logout" method="post"><button class="btn btn-ghost ui-action" type="submit"><i class="fa fa-sign-out"></i> Đăng xuất</button></form>
+  </div>
+</header>
+<main class="page-wrap ui-page mx-auto max-w-6xl px-6 py-6" id="practice-root" data-student-id="{{ session.user_id }}">
+  <!-- VIEW 1: Library View -->
+  <section id="practice-library-view">
+    <div class="welcome-panel">
+      <div>
+        <p class="eyebrow">CHẾ ĐỘ TỰ LUYỆN TẬP</p>
+        <h1>Thư viện câu hỏi luyện tập</h1>
+        <p class="muted">Sinh viên: <strong>{{ student.full_name }}</strong> (MSSV: {{ session.user_id }})</p>
+      </div>
+      <span class="status-pill status-blue"><i class="fa fa-book"></i> Thư viện</span>
+    </div>
+
+    <div class="panel bg-white rounded-2xl border p-6 mb-5">
+      <div class="practice-filters">
+        <input type="text" id="practice-search" class="form-input practice-search-input" placeholder="Tìm theo tiêu đề, danh mục...">
+        <select id="practice-lang-filter" class="form-select practice-select-auto">
+          <option value="">Tất cả ngôn ngữ</option>
+          <option value="java">Java</option>
+          <option value="python">Python</option>
+        </select>
+        <select id="practice-diff-filter" class="form-select practice-select-auto">
+          <option value="">Tất cả độ khó</option>
+          <option value="Dễ">Dễ</option>
+          <option value="Trung bình">Trung bình</option>
+          <option value="Khó">Khó</option>
+        </select>
+        <button type="button" id="practice-refresh-btn" class="btn btn-secondary"><i class="fa fa-refresh"></i> Làm mới</button>
+      </div>
+
+      <div id="practice-notice" class="hidden"></div>
+      <div id="practice-catalog-list">
+        <p class="muted pad"><i class="fa fa-spinner fa-spin"></i> Đang tải danh sách câu hỏi...</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- VIEW 2: Workspace View -->
+  <section id="practice-workspace-view" class="hidden">
+    <div class="practice-workspace-header">
+      <div class="practice-ws-header-left">
+        <button type="button" class="btn btn-ghost btn-small" id="practice-back-to-library-btn">
+          <i class="fa fa-arrow-left"></i> Quay lại thư viện
+        </button>
+        <h2 id="practice-ws-title" class="practice-ws-title">Tiêu đề câu hỏi</h2>
+        <div class="practice-meta" id="practice-ws-meta-bar">
+          <span id="practice-ws-lang-badge" class="practice-badge">CODE</span>
+          <span id="practice-ws-diff-badge" class="practice-badge badge-diff">Độ khó</span>
+          <span id="practice-ws-cat-badge" class="practice-badge badge-diff">Danh mục</span>
+          <small class="muted">Điểm hiển thị: <strong id="practice-ws-points">0</strong></small>
+        </div>
+      </div>
+      <div class="practice-ws-header-right">
+        <span id="practice-retest-badge" class="practice-badge badge-retest-clean">Đã đồng bộ</span>
+        <button type="button" class="btn btn-warning btn-small hidden" id="practice-ws-update-btn">
+          <i class="fa fa-refresh"></i> Cập nhật đề
+        </button>
+      </div>
+    </div>
+
+    <div id="practice-storage-warning" class="alert alert-warning hidden mb-4"></div>
+    <div id="practice-revision-notice" class="alert alert-info hidden mb-4">
+      <span id="practice-revision-notice-text"></span>
+      <button type="button" class="btn btn-secondary btn-small hidden" id="practice-retry-details-btn">Retry question details</button>
+    </div>
+
+    <div class="practice-workspace-grid">
+      <!-- Left Column: Question Information -->
+      <div class="practice-pane practice-pane-left">
+        <div class="practice-section">
+          <h3 class="practice-section-title"><i class="fa fa-file-text-o"></i> Đề bài</h3>
+          <pre class="code-block practice-statement-box" id="practice-ws-statement"></pre>
+        </div>
+
+        <div id="practice-ws-target-section" class="practice-section hidden">
+          <h3 class="practice-section-title"><i class="fa fa-info-circle"></i> Thông tin lớp đích</h3>
+          <div class="practice-target-box" id="practice-ws-target-info"></div>
+        </div>
+
+        <div id="practice-ws-starter-section" class="practice-section hidden">
+          <h3 class="practice-section-title"><i class="fa fa-code"></i> Mã khởi tạo ban đầu</h3>
+          <pre class="code-block practice-starter-box"><code id="practice-ws-starter-code"></code></pre>
+        </div>
+
+        <div class="practice-section">
+          <h3 class="practice-section-title"><i class="fa fa-check-circle-o"></i> Test cases công khai</h3>
+          <div class="table-scroll" id="practice-ws-tests-table-host"></div>
+        </div>
+      </div>
+
+      <!-- Right Column: Code Editor -->
+      <div class="practice-pane practice-pane-right">
+        <div class="practice-editor-heading">
+          <label for="practice-code-editor" id="practice-editor-lang-label" class="practice-editor-label">Mã nguồn</label>
+          <span id="practice-editor-filename" class="code-filename">Solution</span>
+        </div>
+        <textarea id="practice-code-editor" class="practice-code-editor" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="// Viết code tại đây..."></textarea>
+        <p class="fine-print practice-editor-hint"><i class="fa fa-keyboard-o"></i> Nhấn Tab để thụt lề 4 khoảng trắng. Code được lưu cục bộ trên trình duyệt này.</p>
+
+        <div class="practice-editor-actions">
+          <button type="button" class="btn btn-secondary" id="practice-restore-starter-btn">
+            <i class="fa fa-undo"></i> Khôi phục mã khởi tạo
+          </button>
+          <button type="button" class="btn btn-primary" id="practice-run-btn" disabled aria-disabled="true" title="Edit code before the first Practice Run">
+            <i class="fa fa-play"></i> Chạy thử (Run Test)
+          </button>
+        </div>
+
+        <div id="practice-editor-alert" class="notice hidden"></div>
+        <div id="practice-run-result" class="code-result-panel hidden"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Modal Host -->
+  <div id="practice-modal-host" class="hidden"></div>
+</main>
+<script defer src="/static/js/student-practice.js"></script>
+{% endblock %}
