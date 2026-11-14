@@ -1004,14 +1004,14 @@
     "distributed_at": "2026-11-05T16:35:43+00:00",
     "started_at": "2026-11-05T16:36:46+00:00"
   },
-  "97c4bced0e9e482fa23044377cf547b2": {
-    "id": "97c4bced0e9e482fa23044377cf547b2",
-    "status": "distributed",
-    "release_id": "19a8cb9ad3484369b734e9c23002a117",
-    "created_by": "sasuke",
-    "created_at": "2026-11-06T06:41:02+00:00",
-    "updated_at": "2026-11-06T06:41:02+00:00",
-    "title": "JSD (bản sao)",
+  "9c8b18e6dc924a9991582154cacb3174": {
+    "id": "9c8b18e6dc924a9991582154cacb3174",
+    "status": "ended",
+    "release_id": "a4c676ce37074998ba53bf27286a4d82",
+    "created_by": "nghia",
+    "created_at": "2026-11-13T05:38:13+00:00",
+    "updated_at": "2026-11-13T06:16:06+00:00",
+    "title": "de thi final",
     "show_final_score_immediately": true,
     "allow_pretest": true,
     "max_pretest_runs": 20,
@@ -1227,29 +1227,29 @@
         "total_points": 100,
         "problem_kind": "java_reflection",
         "sample_source": "package model;\n\npublic class Rectangle implements Comparable<Rectangle> {\n    private double width;\n    private double height;\n\n    public Rectangle(double width, double height) { this.width = width; this.height = height; }\n\n    public double getArea() { return width * height; }\n\n    public void setWidth(double width) {\n        if (width < 0) throw new IllegalArgumentException(\"width\");\n        this.width = width;\n    }\n\n    @Override public String toString() { return \"Rectangle{width=\" + width + \", height=\" + height + \"}\"; }\n\n    @Override public int compareTo(Rectangle o) { return Double.compare(getArea(), o.getArea()); }\n}",
-        "id": "30589207701942de8d63303314729211",
+        "id": "20e43b0a6d2e4f9f9d2e3200335af2cd",
         "status": "published",
         "source": {
-          "created_by": "kakashi",
-          "created_at": "2026-11-04T15:19:05+00:00",
-          "updated_at": "2026-11-06T02:52:58+00:00",
-          "updated_by": "sapa"
+          "created_by": "nghia",
+          "created_at": "2026-11-06T08:07:02+00:00",
+          "updated_by": "nghia",
+          "updated_at": "2026-11-06T08:07:02+00:00"
         },
-        "usage_count": 11,
-        "version": 12,
+        "usage_count": 4,
+        "version": 1,
         "validation": {
           "spec_hash": "2b0a5b04fb200f2733e1ba26fda70b6e7294cd94094c38b36b5f93a6c9362665",
           "passed": true,
-          "validated_at": "2026-11-06T02:52:49+00:00",
-          "validated_by": "sapa",
+          "validated_at": "2026-11-06T08:07:02+00:00",
+          "validated_by": "nghia",
           "sample_sha256": "c8c8aac1c29e39870b1a6d9b954db914ff091bb35e669520e6e94c019257f453",
           "verdict": "AC",
           "score": 100,
           "total_points": 100
         },
-        "question_id": "30589207701942de8d63303314729211",
-        "snapshot_version": 12,
-        "snapshot_at": "2026-11-06T06:41:02+00:00",
+        "question_id": "20e43b0a6d2e4f9f9d2e3200335af2cd",
+        "snapshot_version": 1,
+        "snapshot_at": "2026-11-13T05:38:13+00:00",
         "order": 0
       },
       {
@@ -1459,31 +1459,52 @@
         ],
         "total_points": 100,
         "problem_kind": "java_reflection",
-        "id": "cb5af90b14db4c4aa5c8c0b8f3fbd7d8",
+        "sample_source": "package model;\n\npublic class Rectangle implements Comparable<Rectangle> {\n    private double width;\n    private double height;\n\n    public Rectangle(double width, double height) { this.width = width; this.height = height; }\n\n    public double getArea() { return width * height; }\n\n    public void setWidth(double width) {\n        if (width < 0) throw new IllegalArgumentException(\"width\");\n        this.width = width;\n    }\n\n    @Override public String toString() { return \"Rectangle{width=\" + width + \", height=\" + height + \"}\"; }\n\n    @Override public int compareTo(Rectangle o) { return Double.compare(getArea(), o.getArea()); }\n}",
+        "id": "f440414ce93c4ac1bd7f626b1c38e86b",
         "status": "published",
         "source": {
-          "created_by": "quyencorn",
-          "created_at": "2026-11-05T09:46:34+00:00",
-          "updated_at": "2026-11-06T02:54:00+00:00",
-          "updated_by": "sapa"
+          "created_by": "nghia",
+          "created_at": "2026-11-06T08:07:48+00:00",
+          "updated_by": "nghia",
+          "updated_at": "2026-11-06T08:08:20+00:00"
         },
-        "usage_count": 7,
-        "version": 5,
+        "usage_count": 2,
+        "version": 2,
         "validation": {
-          "spec_hash": "0b4bd4e147422b123462583bafefa96b61efc12f4d34cb21e428e1e55693e3ee",
+          "spec_hash": "2b0a5b04fb200f2733e1ba26fda70b6e7294cd94094c38b36b5f93a6c9362665",
           "passed": true,
-          "validated_at": "2026-11-06T02:53:50+00:00",
-          "validated_by": "sapa",
+          "validated_at": "2026-11-06T08:08:20+00:00",
+          "validated_by": "nghia",
           "sample_sha256": "c8c8aac1c29e39870b1a6d9b954db914ff091bb35e669520e6e94c019257f453",
           "verdict": "AC",
           "score": 100,
           "total_points": 100
         },
-        "question_id": "cb5af90b14db4c4aa5c8c0b8f3fbd7d8",
-        "snapshot_version": 5,
-        "snapshot_at": "2026-11-06T06:41:02+00:00",
+        "question_id": "f440414ce93c4ac1bd7f626b1c38e86b",
+        "snapshot_version": 2,
+        "snapshot_at": "2026-11-13T05:38:13+00:00",
         "order": 1
-      },
+      }
+    ],
+    "distributed_at": "2026-11-13T05:38:13+00:00",
+    "started_at": "2026-11-13T05:38:21+00:00",
+    "ended_at": "2026-11-13T06:16:06+00:00"
+  },
+  "939afdceec0d46a9b2561b6f93e37205": {
+    "id": "939afdceec0d46a9b2561b6f93e37205",
+    "status": "ended",
+    "release_id": "e07dc6f8b48443cd81bb6074ffbfa534",
+    "created_by": "nghia",
+    "created_at": "2026-11-14T13:56:51+00:00",
+    "updated_at": "2026-11-14T14:35:04+00:00",
+    "title": "f",
+    "show_final_score_immediately": false,
+    "allow_pretest": true,
+    "max_pretest_runs": 20,
+    "pretest_cooldown_seconds": 2.0,
+    "submission_policy": "configurable",
+    "max_submissions": 1,
+    "questions": [
       {
         "title": "Lớp Rectangle (mẫu nhập JSON)",
         "statement": "Tạo class Rectangle trong package model với: private double width, private double height; constructor public Rectangle(double width, double height); getArea() trả về width * height; setWidth(double) ném IllegalArgumentException khi giá trị âm; toString() trả về Rectangle{width=<width>, height=<height>}; Rectangle implements Comparable<Rectangle>, so sánh theo diện tích tăng dần.",
@@ -1691,32 +1712,1047 @@
         ],
         "total_points": 100,
         "problem_kind": "java_reflection",
-        "id": "ee4200f0b6f744c9a7f6b8b0d7937fe5",
+        "sample_source": "package model;\n\npublic class Rectangle implements Comparable<Rectangle> {\n    private double width;\n    private double height;\n\n    public Rectangle(double width, double height) { this.width = width; this.height = height; }\n\n    public double getArea() { return width * height; }\n\n    public void setWidth(double width) {\n        if (width < 0) throw new IllegalArgumentException(\"width\");\n        this.width = width;\n    }\n\n    @Override public String toString() { return \"Rectangle{width=\" + width + \", height=\" + height + \"}\"; }\n\n    @Override public int compareTo(Rectangle o) { return Double.compare(getArea(), o.getArea()); }\n}",
+        "id": "20e43b0a6d2e4f9f9d2e3200335af2cd",
         "status": "published",
         "source": {
-          "created_by": "quyencorn",
-          "created_at": "2026-11-05T15:02:42+00:00",
-          "updated_at": "2026-11-05T16:33:24+00:00",
-          "updated_by": "kakashi"
+          "created_by": "nghia",
+          "created_at": "2026-11-06T08:07:02+00:00",
+          "updated_by": "nghia",
+          "updated_at": "2026-11-06T08:07:02+00:00"
         },
-        "usage_count": 9,
-        "version": 4,
+        "usage_count": 5,
+        "version": 1,
         "validation": {
-          "spec_hash": "0b4bd4e147422b123462583bafefa96b61efc12f4d34cb21e428e1e55693e3ee",
+          "spec_hash": "2b0a5b04fb200f2733e1ba26fda70b6e7294cd94094c38b36b5f93a6c9362665",
           "passed": true,
-          "validated_at": "2026-11-05T16:33:21+00:00",
-          "validated_by": "kakashi",
+          "validated_at": "2026-11-06T08:07:02+00:00",
+          "validated_by": "nghia",
           "sample_sha256": "c8c8aac1c29e39870b1a6d9b954db914ff091bb35e669520e6e94c019257f453",
           "verdict": "AC",
           "score": 100,
           "total_points": 100
         },
-        "question_id": "ee4200f0b6f744c9a7f6b8b0d7937fe5",
-        "snapshot_version": 4,
-        "snapshot_at": "2026-11-06T06:41:02+00:00",
-        "order": 2
+        "question_id": "20e43b0a6d2e4f9f9d2e3200335af2cd",
+        "snapshot_version": 1,
+        "snapshot_at": "2026-11-14T13:56:51+00:00",
+        "order": 0
       }
     ],
-    "distributed_at": "2026-11-06T06:41:02+00:00"
+    "distributed_at": "2026-11-14T13:56:51+00:00",
+    "started_at": "2026-11-14T13:56:53+00:00",
+    "ended_at": "2026-11-14T14:35:04+00:00"
+  },
+  "c119b42a3e0142a295de1e6afe8c545d": {
+    "id": "c119b42a3e0142a295de1e6afe8c545d",
+    "status": "ended",
+    "release_id": "873f9445de684fc39ef5eefe11bbb810",
+    "created_by": "nghia",
+    "created_at": "2026-11-14T14:35:34+00:00",
+    "updated_at": "2026-11-14T14:42:18+00:00",
+    "title": "thi",
+    "show_final_score_immediately": false,
+    "allow_pretest": true,
+    "max_pretest_runs": 20,
+    "pretest_cooldown_seconds": 2.0,
+    "submission_policy": "configurable",
+    "max_submissions": 1,
+    "questions": [
+      {
+        "title": "Lớp Rectangle (mẫu nhập JSON)",
+        "statement": "Tạo class Rectangle trong package model với: private double width, private double height; constructor public Rectangle(double width, double height); getArea() trả về width * height; setWidth(double) ném IllegalArgumentException khi giá trị âm; toString() trả về Rectangle{width=<width>, height=<height>}; Rectangle implements Comparable<Rectangle>, so sánh theo diện tích tăng dần.",
+        "language": "java",
+        "grading_mode": "reflection",
+        "target_class": "model.Rectangle",
+        "target_package": "model",
+        "target_file": "Rectangle.java",
+        "starter_code": "package model;\n\npublic class Rectangle {\n    // TODO\n}\n",
+        "time_limit_seconds": 5.0,
+        "memory_limit_mb": 256,
+        "max_output_bytes": 65536,
+        "allow_pretest": true,
+        "max_pretest_runs": 20,
+        "category": "OOP",
+        "tags": [
+          "oop",
+          "java",
+          "import-test"
+        ],
+        "difficulty": "easy",
+        "checks": [
+          {
+            "id": "field-width",
+            "kind": "field",
+            "points": 10,
+            "is_visible": true,
+            "name": "width",
+            "type": "double",
+            "modifier": "private"
+          },
+          {
+            "id": "field-height",
+            "kind": "field",
+            "points": 10,
+            "is_visible": true,
+            "name": "height",
+            "type": "double",
+            "modifier": "private"
+          },
+          {
+            "id": "ctor",
+            "kind": "constructor",
+            "points": 10,
+            "is_visible": true,
+            "parameter_types": [
+              "double",
+              "double"
+            ],
+            "modifier": "public"
+          },
+          {
+            "id": "method-getArea",
+            "kind": "method",
+            "points": 10,
+            "is_visible": true,
+            "name": "getArea",
+            "return_type": "double",
+            "parameter_types": [],
+            "modifier": "public"
+          },
+          {
+            "id": "behavior-area",
+            "kind": "behavior",
+            "points": 20,
+            "is_visible": true,
+            "setup": [],
+            "expect_return": 12,
+            "constructor_parameter_types": [
+              "double",
+              "double"
+            ],
+            "constructor_args": [
+              3,
+              4
+            ],
+            "method": "getArea",
+            "parameter_types": [],
+            "args": []
+          },
+          {
+            "id": "behavior-negative-width",
+            "kind": "behavior",
+            "points": 15,
+            "is_visible": false,
+            "setup": [],
+            "expect_exception": "java.lang.IllegalArgumentException",
+            "constructor_parameter_types": [
+              "double",
+              "double"
+            ],
+            "constructor_args": [
+              3,
+              4
+            ],
+            "method": "setWidth",
+            "parameter_types": [
+              "double"
+            ],
+            "args": [
+              -1
+            ]
+          },
+          {
+            "id": "tostring",
+            "kind": "toString",
+            "points": 15,
+            "is_visible": true,
+            "setup": [],
+            "constructor_parameter_types": [
+              "double",
+              "double"
+            ],
+            "constructor_args": [
+              3,
+              4
+            ],
+            "template": "Rectangle{width={width}, height={height}}"
+          },
+          {
+            "id": "comparable",
+            "kind": "comparable",
+            "points": 10,
+            "is_visible": false,
+            "instances": [
+              {
+                "constructor_parameter_types": [
+                  "double",
+                  "double"
+                ],
+                "constructor_args": [
+                  1,
+                  2
+                ]
+              },
+              {
+                "constructor_parameter_types": [
+                  "double",
+                  "double"
+                ],
+                "constructor_args": [
+                  3,
+                  4
+                ]
+              },
+              {
+                "constructor_parameter_types": [
+                  "double",
+                  "double"
+                ],
+                "constructor_args": [
+                  3,
+                  4
+                ]
+              },
+              {
+                "constructor_parameter_types": [
+                  "double",
+                  "double"
+                ],
+                "constructor_args": [
+                  1,
+                  2
+                ]
+              },
+              {
+                "constructor_parameter_types": [
+                  "double",
+                  "double"
+                ],
+                "constructor_args": [
+                  2,
+                  6
+                ]
+              },
+              {
+                "constructor_parameter_types": [
+                  "double",
+                  "double"
+                ],
+                "constructor_args": [
+                  3,
+                  4
+                ]
+              }
+            ],
+            "comparisons": [
+              {
+                "left": 0,
+                "right": 1,
+                "expected_sign": -1
+              },
+              {
+                "left": 2,
+                "right": 3,
+                "expected_sign": 1
+              },
+              {
+                "left": 4,
+                "right": 5,
+                "expected_sign": 0
+              }
+            ]
+          }
+        ],
+        "total_points": 100,
+        "problem_kind": "java_reflection",
+        "sample_source": "package model;\n\npublic class Rectangle implements Comparable<Rectangle> {\n    private double width;\n    private double height;\n\n    public Rectangle(double width, double height) { this.width = width; this.height = height; }\n\n    public double getArea() { return width * height; }\n\n    public void setWidth(double width) {\n        if (width < 0) throw new IllegalArgumentException(\"width\");\n        this.width = width;\n    }\n\n    @Override public String toString() { return \"Rectangle{width=\" + width + \", height=\" + height + \"}\"; }\n\n    @Override public int compareTo(Rectangle o) { return Double.compare(getArea(), o.getArea()); }\n}",
+        "id": "20e43b0a6d2e4f9f9d2e3200335af2cd",
+        "status": "published",
+        "source": {
+          "created_by": "nghia",
+          "created_at": "2026-11-06T08:07:02+00:00",
+          "updated_by": "nghia",
+          "updated_at": "2026-11-06T08:07:02+00:00"
+        },
+        "usage_count": 6,
+        "version": 1,
+        "validation": {
+          "spec_hash": "2b0a5b04fb200f2733e1ba26fda70b6e7294cd94094c38b36b5f93a6c9362665",
+          "passed": true,
+          "validated_at": "2026-11-06T08:07:02+00:00",
+          "validated_by": "nghia",
+          "sample_sha256": "c8c8aac1c29e39870b1a6d9b954db914ff091bb35e669520e6e94c019257f453",
+          "verdict": "AC",
+          "score": 100,
+          "total_points": 100
+        },
+        "question_id": "20e43b0a6d2e4f9f9d2e3200335af2cd",
+        "snapshot_version": 1,
+        "snapshot_at": "2026-11-14T14:35:34+00:00",
+        "order": 0
+      }
+    ],
+    "distributed_at": "2026-11-14T14:35:35+00:00",
+    "started_at": "2026-11-14T14:35:41+00:00",
+    "ended_at": "2026-11-14T14:42:18+00:00"
+  },
+  "02c1a1bc951b48c0b46f99a8e6873344": {
+    "id": "02c1a1bc951b48c0b46f99a8e6873344",
+    "status": "ended",
+    "release_id": "ce9885a52d234160882491b6fe98180f",
+    "created_by": "nghia",
+    "created_at": "2026-11-14T14:43:15+00:00",
+    "updated_at": "2026-11-14T14:47:46+00:00",
+    "title": "thi 1",
+    "show_final_score_immediately": false,
+    "allow_pretest": true,
+    "max_pretest_runs": 20,
+    "pretest_cooldown_seconds": 2.0,
+    "submission_policy": "configurable",
+    "max_submissions": 1,
+    "questions": [
+      {
+        "title": "Lớp Rectangle (mẫu nhập JSON)",
+        "statement": "Tạo class Rectangle trong package model với: private double width, private double height; constructor public Rectangle(double width, double height); getArea() trả về width * height; setWidth(double) ném IllegalArgumentException khi giá trị âm; toString() trả về Rectangle{width=<width>, height=<height>}; Rectangle implements Comparable<Rectangle>, so sánh theo diện tích tăng dần.",
+        "language": "java",
+        "grading_mode": "reflection",
+        "target_class": "model.Rectangle",
+        "target_package": "model",
+        "target_file": "Rectangle.java",
+        "starter_code": "package model;\n\npublic class Rectangle {\n    // TODO\n}\n",
+        "time_limit_seconds": 5.0,
+        "memory_limit_mb": 256,
+        "max_output_bytes": 65536,
+        "allow_pretest": true,
+        "max_pretest_runs": 20,
+        "category": "OOP",
+        "tags": [
+          "oop",
+          "java",
+          "import-test"
+        ],
+        "difficulty": "easy",
+        "checks": [
+          {
+            "id": "field-width",
+            "kind": "field",
+            "points": 10,
+            "is_visible": true,
+            "name": "width",
+            "type": "double",
+            "modifier": "private"
+          },
+          {
+            "id": "field-height",
+            "kind": "field",
+            "points": 10,
+            "is_visible": true,
+            "name": "height",
+            "type": "double",
+            "modifier": "private"
+          },
+          {
+            "id": "ctor",
+            "kind": "constructor",
+            "points": 10,
+            "is_visible": true,
+            "parameter_types": [
+              "double",
+              "double"
+            ],
+            "modifier": "public"
+          },
+          {
+            "id": "method-getArea",
+            "kind": "method",
+            "points": 10,
+            "is_visible": true,
+            "name": "getArea",
+            "return_type": "double",
+            "parameter_types": [],
+            "modifier": "public"
+          },
+          {
+            "id": "behavior-area",
+            "kind": "behavior",
+            "points": 20,
+            "is_visible": true,
+            "setup": [],
+            "expect_return": 12,
+            "constructor_parameter_types": [
+              "double",
+              "double"
+            ],
+            "constructor_args": [
+              3,
+              4
+            ],
+            "method": "getArea",
+            "parameter_types": [],
+            "args": []
+          },
+          {
+            "id": "behavior-negative-width",
+            "kind": "behavior",
+            "points": 15,
+            "is_visible": false,
+            "setup": [],
+            "expect_exception": "java.lang.IllegalArgumentException",
+            "constructor_parameter_types": [
+              "double",
+              "double"
+            ],
+            "constructor_args": [
+              3,
+              4
+            ],
+            "method": "setWidth",
+            "parameter_types": [
+              "double"
+            ],
+            "args": [
+              -1
+            ]
+          },
+          {
+            "id": "tostring",
+            "kind": "toString",
+            "points": 15,
+            "is_visible": true,
+            "setup": [],
+            "constructor_parameter_types": [
+              "double",
+              "double"
+            ],
+            "constructor_args": [
+              3,
+              4
+            ],
+            "template": "Rectangle{width={width}, height={height}}"
+          },
+          {
+            "id": "comparable",
+            "kind": "comparable",
+            "points": 10,
+            "is_visible": false,
+            "instances": [
+              {
+                "constructor_parameter_types": [
+                  "double",
+                  "double"
+                ],
+                "constructor_args": [
+                  1,
+                  2
+                ]
+              },
+              {
+                "constructor_parameter_types": [
+                  "double",
+                  "double"
+                ],
+                "constructor_args": [
+                  3,
+                  4
+                ]
+              },
+              {
+                "constructor_parameter_types": [
+                  "double",
+                  "double"
+                ],
+                "constructor_args": [
+                  3,
+                  4
+                ]
+              },
+              {
+                "constructor_parameter_types": [
+                  "double",
+                  "double"
+                ],
+                "constructor_args": [
+                  1,
+                  2
+                ]
+              },
+              {
+                "constructor_parameter_types": [
+                  "double",
+                  "double"
+                ],
+                "constructor_args": [
+                  2,
+                  6
+                ]
+              },
+              {
+                "constructor_parameter_types": [
+                  "double",
+                  "double"
+                ],
+                "constructor_args": [
+                  3,
+                  4
+                ]
+              }
+            ],
+            "comparisons": [
+              {
+                "left": 0,
+                "right": 1,
+                "expected_sign": -1
+              },
+              {
+                "left": 2,
+                "right": 3,
+                "expected_sign": 1
+              },
+              {
+                "left": 4,
+                "right": 5,
+                "expected_sign": 0
+              }
+            ]
+          }
+        ],
+        "total_points": 100,
+        "problem_kind": "java_reflection",
+        "sample_source": "package model;\n\npublic class Rectangle implements Comparable<Rectangle> {\n    private double width;\n    private double height;\n\n    public Rectangle(double width, double height) { this.width = width; this.height = height; }\n\n    public double getArea() { return width * height; }\n\n    public void setWidth(double width) {\n        if (width < 0) throw new IllegalArgumentException(\"width\");\n        this.width = width;\n    }\n\n    @Override public String toString() { return \"Rectangle{width=\" + width + \", height=\" + height + \"}\"; }\n\n    @Override public int compareTo(Rectangle o) { return Double.compare(getArea(), o.getArea()); }\n}",
+        "id": "20e43b0a6d2e4f9f9d2e3200335af2cd",
+        "status": "published",
+        "source": {
+          "created_by": "nghia",
+          "created_at": "2026-11-06T08:07:02+00:00",
+          "updated_by": "nghia",
+          "updated_at": "2026-11-06T08:07:02+00:00"
+        },
+        "usage_count": 7,
+        "version": 1,
+        "validation": {
+          "spec_hash": "2b0a5b04fb200f2733e1ba26fda70b6e7294cd94094c38b36b5f93a6c9362665",
+          "passed": true,
+          "validated_at": "2026-11-06T08:07:02+00:00",
+          "validated_by": "nghia",
+          "sample_sha256": "c8c8aac1c29e39870b1a6d9b954db914ff091bb35e669520e6e94c019257f453",
+          "verdict": "AC",
+          "score": 100,
+          "total_points": 100
+        },
+        "question_id": "20e43b0a6d2e4f9f9d2e3200335af2cd",
+        "snapshot_version": 1,
+        "snapshot_at": "2026-11-14T14:43:15+00:00",
+        "order": 0
+      }
+    ],
+    "distributed_at": "2026-11-14T14:43:15+00:00",
+    "started_at": "2026-11-14T14:43:18+00:00",
+    "ended_at": "2026-11-14T14:47:46+00:00"
+  },
+  "90ef0ab9e91140c78303301ef84f66d4": {
+    "id": "90ef0ab9e91140c78303301ef84f66d4",
+    "status": "ended",
+    "release_id": "8d454ab4fb8c481e9deb73d5a1d31c5a",
+    "created_by": "nghia",
+    "created_at": "2026-11-14T14:48:40+00:00",
+    "updated_at": "2026-11-14T14:48:46+00:00",
+    "title": "df",
+    "show_final_score_immediately": false,
+    "allow_pretest": true,
+    "max_pretest_runs": 20,
+    "pretest_cooldown_seconds": 2.0,
+    "submission_policy": "configurable",
+    "max_submissions": 1,
+    "questions": [
+      {
+        "title": "Lớp Rectangle (mẫu nhập JSON)",
+        "statement": "Tạo class Rectangle trong package model với: private double width, private double height; constructor public Rectangle(double width, double height); getArea() trả về width * height; setWidth(double) ném IllegalArgumentException khi giá trị âm; toString() trả về Rectangle{width=<width>, height=<height>}; Rectangle implements Comparable<Rectangle>, so sánh theo diện tích tăng dần.",
+        "language": "java",
+        "grading_mode": "reflection",
+        "target_class": "model.Rectangle",
+        "target_package": "model",
+        "target_file": "Rectangle.java",
+        "starter_code": "package model;\n\npublic class Rectangle {\n    // TODO\n}\n",
+        "time_limit_seconds": 5.0,
+        "memory_limit_mb": 256,
+        "max_output_bytes": 65536,
+        "allow_pretest": true,
+        "max_pretest_runs": 20,
+        "category": "OOP",
+        "tags": [
+          "oop",
+          "java",
+          "import-test"
+        ],
+        "difficulty": "easy",
+        "checks": [
+          {
+            "id": "field-width",
+            "kind": "field",
+            "points": 10,
+            "is_visible": true,
+            "name": "width",
+            "type": "double",
+            "modifier": "private"
+          },
+          {
+            "id": "field-height",
+            "kind": "field",
+            "points": 10,
+            "is_visible": true,
+            "name": "height",
+            "type": "double",
+            "modifier": "private"
+          },
+          {
+            "id": "ctor",
+            "kind": "constructor",
+            "points": 10,
+            "is_visible": true,
+            "parameter_types": [
+              "double",
+              "double"
+            ],
+            "modifier": "public"
+          },
+          {
+            "id": "method-getArea",
+            "kind": "method",
+            "points": 10,
+            "is_visible": true,
+            "name": "getArea",
+            "return_type": "double",
+            "parameter_types": [],
+            "modifier": "public"
+          },
+          {
+            "id": "behavior-area",
+            "kind": "behavior",
+            "points": 20,
+            "is_visible": true,
+            "setup": [],
+            "expect_return": 12,
+            "constructor_parameter_types": [
+              "double",
+              "double"
+            ],
+            "constructor_args": [
+              3,
+              4
+            ],
+            "method": "getArea",
+            "parameter_types": [],
+            "args": []
+          },
+          {
+            "id": "behavior-negative-width",
+            "kind": "behavior",
+            "points": 15,
+            "is_visible": false,
+            "setup": [],
+            "expect_exception": "java.lang.IllegalArgumentException",
+            "constructor_parameter_types": [
+              "double",
+              "double"
+            ],
+            "constructor_args": [
+              3,
+              4
+            ],
+            "method": "setWidth",
+            "parameter_types": [
+              "double"
+            ],
+            "args": [
+              -1
+            ]
+          },
+          {
+            "id": "tostring",
+            "kind": "toString",
+            "points": 15,
+            "is_visible": true,
+            "setup": [],
+            "constructor_parameter_types": [
+              "double",
+              "double"
+            ],
+            "constructor_args": [
+              3,
+              4
+            ],
+            "template": "Rectangle{width={width}, height={height}}"
+          },
+          {
+            "id": "comparable",
+            "kind": "comparable",
+            "points": 10,
+            "is_visible": false,
+            "instances": [
+              {
+                "constructor_parameter_types": [
+                  "double",
+                  "double"
+                ],
+                "constructor_args": [
+                  1,
+                  2
+                ]
+              },
+              {
+                "constructor_parameter_types": [
+                  "double",
+                  "double"
+                ],
+                "constructor_args": [
+                  3,
+                  4
+                ]
+              },
+              {
+                "constructor_parameter_types": [
+                  "double",
+                  "double"
+                ],
+                "constructor_args": [
+                  3,
+                  4
+                ]
+              },
+              {
+                "constructor_parameter_types": [
+                  "double",
+                  "double"
+                ],
+                "constructor_args": [
+                  1,
+                  2
+                ]
+              },
+              {
+                "constructor_parameter_types": [
+                  "double",
+                  "double"
+                ],
+                "constructor_args": [
+                  2,
+                  6
+                ]
+              },
+              {
+                "constructor_parameter_types": [
+                  "double",
+                  "double"
+                ],
+                "constructor_args": [
+                  3,
+                  4
+                ]
+              }
+            ],
+            "comparisons": [
+              {
+                "left": 0,
+                "right": 1,
+                "expected_sign": -1
+              },
+              {
+                "left": 2,
+                "right": 3,
+                "expected_sign": 1
+              },
+              {
+                "left": 4,
+                "right": 5,
+                "expected_sign": 0
+              }
+            ]
+          }
+        ],
+        "total_points": 100,
+        "problem_kind": "java_reflection",
+        "sample_source": "package model;\n\npublic class Rectangle implements Comparable<Rectangle> {\n    private double width;\n    private double height;\n\n    public Rectangle(double width, double height) { this.width = width; this.height = height; }\n\n    public double getArea() { return width * height; }\n\n    public void setWidth(double width) {\n        if (width < 0) throw new IllegalArgumentException(\"width\");\n        this.width = width;\n    }\n\n    @Override public String toString() { return \"Rectangle{width=\" + width + \", height=\" + height + \"}\"; }\n\n    @Override public int compareTo(Rectangle o) { return Double.compare(getArea(), o.getArea()); }\n}",
+        "id": "20e43b0a6d2e4f9f9d2e3200335af2cd",
+        "status": "published",
+        "source": {
+          "created_by": "nghia",
+          "created_at": "2026-11-06T08:07:02+00:00",
+          "updated_by": "nghia",
+          "updated_at": "2026-11-06T08:07:02+00:00"
+        },
+        "usage_count": 8,
+        "version": 1,
+        "validation": {
+          "spec_hash": "2b0a5b04fb200f2733e1ba26fda70b6e7294cd94094c38b36b5f93a6c9362665",
+          "passed": true,
+          "validated_at": "2026-11-06T08:07:02+00:00",
+          "validated_by": "nghia",
+          "sample_sha256": "c8c8aac1c29e39870b1a6d9b954db914ff091bb35e669520e6e94c019257f453",
+          "verdict": "AC",
+          "score": 100,
+          "total_points": 100
+        },
+        "question_id": "20e43b0a6d2e4f9f9d2e3200335af2cd",
+        "snapshot_version": 1,
+        "snapshot_at": "2026-11-14T14:48:40+00:00",
+        "order": 0
+      }
+    ],
+    "distributed_at": "2026-11-14T14:48:40+00:00",
+    "started_at": "2026-11-14T14:48:43+00:00",
+    "ended_at": "2026-11-14T14:48:46+00:00"
+  },
+  "e9fe72ae7b09487b9fedb5578695cefe": {
+    "id": "e9fe72ae7b09487b9fedb5578695cefe",
+    "status": "ended",
+    "release_id": "0e6d3aa6c5424fb790c8795aa663bab6",
+    "created_by": "nghia",
+    "created_at": "2026-11-14T15:11:09+00:00",
+    "updated_at": "2026-11-14T15:11:15+00:00",
+    "title": "tr",
+    "show_final_score_immediately": false,
+    "allow_pretest": true,
+    "max_pretest_runs": 20,
+    "pretest_cooldown_seconds": 2.0,
+    "submission_policy": "configurable",
+    "max_submissions": 1,
+    "questions": [
+      {
+        "title": "Lớp Rectangle (mẫu nhập JSON)",
+        "statement": "Tạo class Rectangle trong package model với: private double width, private double height; constructor public Rectangle(double width, double height); getArea() trả về width * height; setWidth(double) ném IllegalArgumentException khi giá trị âm; toString() trả về Rectangle{width=<width>, height=<height>}; Rectangle implements Comparable<Rectangle>, so sánh theo diện tích tăng dần.",
+        "language": "java",
+        "grading_mode": "reflection",
+        "target_class": "model.Rectangle",
+        "target_package": "model",
+        "target_file": "Rectangle.java",
+        "starter_code": "package model;\n\npublic class Rectangle {\n    // TODO\n}\n",
+        "time_limit_seconds": 5.0,
+        "memory_limit_mb": 256,
+        "max_output_bytes": 65536,
+        "allow_pretest": true,
+        "max_pretest_runs": 20,
+        "category": "OOP",
+        "tags": [
+          "oop",
+          "java",
+          "import-test"
+        ],
+        "difficulty": "easy",
+        "checks": [
+          {
+            "id": "field-width",
+            "kind": "field",
+            "points": 10,
+            "is_visible": true,
+            "name": "width",
+            "type": "double",
+            "modifier": "private"
+          },
+          {
+            "id": "field-height",
+            "kind": "field",
+            "points": 10,
+            "is_visible": true,
+            "name": "height",
+            "type": "double",
+            "modifier": "private"
+          },
+          {
+            "id": "ctor",
+            "kind": "constructor",
+            "points": 10,
+            "is_visible": true,
+            "parameter_types": [
+              "double",
+              "double"
+            ],
+            "modifier": "public"
+          },
+          {
+            "id": "method-getArea",
+            "kind": "method",
+            "points": 10,
+            "is_visible": true,
+            "name": "getArea",
+            "return_type": "double",
+            "parameter_types": [],
+            "modifier": "public"
+          },
+          {
+            "id": "behavior-area",
+            "kind": "behavior",
+            "points": 20,
+            "is_visible": true,
+            "setup": [],
+            "expect_return": 12,
+            "constructor_parameter_types": [
+              "double",
+              "double"
+            ],
+            "constructor_args": [
+              3,
+              4
+            ],
+            "method": "getArea",
+            "parameter_types": [],
+            "args": []
+          },
+          {
+            "id": "behavior-negative-width",
+            "kind": "behavior",
+            "points": 15,
+            "is_visible": false,
+            "setup": [],
+            "expect_exception": "java.lang.IllegalArgumentException",
+            "constructor_parameter_types": [
+              "double",
+              "double"
+            ],
+            "constructor_args": [
+              3,
+              4
+            ],
+            "method": "setWidth",
+            "parameter_types": [
+              "double"
+            ],
+            "args": [
+              -1
+            ]
+          },
+          {
+            "id": "tostring",
+            "kind": "toString",
+            "points": 15,
+            "is_visible": true,
+            "setup": [],
+            "constructor_parameter_types": [
+              "double",
+              "double"
+            ],
+            "constructor_args": [
+              3,
+              4
+            ],
+            "template": "Rectangle{width={width}, height={height}}"
+          },
+          {
+            "id": "comparable",
+            "kind": "comparable",
+            "points": 10,
+            "is_visible": false,
+            "instances": [
+              {
+                "constructor_parameter_types": [
+                  "double",
+                  "double"
+                ],
+                "constructor_args": [
+                  1,
+                  2
+                ]
+              },
+              {
+                "constructor_parameter_types": [
+                  "double",
+                  "double"
+                ],
+                "constructor_args": [
+                  3,
+                  4
+                ]
+              },
+              {
+                "constructor_parameter_types": [
+                  "double",
+                  "double"
+                ],
+                "constructor_args": [
+                  3,
+                  4
+                ]
+              },
+              {
+                "constructor_parameter_types": [
+                  "double",
+                  "double"
+                ],
+                "constructor_args": [
+                  1,
+                  2
+                ]
+              },
+              {
+                "constructor_parameter_types": [
+                  "double",
+                  "double"
+                ],
+                "constructor_args": [
+                  2,
+                  6
+                ]
+              },
+              {
+                "constructor_parameter_types": [
+                  "double",
+                  "double"
+                ],
+                "constructor_args": [
+                  3,
+                  4
+                ]
+              }
+            ],
+            "comparisons": [
+              {
+                "left": 0,
+                "right": 1,
+                "expected_sign": -1
+              },
+              {
+                "left": 2,
+                "right": 3,
+                "expected_sign": 1
+              },
+              {
+                "left": 4,
+                "right": 5,
+                "expected_sign": 0
+              }
+            ]
+          }
+        ],
+        "total_points": 100,
+        "problem_kind": "java_reflection",
+        "sample_source": "package model;\n\npublic class Rectangle implements Comparable<Rectangle> {\n    private double width;\n    private double height;\n\n    public Rectangle(double width, double height) { this.width = width; this.height = height; }\n\n    public double getArea() { return width * height; }\n\n    public void setWidth(double width) {\n        if (width < 0) throw new IllegalArgumentException(\"width\");\n        this.width = width;\n    }\n\n    @Override public String toString() { return \"Rectangle{width=\" + width + \", height=\" + height + \"}\"; }\n\n    @Override public int compareTo(Rectangle o) { return Double.compare(getArea(), o.getArea()); }\n}",
+        "id": "20e43b0a6d2e4f9f9d2e3200335af2cd",
+        "status": "published",
+        "source": {
+          "created_by": "nghia",
+          "created_at": "2026-11-06T08:07:02+00:00",
+          "updated_by": "nghia",
+          "updated_at": "2026-11-06T08:07:02+00:00"
+        },
+        "usage_count": 9,
+        "version": 1,
+        "validation": {
+          "spec_hash": "2b0a5b04fb200f2733e1ba26fda70b6e7294cd94094c38b36b5f93a6c9362665",
+          "passed": true,
+          "validated_at": "2026-11-06T08:07:02+00:00",
+          "validated_by": "nghia",
+          "sample_sha256": "c8c8aac1c29e39870b1a6d9b954db914ff091bb35e669520e6e94c019257f453",
+          "verdict": "AC",
+          "score": 100,
+          "total_points": 100
+        },
+        "question_id": "20e43b0a6d2e4f9f9d2e3200335af2cd",
+        "snapshot_version": 1,
+        "snapshot_at": "2026-11-14T15:11:09+00:00",
+        "order": 0
+      }
+    ],
+    "distributed_at": "2026-11-14T15:11:09+00:00",
+    "started_at": "2026-11-14T15:11:11+00:00",
+    "ended_at": "2026-11-14T15:11:15+00:00"
   }
 }

@@ -177,7 +177,7 @@
     const statusPill = (status) => { const [label, cls] = QSTATUS[status] || [status, "status-gray"]; return h("span", { class: `status-pill ${cls}` }, label); };
     const blank = () => ({
       title: "", tag: "", duration: 90, policy: "configurable", maxSub: 1, overwrite: true, ext: ".zip", pwEnabled: false, pw: "", hasPw: false,
-      participants: new Set(), code: null, zip: null, accountQuery: "", questionQuery: "",
+      participants: new Set(), participantAccounts: new Map(), code: null, zip: null, accountQuery: "", questionQuery: "",
       pick: { search: "", language: "", mode: "", status: "published", category: "", usage: "" },
     });
 
@@ -189,6 +189,13 @@
         overwrite: c.overwrite_previous, ext: c.accepted_submission_extensions.join(" "), pwEnabled: c.password_enabled, hasPw: c.has_password,
         participants: new Set(c.participants),
       });
+      for (const account of c.participant_accounts || []) {
+        f.participantAccounts.set(account.student_id, {
+          full_name: account.full_name,
+          dob: "",
+          hasPassword: Boolean(account.has_password),
+        });
+      }
       for (const item of source.items) {
         if (item.type === "code") {
           f.code = { item_id: item.item_id, ids: new Set(item.question_ids), final: item.show_final_score_immediately, pretest: item.allow_pretest, maxRuns: item.max_pretest_runs, cooldown: item.pretest_cooldown_seconds };
@@ -230,6 +237,9 @@
       const config = {
         duration_minutes: Number(form.duration), submission_policy: form.policy, max_submissions: Number(form.maxSub), overwrite_previous: form.overwrite,
         accepted_submission_extensions: form.ext, password_enabled: form.pwEnabled, participants: [...form.participants],
+        participant_accounts: [...form.participantAccounts].filter(([sid]) => form.participants.has(sid)).map(([student_id, account]) => ({
+          student_id, full_name: account.full_name, dob: account.dob,
+        })),
       };
       if (form.pw) config.password = form.pw;
       return { title: form.title, tag: form.tag, config, items };
@@ -286,6 +296,11 @@
         examId = exam.id;
         form.pw = "";
         form.hasPw = exam.config.has_password;
+        const savedAccounts = new Map((exam.config.participant_accounts || []).map((account) => [account.student_id, account]));
+        for (const [sid, account] of form.participantAccounts) {
+          account.dob = "";
+          account.hasPassword = Boolean(savedAccounts.get(sid)?.has_password || account.hasPassword);
+        }
         dirty = false;
         if (!params.get("id")) history.replaceState(null, "", examUrl(examId));
         if (quiet) autosave.textContent = `Đã lưu nháp lúc ${new Date().toLocaleTimeString("vi-VN")}`;
@@ -318,6 +333,11 @@
       if (!form.ext.replace(/[,\s]/g, "")) problems.push(["ext", "loại file được chấp nhận"]);
       if (form.pwEnabled && !form.pw && !form.hasPw) problems.push(["password", "mật khẩu đề thi (đang bật yêu cầu mật khẩu)"]);
       if (!form.participants.size) problems.push(["participants", "danh sách sinh viên dự thi"]);
+      const knownAccounts = new Set(ref.accounts.map((account) => account.student_id));
+      if ([...form.participants].some((sid) => {
+        const account = form.participantAccounts.get(sid);
+        return !knownAccounts.has(sid) && (!account || (!account.dob && !account.hasPassword));
+      })) problems.push(["participants", "thông tin MSSV|Ngày sinh|Họ tên cho tài khoản mới"]);
       if (!form.code && !form.zip) problems.push(["items", "bài code hoặc bài nộp file (cần ít nhất một)"]);
       else if (form.code && !form.code.ids.size) problems.push(["code", "câu hỏi cho bài code"]);
       return problems;
@@ -373,15 +393,27 @@
     function participantsSection() {
       const count = h("span", { class: "section-badge" });
       const list = h("div", { class: "participant-list" });
-      const paste = h("textarea", { rows: 6, class: "paste-input", placeholder: "Nhập mỗi dòng một MSSV hoặc phân cách bằng dấu phẩy" });
+      const paste = h("textarea", { rows: 6, class: "paste-input", placeholder: "MSSV|01/02/2003|Nguyễn Văn A" });
       paste.addEventListener("input", () => { paste.style.height = "auto"; paste.style.height = `${paste.scrollHeight + 2}px`; });
       const refreshList = () => {
         const query = form.accountQuery.trim().toLowerCase();
         const known = new Set(ref.accounts.map((row) => row.student_id));
-        const rows = [...ref.accounts, ...[...form.participants].filter((sid) => !known.has(sid)).map((sid) => ({ student_id: sid, full_name: "(chưa có tài khoản — sẽ tự tạo khi phát đề)" }))]
+        const rows = [...ref.accounts, ...[...form.participants].filter((sid) => !known.has(sid)).map((sid) => {
+          const account = form.participantAccounts.get(sid);
+          return {
+            student_id: sid,
+            full_name: account
+              ? `${account.full_name} (mật khẩu ${account.hasPassword || account.dob ? "đã lưu" : "chưa nhập"})`
+              : "(thiếu thông tin tài khoản — nhập MSSV|Ngày sinh|Họ tên)",
+          };
+        })]
           .filter((row) => !query || `${row.student_id} ${row.full_name || ""}`.toLowerCase().includes(query));
         list.replaceChildren(...(rows.length ? rows.map((row) => h("label", { class: "student-option" },
-          h("input", { type: "checkbox", checked: form.participants.has(row.student_id), on: { change: (e) => { e.target.checked ? form.participants.add(row.student_id) : form.participants.delete(row.student_id); refreshCount(); scheduleAutosave(); } } }),
+          h("input", { type: "checkbox", checked: form.participants.has(row.student_id), on: { change: (e) => {
+            if (e.target.checked) form.participants.add(row.student_id);
+            else { form.participants.delete(row.student_id); form.participantAccounts.delete(row.student_id); }
+            refreshCount(); scheduleAutosave();
+          } } }),
           h("span", {}, h("strong", {}, row.student_id), h("small", {}, row.full_name || "")))) : [h("span", { class: "muted" }, "Không tìm thấy sinh viên.")]));
         refreshCount();
       };
@@ -393,7 +425,8 @@
         });
         list.querySelectorAll("input").forEach((input) => {
           const sid = input.closest("label").querySelector("strong").textContent;
-          if (input.checked) form.participants.add(sid); else if (!value) form.participants.delete(sid);
+          if (input.checked) form.participants.add(sid);
+          else if (!value) { form.participants.delete(sid); form.participantAccounts.delete(sid); }
         });
         refreshCount();
         scheduleAutosave();
@@ -401,7 +434,7 @@
       refreshList();
       return h("section", { class: "exam-form-section" },
         h("h3", {}, h("i", { class: "fa fa-user-check" }), " Đối tượng được vào thi ", count),
-        h("p", { class: "muted" }, "Cần chọn ít nhất một sinh viên để phát đề. MSSV chưa có tài khoản sẽ được tạo tự động (mật khẩu ban đầu là MSSV) khi phát đề."),
+        h("p", { class: "muted" }, "Chọn tài khoản đã có, hoặc nhập MSSV|Ngày sinh|Họ tên để tạo tài khoản mới khi phát đề."),
         mark("participants", h("div", { class: "participant-block" },
           h("div", {},
             h("input", { type: "search", value: form.accountQuery, placeholder: "Tìm MSSV hoặc họ tên...", on: { input: (e) => { form.accountQuery = e.target.value; refreshList(); } } }),
@@ -413,8 +446,26 @@
             h("button", {
               type: "button", class: "btn btn-secondary btn-small",
               on: { click: () => {
-                const ids = paste.value.split(/[\s,;]+/).map((s) => s.trim()).filter(Boolean);
-                ids.forEach((sid) => form.participants.add(sid));
+                const parsed = [];
+                const seen = new Set();
+                for (const [index, raw] of paste.value.split(/\r?\n/).entries()) {
+                  const line = raw.trim();
+                  if (!line || line.startsWith("#")) continue;
+                  const parts = line.split("|").map((part) => part.trim());
+                  const [sid, dob, full_name] = parts;
+                  const validId = sid && Array.from(sid).length <= 30 && Array.from(sid).every((char) => /[\p{L}\p{N}_-]/u.test(char));
+                  if (parts.length !== 3 || !validId || !dob || !full_name) {
+                    return toast(`Dòng ${index + 1}: nhập đúng MSSV|Ngày sinh|Họ tên.`, true);
+                  }
+                  if (seen.has(sid)) return toast(`MSSV ${sid} bị lặp trong danh sách nhập.`, true);
+                  seen.add(sid);
+                  parsed.push({ student_id: sid, dob, full_name });
+                }
+                if (!parsed.length) return toast("Hãy nhập ít nhất một dòng MSSV|Ngày sinh|Họ tên.", true);
+                parsed.forEach(({ student_id, dob, full_name }) => {
+                  form.participants.add(student_id);
+                  form.participantAccounts.set(student_id, { full_name, dob, hasPassword: false });
+                });
                 paste.value = "";
                 paste.style.height = "";
                 refreshList();

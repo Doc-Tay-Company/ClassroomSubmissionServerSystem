@@ -1233,7 +1233,16 @@ def release_student_exam_scores(release_id: str) -> None:
     assignments = read_json("assignments.json")
 
     def update_scores(submissions):
+        submission_groups = []
         for student_id, records in submissions.items():
+            if student_id == "code_submissions":
+                if not isinstance(records, Mapping):
+                    raise CodeExamError("Code submission data has an invalid legacy wrapper.", 503)
+                submission_groups.extend(records.items())
+            else:
+                submission_groups.append((student_id, records))
+
+        for student_id, records in submission_groups:
             student_assignment = assignments.get(student_id) or {}
             terminated = proctoring.is_terminated(student_assignment) and student_assignment.get("release_id") == release_id
             latest_by_question = {}

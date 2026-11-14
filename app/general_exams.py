@@ -23,6 +23,7 @@ from .code_exams import (
     release_student_exam_scores,
     transition_code_exam,
 )
+from .accounts import parse_accounts
 from .exams import (
     compute_assignments,
     eligible_students,
@@ -90,6 +91,7 @@ def _default_config() -> dict:
         "password_enabled": False,
         "password_hash": None,
         "participants": [],
+        "participant_accounts": [],
     }
 
 
@@ -130,9 +132,50 @@ def _normalize_config(raw, base: dict) -> dict:
         config["password_hash"] = None
     if "participants" in raw:
         participants = _string_list(raw["participants"], "Danh sách dự thi")
-        if len(participants) > 10000 or any(len(sid) > 80 or not sid.isalnum() for sid in participants):
+        if len(participants) > 10000 or any(
+            not sid or len(sid) > 80 or not all(char.isalnum() or char in "_-" for char in sid)
+            for sid in participants
+        ):
             raise ExamError("Danh sách MSSV dự thi không hợp lệ.")
         config["participants"] = participants
+    raw_accounts = raw.get("participant_accounts", base.get("participant_accounts", []))
+    if not isinstance(raw_accounts, list):
+        raise ExamError("Thông tin tài khoản dự thi phải là một danh sách.")
+    account_lines = []
+    account_values = []
+    for entry in raw_accounts:
+        if not isinstance(entry, Mapping):
+            raise ExamError("Thông tin mỗi tài khoản dự thi phải là một object.")
+        sid = entry.get("student_id")
+        dob = entry.get("dob", "")
+        name = entry.get("full_name")
+        if not isinstance(sid, str) or not isinstance(dob, str) or not isinstance(name, str):
+            raise ExamError("MSSV, ngày sinh và họ tên phải là chuỗi.")
+        account_values.append(dob)
+        account_lines.append(f"{sid}|{dob or '__existing_password__'}|{name}")
+    parsed_accounts, account_errors = parse_accounts("\n".join(account_lines))
+    if account_errors:
+        raise ExamError(str(account_errors[0]["message"]))
+    previous_accounts = {
+        entry["student_id"]: entry
+        for entry in base.get("participant_accounts", [])
+        if isinstance(entry, Mapping) and isinstance(entry.get("student_id"), str)
+    }
+    normalized_accounts = []
+    for parsed, dob in zip(parsed_accounts, account_values):
+        sid = parsed["student_id"]
+        if sid not in config["participants"]:
+            raise ExamError(f"MSSV {sid} không nằm trong danh sách dự thi.")
+        previous = previous_accounts.get(sid, {})
+        password_hash = hash_password(parsed["dob"]) if dob.strip() else previous.get("password_hash")
+        if not password_hash:
+            raise ExamError(f"Hãy nhập ngày sinh cho tài khoản mới {sid}.")
+        normalized_accounts.append({
+            "student_id": sid,
+            "full_name": parsed["full_name"],
+            "password_hash": password_hash,
+        })
+    config["participant_accounts"] = normalized_accounts
     return config
 
 
@@ -424,6 +467,14 @@ def _public(exam: dict, assignments: dict | None = None) -> dict:
     config = result["config"]
     config["has_password"] = bool(config.get("password_hash"))
     config.pop("password_hash", None)
+    config["participant_accounts"] = [
+        {
+            "student_id": entry["student_id"],
+            "full_name": entry["full_name"],
+            "has_password": bool(entry.get("password_hash")),
+        }
+        for entry in config.get("participant_accounts", [])
+    ]
     release = result.get("release")
     if release:
         result["release"] = {key: release[key] for key in ("release_id", "released_at", "applied", "assigned_count") if key in release}
@@ -607,6 +658,17 @@ def _build_release(exam: dict, actor: str, ip: str) -> dict:
     students = read_json("students.json")
     participants = config["participants"]
     missing = [sid for sid in participants if sid not in students]
+    participant_accounts = {
+        entry["student_id"]: entry
+        for entry in config.get("participant_accounts", [])
+    }
+    missing_without_details = [sid for sid in missing if sid not in participant_accounts]
+    if missing_without_details:
+        raise ExamError(
+            "Hãy nhập đủ MSSV|Ngày sinh|Họ tên cho tài khoản mới: "
+            + ", ".join(missing_without_details[:10])
+            + ("…" if len(missing_without_details) > 10 else "")
+        )
     eligible = eligible_students(participants, {**students, **{sid: {"active": True} for sid in missing}})
     if not eligible:
         raise ExamError("Không có tài khoản sinh viên đang hoạt động để phát đề.")
@@ -647,9 +709,18 @@ def _build_release(exam: dict, actor: str, ip: str) -> dict:
     if missing:
         students = read_json("students.json")
         for sid in missing:
+            account = participant_accounts.get(sid)
             students.setdefault(
                 sid,
-                {"student_id": sid, "full_name": "Chưa cập nhật", "password_hash": hash_password(sid), "active": True, "created_at": utc_now(), "last_ip": None, "last_seen": None, "must_change_password": True},
+                {
+                    "student_id": sid,
+                    "full_name": account["full_name"],
+                    "password_hash": account["password_hash"],
+                    "active": True,
+                    "created_at": utc_now(),
+                    "last_ip": None,
+                    "last_seen": None,
+                },
             )
         write_json("students.json", students)
 

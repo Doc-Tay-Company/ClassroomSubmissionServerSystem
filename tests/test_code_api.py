@@ -29,7 +29,7 @@ storage.DATA_DIR.mkdir(parents=True, exist_ok=True)
 storage.LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 from app import main
-from app.security import new_session
+from app.security import hash_password, new_session, verify_password
 from app.java_runner import JDKConfigurationError
 
 
@@ -344,7 +344,12 @@ class CodeApiTests(unittest.TestCase):
     def test_zip_only_exam_publishes_without_a_code_snapshot(self):
         payload = {
             "title": "ZIP-only exam",
-            "config": {"participants": ["student1"]},
+            "config": {
+                "participants": ["student1"],
+                "participant_accounts": [
+                    {"student_id": "student1", "dob": "01/02/2003", "full_name": "Test Student"}
+                ],
+            },
             "items": [
                 {
                     "type": "zip",
@@ -369,6 +374,107 @@ class CodeApiTests(unittest.TestCase):
         self.assertEqual(published["exam"]["status"], "distributed")
         self.assertEqual([item["type"] for item in published["exam"]["items"]], ["zip"])
         self.assertEqual(storage.read_json("code_exams.json"), {})
+
+    def test_exam_publish_creates_new_accounts_from_participant_details_without_overwriting_existing(self):
+        students = storage.read_json("students.json")
+        students["student-1"] = {
+            "student_id": "student-1",
+            "full_name": "Existing Student",
+            "password_hash": hash_password("existing-password"),
+            "active": True,
+        }
+        storage.write_json("students.json", students)
+        payload = {
+            "title": "Exam account details",
+            "config": {
+                "participants": ["new-student", "student-1"],
+                "participant_accounts": [
+                    {"student_id": "new-student", "dob": "01/02/2003", "full_name": "New Student"},
+                    {"student_id": "student-1", "dob": "02/03/2004", "full_name": "Replacement Name"},
+                ],
+            },
+            "items": [
+                {
+                    "type": "zip",
+                    "distribution_mode": "selected",
+                    "distribution_config": {"exam_files": ["exam.pdf"]},
+                }
+            ],
+        }
+        with patch("app.general_exams.list_exam_files", return_value=[{"name": "exam.pdf"}]), patch(
+            "app.exams.list_exam_files", return_value=[{"name": "exam.pdf"}]
+        ):
+            status, created = self.request(
+                "POST", "/api/admin/exam-records", cookie=self.admin_cookie, payload=payload
+            )
+            self.assertEqual(status, 201, created)
+            public_account = created["exam"]["config"]["participant_accounts"][0]
+            self.assertEqual(public_account, {
+                "student_id": "new-student",
+                "full_name": "New Student",
+                "has_password": True,
+            })
+            update_payload = {
+                **payload,
+                "config": {
+                    **payload["config"],
+                    "participant_accounts": [
+                        {**account, "dob": ""}
+                        for account in payload["config"]["participant_accounts"]
+                    ],
+                },
+            }
+            status, updated = self.request(
+                "POST",
+                f"/api/admin/exam-records/{created['exam']['id']}/update",
+                cookie=self.admin_cookie,
+                payload=update_payload,
+            )
+            self.assertEqual(status, 200, updated)
+            self.assertTrue(updated["exam"]["config"]["participant_accounts"][0]["has_password"])
+            status, published = self.request(
+                "POST",
+                f"/api/admin/exam-records/{created['exam']['id']}/publish",
+                cookie=self.admin_cookie,
+            )
+
+        self.assertEqual(status, 200, published)
+        students = storage.read_json("students.json")
+        new_account = students["new-student"]
+        self.assertEqual(new_account["full_name"], "New Student")
+        self.assertTrue(verify_password("01/02/2003", new_account["password_hash"]))
+        self.assertNotIn("must_change_password", new_account)
+        self.assertEqual(students["student-1"]["full_name"], "Existing Student")
+        self.assertTrue(verify_password("existing-password", students["student-1"]["password_hash"]))
+
+    def test_exam_publish_requires_account_details_for_missing_participants(self):
+        payload = {
+            "title": "Missing account details",
+            "config": {"participants": ["missing-details"]},
+            "items": [
+                {
+                    "type": "zip",
+                    "distribution_mode": "selected",
+                    "distribution_config": {"exam_files": ["exam.pdf"]},
+                }
+            ],
+        }
+        with patch("app.general_exams.list_exam_files", return_value=[{"name": "exam.pdf"}]), patch(
+            "app.exams.list_exam_files", return_value=[{"name": "exam.pdf"}]
+        ):
+            status, created = self.request(
+                "POST", "/api/admin/exam-records", cookie=self.admin_cookie, payload=payload
+            )
+            self.assertEqual(status, 201, created)
+            status, response = self.request(
+                "POST",
+                f"/api/admin/exam-records/{created['exam']['id']}/publish",
+                cookie=self.admin_cookie,
+            )
+
+        self.assertEqual(status, 400, response)
+        self.assertIn("MSSV|Ngày sinh|Họ tên", response["detail"])
+        self.assertNotIn("missing-details", storage.read_json("students.json"))
 
     def test_legacy_distribution_rejects_mixed_code_and_file_exam(self):
         requests = (
@@ -562,7 +668,7 @@ class CodeApiTests(unittest.TestCase):
         )
         self.assertEqual(status, 401, response)
 
-    def test_exam_end_releases_scores_for_hidden_policy(self):
+    def test_exam_end_releases_scores_for_legacy_wrapped_submissions(self):
         exam_id = self.create_started_code_exam()
         with patch("app.code_exams.execute_question", return_value=_execution()):
             status, submitted = self.request(
@@ -573,12 +679,20 @@ class CodeApiTests(unittest.TestCase):
             )
         self.assertEqual(status, 201, submitted)
         self.assertNotIn("score", submitted["submission"])
+        storage.write_json(
+            "code_submissions.json",
+            {"code_submissions": storage.read_json("code_submissions.json")},
+        )
         self.assertEqual(
             self.request("POST", "/api/admin/end-exam", cookie=self.admin_cookie, raw_body=b"")[0],
             200,
         )
-        record = storage.read_json("code_submissions.json")["student-1"][0]
+        record = storage.read_json("code_submissions.json")["code_submissions"]["student-1"][0]
         self.assertEqual(record["exam_score"], 10)
+        storage.write_json(
+            "code_submissions.json",
+            storage.read_json("code_submissions.json")["code_submissions"],
+        )
         status, result = self.request(
             "GET",
             "/api/student/code/submission?question_id=echo-question",
@@ -917,6 +1031,29 @@ class CodeApiTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertIn("Màn hình chính", home.decode("utf-8"))
         self.assertIn("Quay lại bài thi", home.decode("utf-8"))
+
+    def test_terminated_student_lands_on_home_view(self):
+        storage.write_json(
+            "assignments.json",
+            {
+                "student-1": {
+                    "release_id": "release-1",
+                    "status": "submitted",
+                    "started_at": "2026-11-14T10:00:00+00:00",
+                    "ends_at": "2026-11-14T10:00:00+00:00",
+                    "terminated_by_proctoring": True,
+                }
+            },
+        )
+
+        status, response = self.request("GET", "/", cookie=self.student_cookie, parse_json=False)
+
+        self.assertEqual(status, 200)
+        page = response.decode("utf-8")
+        self.assertIn('data-home-view="true"', page)
+        self.assertIn("Màn hình chính", page)
+        self.assertIn("Điểm bài thi: <strong>0</strong>", page)
+        self.assertNotIn("Xem lại bài thi", page)
 
     def test_home_view_offers_the_next_exam_before_the_student_starts(self):
         self.create_published_question("echo-question")

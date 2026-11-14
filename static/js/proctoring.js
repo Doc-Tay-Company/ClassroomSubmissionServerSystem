@@ -59,7 +59,7 @@
         <div id="proctoring-countdown" class="proctoring-countdown hidden"></div>
         <div id="proctoring-error" class="alert alert-error hidden" role="alert"></div>
         <button id="proctoring-accept" class="btn btn-primary btn-wide" type="button">Quay lại làm bài</button>
-        <a id="proctoring-home" class="btn btn-secondary btn-wide hidden" href="/?view=home">Về trang chủ</a>
+        <a id="proctoring-home" class="btn btn-secondary btn-wide hidden" href="/?view=home" data-proctoring-exempt>Về trang chủ</a>
       </div>`;
     document.body.append(overlay);
     title = document.getElementById("proctoring-title");
@@ -108,7 +108,7 @@
     modalKind = "terminated";
     const reason = serverState.termination_reason || state.termination_reason;
     title.textContent = "Bài thi đã kết thúc";
-    message.textContent = `Bài thi của bạn đã bị kết thúc vì vi phạm quy chế giám sát`;
+    message.textContent = `Bài thi của bạn đã bị kết thúc vì vi phạm quy chế giám sát.`;
     countdown.classList.add("hidden");
     clearError();
     acceptButton.classList.add("hidden");
@@ -138,6 +138,11 @@
 
   function syncAcceptButton() {
     if (!acceptButton) return;
+    if (terminated || modalKind === "terminated") {
+      acceptButton.classList.add("hidden");
+      homeButton.classList.remove("hidden");
+      return;
+    }
     acceptButton.classList.remove("hidden");
     homeButton.classList.add("hidden");
     if (leaveRequest) {
@@ -343,8 +348,7 @@
 
   if (!active && !terminated && !state.warning_pending) return;
   if (homeView) {
-    // The home view is not the exam screen; the template banner is enough.
-    // Reloading it must not trap a terminated student in the modal again.
+    // The home view is not the exam screen and must not show a termination overlay.
     return;
   }
 

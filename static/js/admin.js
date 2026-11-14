@@ -5,7 +5,8 @@
   const show = (id, message, error) => {
     const node = $(id);
     if (!node) return;
-    node.textContent = message;
+    node.textContent = String(message);
+    node.style.whiteSpace = node.textContent.includes("\n") ? "pre-line" : "";
     node.classList.remove("hidden");
     node.style.background = error ? "#fff0f0" : "";
   };
@@ -17,7 +18,7 @@
   let monitorRows = [];
   let monitorServerAt = Date.now();
   async function loadMonitor() {
-    const data = await window.cssRequest("/api/admin/monitor");
+    const data = await window.cssRequest("/api/admin/monitor", { cache: "no-store" });
     monitorRows = data.students || [];
     monitorServerAt = Date.parse(data.occurred_at) || Date.now();
     if ($("stat-total")) $("stat-total").textContent = monitorRows.length;
@@ -43,15 +44,17 @@
     const rows = monitorRows.filter((row) => [row.student_id, row.full_name, row.ip].join(" ").toLowerCase().includes(query));
     body.innerHTML = rows.map((row) => {
       const proctor = row.proctoring || {};
-      const violation = proctor.terminated
+      const violation = row.logged_in && proctor.terminated
         ? `<span class="status-pill status-red">Đình chỉ · 0 điểm</span>`
-        : proctor.warning_pending
+        : row.logged_in && proctor.warning_pending
           ? `<span class="status-pill status-amber">Chờ xác nhận ${proctor.violation_count || 0}/${proctor.max_warnings || 3}</span>`
-          : proctor.violation_count
+          : row.logged_in && proctor.violation_count
             ? `<span class="status-pill status-amber">Vi phạm ${proctor.violation_count}/${proctor.max_warnings || 3}</span>`
             : "";
-      const alerts = (row.alerts || []).map((alert) => `<span class="status-pill status-red">${labels[alert] || escape(alert)}</span>`).join("");
-      const remaining = row.remaining_seconds == null ? "—" : `${Math.floor(row.remaining_seconds / 60)}:${String(row.remaining_seconds % 60).padStart(2, "0")}`;
+      const alerts = (row.alerts || []).filter((alert) => !alert.startsWith("proctoring_")).map((alert) => `<span class="status-pill status-red">${labels[alert] || escape(alert)}</span>`).join("");
+      const remaining = row.exam_status !== "in_progress" || row.remaining_seconds == null
+        ? "—"
+        : `${Math.floor(row.remaining_seconds / 60)}:${String(row.remaining_seconds % 60).padStart(2, "0")}`;
       return `<tr class="${alerts || violation ? "row-warning" : ""}"><td><div class="cell-main">${escape(row.student_id)}</div><div class="cell-sub">${escape(row.full_name)}</div></td><td class="code-text">${escape(row.ip || "—")}</td><td>${row.logged_in ? '<span class="status-pill status-green">Đang đăng nhập</span>' : '<span class="status-pill status-gray">Ngoại tuyến / chưa đăng nhập</span>'}<div class="cell-sub">${escape(row.last_seen || "")}</div></td><td>${escape(row.exam_file || "—")}</td><td>${remaining}</td><td>${row.submission_count || 0} lần</td><td><div class="user-agent">${escape(row.user_agent || "—")}</div></td><td>${violation}${alerts || (!violation ? '<span class="muted">Bình thường</span>' : "")}</td><td><button class="btn btn-secondary btn-small" data-force="${escape(row.student_id)}">Ép nộp</button> <button class="btn btn-secondary btn-small" data-adjust="${escape(row.student_id)}">Điều chỉnh giờ</button></td></tr>`;
     }).join("") || '<tr><td colspan="9" class="empty-cell">Không có dữ liệu.</td></tr>';
   }
@@ -196,7 +199,11 @@
     const formEl = event.currentTarget;
     try {
       const data = await window.cssRequest("/api/admin/accounts/import", { method: "POST", body: new FormData(formEl) });
-      show("import-result", `Đã tạo ${data.created_count} tài khoản.` + (data.errors?.length ? ` Có ${data.errors.length} dòng lỗi.` : ""));
+      const issues = [
+        ...(data.errors || []).map((item) => `Dòng ${item.line}: ${item.message}`),
+        ...(data.duplicates || []).map((studentId) => `MSSV ${studentId} đã tồn tại nên được bỏ qua.`),
+      ];
+      show("import-result", `Đã tạo ${data.created_count} tài khoản.${issues.length ? `\n${issues.join("\n")}` : ""}`, issues.length > 0);
       if (!data.errors?.length) formEl.reset();
       await Promise.all([loadAccounts(), loadMonitor()]);
     } catch (error) { show("import-result", error.message, true); toastError(error); }
@@ -257,5 +264,10 @@
   if ($("server-addresses")) pageLoads.push(loadServerInfo());
   if ($("distribution-mode")?.value === "custom") renderRemainderRules();
   Promise.all(pageLoads).catch(toastError);
+  const refreshMonitorWhenVisible = () => {
+    if ($("monitor-body") && document.visibilityState === "visible") loadMonitor().catch(toastError);
+  };
+  document.addEventListener("visibilitychange", refreshMonitorWhenVisible);
+  window.addEventListener("focus", refreshMonitorWhenVisible);
   window.setInterval(() => { if ($("monitor-body")) loadMonitor().catch(() => {}); }, 5000);
 })();

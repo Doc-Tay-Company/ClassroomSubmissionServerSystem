@@ -143,5 +143,31 @@ class CoreTests(unittest.TestCase):
             ["tab_hidden", "window_unfocused", "multiple_tabs"],
         )
 
+    def test_monitor_hides_proctoring_alert_for_logged_out_student(self):
+        student_session = {
+            "user_id": "21010001",
+            "role": "student",
+            "last_seen": main.utc_now(),
+        }
+        state = {
+            "sessions.json": {"session": student_session},
+            "students.json": {"21010001": {"full_name": "Test Student"}},
+            "assignments.json": {
+                "21010001": {"terminated_by_proctoring": True, "status": "submitted"}
+            },
+            "submissions.json": {},
+            "code_submissions.json": {},
+        }
+
+        with patch("app.main.read_json", side_effect=lambda name: state[name]):
+            online = main.monitoring_snapshot()["students"][0]
+            state["sessions.json"]["session"]["last_seen"] = "2000-01-01T00:00:00+00:00"
+            offline = main.monitoring_snapshot()["students"][0]
+
+        self.assertTrue(online["logged_in"])
+        self.assertIn("proctoring_terminated", online["alerts"])
+        self.assertFalse(offline["logged_in"])
+        self.assertNotIn("proctoring_terminated", offline["alerts"])
+
 if __name__ == "__main__":
     unittest.main()

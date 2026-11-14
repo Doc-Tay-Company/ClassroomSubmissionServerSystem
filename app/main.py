@@ -137,9 +137,10 @@ def monitoring_snapshot() -> dict:
         if telemetry.get("visibility") == "hidden": alerts.append("tab_hidden")
         if telemetry.get("focused") is False: alerts.append("window_unfocused")
         if int(telemetry.get("tab_count",1) or 1)>1: alerts.append("multiple_tabs")
-        if proctoring_info["terminated"]: alerts.append("proctoring_terminated")
-        elif proctoring_info["warning_pending"]: alerts.append("proctoring_pending")
-        elif violation_count: alerts.append("proctoring_violation")
+        if online:
+            if proctoring_info["terminated"]: alerts.append("proctoring_terminated")
+            elif proctoring_info["warning_pending"]: alerts.append("proctoring_pending")
+            elif violation_count: alerts.append("proctoring_violation")
         latest_code = code_records[-1] if code_records else None
         code_summary = (
             {
@@ -287,7 +288,8 @@ class Handler(BaseHTTPRequestHandler):
                 student=self._get_user_record(sess)
                 proctoring_state=proctoring.state_for(sess["user_id"],ip=client_ip(req))
                 assignment=current_exam_for(sess["user_id"]); settings=read_json("settings.json")
-                return self._html(self._render("student.html",session=sess,student=student,published_exams=general_exams.published_for_students(sess["user_id"]),assignment=assignment,current_exam=general_exams.assignment_exam(assignment),settings=settings,home_view=req.query.get("view",[""])[0]=="home",remaining=remaining_seconds(assignment or {}) if assignment and assignment.get("started_at") else None,proctoring_state=proctoring_state))
+                home_view = req.query.get("view", [""])[0] == "home" or proctoring_state.get("terminated", False)
+                return self._html(self._render("student.html",session=sess,student=student,published_exams=general_exams.published_for_students(sess["user_id"]),assignment=assignment,current_exam=general_exams.assignment_exam(assignment),settings=settings,home_view=home_view,remaining=remaining_seconds(assignment or {}) if assignment and assignment.get("started_at") else None,proctoring_state=proctoring_state))
             admin_sections={
                 "/admin/dashboard":"dashboard",
                 "/admin/monitor":"monitor",
@@ -451,7 +453,10 @@ class Handler(BaseHTTPRequestHandler):
                 token=new_session(username,role,ip,self.headers.get("user-agent",""))
                 if role=="student":
                     students[username]["last_ip"]=ip; students[username]["last_seen"]=utc_now(); write_json("students.json",students)
-                audit("auth.login_success",username,ip,{"role":role}); return self._redirect("/admin" if role=="admin" else "/",cookie=token)
+                destination = "/admin" if role == "admin" else "/"
+                if role == "student" and proctoring.is_terminated(current_exam_for(username)):
+                    destination = "/?view=home"
+                audit("auth.login_success",username,ip,{"role":role}); return self._redirect(destination,cookie=token)
             if path=="/logout":
                 sess=get_session(req)
                 if sess: logout_session(sess["token"]); audit("auth.logout",sess["user_id"],client_ip(req),{})
