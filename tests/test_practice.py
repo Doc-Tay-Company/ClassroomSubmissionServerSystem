@@ -381,6 +381,10 @@ class PracticeFoundationTests(unittest.TestCase):
         expected_token = compute_catalog_token({"q_snap": q})
         self.assertEqual(res["catalog_token"], expected_token)
 
+        status, progress_res = self.request("GET", "/api/student/practice/progress", cookie=self.student_cookie)
+        self.assertEqual(status, 200)
+        self.assertEqual(progress_res["catalog_token"], expected_token)
+
     # -------------------------------------------------------------------------
     # 5. Optimistic concurrency protection (F-07)
     # -------------------------------------------------------------------------
@@ -755,14 +759,19 @@ class PracticeFoundationTests(unittest.TestCase):
                     "has_result": True,
                     "result_summary": [
                         {
-                            "id": "visible-1", "verdict": "AC", "passed": True,
+                            "id": "v1", "verdict": "AC", "passed": True,
                             "points_earned": 5, "is_visible": True,
                             "expected_stdout": _CANARY_HIDDEN,
+                            "expected_output": "expected\n",
+                            "actual_output": "actual\n",
+                            "diagnostic": "C:\\private\\runner\\error.py:1: safe detail",
                             "reference_source": _CANARY_REF,
                             "internal_note": _CANARY_NOTE,
                         },
-                        {"id": "hidden-1", "verdict": "AC", "passed": True,
+                        {"id": "h1", "verdict": "AC", "passed": True,
                          "is_visible": False, "expected_stdout": _CANARY_HIDDEN},
+                        {"id": "unknown-result", "verdict": "AC", "passed": True,
+                         "expected_output": _CANARY_HIDDEN},
                         "malformed row with " + _CANARY_NOTE,
                         {"id": "bad-verdict", "verdict": ["AC"], "passed": True},
                         {"id": "bad-points", "verdict": "WA", "passed": False,
@@ -778,7 +787,9 @@ class PracticeFoundationTests(unittest.TestCase):
         rows = {item["question_id"]: item for item in response["progress"]}
         visible = rows["q_safe_summary"]["progress"]["result_summary"]
         self.assertEqual(visible, [{
-            "id": "visible-1", "verdict": "AC", "passed": True, "points_earned": 5,
+            "id": "v1", "verdict": "AC", "passed": True, "points_earned": 5,
+            "expected_output": "expected\n", "actual_output": "actual\n",
+            "diagnostic": "[path]:1: safe detail",
         }])
         serialized = json.dumps(response)
         self.assertNotIn(_CANARY_HIDDEN, serialized)
@@ -948,6 +959,7 @@ class PracticeFoundationTests(unittest.TestCase):
                     "practice_percentage": 100.0,
                     "score_available": True,
                     "result_summary": [{"id": "v1", "verdict": "AC"}],
+                    "run_diagnostic": "obsolete diagnostic",
                     "updated_at": "2026-11-13T00:00:00Z",
                 }
             }
@@ -992,6 +1004,7 @@ class PracticeFoundationTests(unittest.TestCase):
         self.assertFalse(stored["has_result"], "Previous score must be invalidated")
         self.assertIsNone(stored["practice_percentage"])
         self.assertEqual(stored["result_summary"], [])
+        self.assertIsNone(stored["run_diagnostic"])
 
     def test_legacy_attempt_reset_route_is_not_available(self):
         q = _make_stdio_payload("q_no_reset_route", practice_enabled=True)
@@ -1085,6 +1098,7 @@ class PracticeFoundationTests(unittest.TestCase):
             "id": "v2", "name": "Visible 2", "stdin": "", "expected_stdout": "never\n",
             "points": 3, "is_visible": True,
         })
+        question["tests"][0]["expected_stdout"] = "expected\n\tline  \n"
         question["tests"][0]["points"] = 2
         question["total_points"] = 10
         storage.write_json("questions.json", {question["id"]: question})
@@ -1096,8 +1110,10 @@ class PracticeFoundationTests(unittest.TestCase):
         execution = {
             "verdict": "WA", "score": 2, "total_points": 5, "error_category": None,
             "tests": [
-                {"id": "v1", "verdict": "AC", "passed": True, "points": 2, "points_earned": 2, "is_visible": True},
-                {"id": "v2", "verdict": "WA", "passed": False, "points": 3, "points_earned": 0, "is_visible": True},
+                {"id": "v1", "verdict": "AC", "passed": True, "points": 2, "points_earned": 2, "is_visible": True,
+                 "actual_stdout": "expected\n\tline  \n"},
+                {"id": "v2", "verdict": "WA", "passed": False, "points": 3, "points_earned": 0, "is_visible": True,
+                 "actual_stdout": "wrong\n\tline  \n", "error": "RuntimeError: mismatch\n  File \"C:\\private\\workspace\\student.py\", line 3, in main\n at app.Runner.execute(Runner.java:44)"},
                 {"id": "h1", "verdict": "AC", "passed": True, "points": 5, "points_earned": 5, "is_visible": False, "expected_stdout": _CANARY_HIDDEN},
             ],
         }
@@ -1116,15 +1132,88 @@ class PracticeFoundationTests(unittest.TestCase):
         self.assertNotIn(_CANARY_REF, encoded)
         self.assertNotIn(_CANARY_NOTE, encoded)
         self.assertEqual([row["id"] for row in result["results"]], ["v1", "v2"])
+        self.assertEqual(result["results"][0]["expected_output"], "expected\n\tline  \n")
+        self.assertEqual(result["results"][0]["actual_output"], "expected\n\tline  \n")
+        self.assertEqual(result["results"][1]["expected_output"], "never\n")
+        self.assertEqual(result["results"][1]["actual_output"], "wrong\n\tline  \n")
+        self.assertEqual(result["results"][1]["points"], 3)
+        self.assertIn("RuntimeError: mismatch", result["results"][1]["diagnostic"])
+        self.assertNotIn("C:\\private", result["results"][1]["diagnostic"])
+        self.assertNotIn("Runner.java", result["results"][1]["diagnostic"])
+        self.assertNotIn(_CANARY_HIDDEN, encoded)
         progress = storage.read_json("practice_progress.json")["student-1"][question["id"]]
         self.assertEqual(progress["attempt_id"], request_payload["attempt_id"])
         self.assertEqual(progress["last_run_sequence"], 1)
         self.assertNotIn("source_code", progress)
         self.assertNotIn("reference_source", progress)
+        status, refreshed = self.request("GET", "/api/student/practice/progress", cookie=self.student_cookie)
+        self.assertEqual(status, 200)
+        persisted = next(item for item in refreshed["progress"] if item["question_id"] == question["id"])["progress"]
+        self.assertEqual(persisted["result_summary"][1]["expected_output"], "never\n")
+        self.assertEqual(persisted["result_summary"][1]["actual_output"], "wrong\n\tline  \n")
         self.assertEqual(before_official, {
             name: storage.read_json(name)
             for name in before_official
         })
+
+    def test_practice_feedback_is_bounded_and_compilation_diagnostics_are_sanitized(self):
+        question = self._store_practice_run_question("q_run_compile_feedback")
+        payload = self._practice_run_payload(question)
+        huge_output = "x" * 20000
+        compilation = {
+            "status": "EXITED", "success": False, "verdict": "CE", "exit_code": 1,
+            "stdout": "", "stderr": "C:\\private\\judge\\solution.py:7: SyntaxError: invalid syntax\ninternal app/code_runner.py:88: host detail\nTraceback (most recent call last):\n  File \"C:\\private\\judge\\solution.py\", line 7, in <module>\n    bad syntax",
+            "error": "compiler rejected source", "error_category": None,
+        }
+        execution = {
+            "verdict": "CE", "error_category": None, "error": compilation["stderr"],
+            "compile_result": compilation,
+            "tests": [{"id": "v1", "verdict": "CE", "passed": False, "points": 5,
+                       "points_earned": 0, "is_visible": True, "actual_stdout": huge_output,
+                       "error": compilation["stderr"]}],
+        }
+        with patch("app.code_exams.execute_question", return_value=execution):
+            status, result = self.request("POST", "/api/student/practice/run", cookie=self.student_cookie, payload=payload)
+        self.assertEqual(status, 200, result)
+        self.assertEqual(result["verdict"], "CE")
+        self.assertIn("SyntaxError: invalid syntax", result["run_diagnostic"])
+        self.assertNotIn("C:\\private", result["run_diagnostic"])
+        self.assertNotIn("app/code_runner.py", result["run_diagnostic"])
+        self.assertNotIn("Traceback", result["run_diagnostic"])
+        self.assertLessEqual(len(result["run_diagnostic"].encode("utf-8")), 2048 + 3)
+        self.assertLessEqual(len(result["results"][0]["actual_output"].encode("utf-8")), 8192 + 3)
+        status, refreshed = self.request("GET", "/api/student/practice/progress", cookie=self.student_cookie)
+        self.assertEqual(status, 200)
+        progress = next(item for item in refreshed["progress"] if item["question_id"] == question["id"])["progress"]
+        self.assertIn("SyntaxError: invalid syntax", progress["run_diagnostic"])
+
+    def test_practice_reflection_feedback_is_visible_check_only(self):
+        question = _make_reflection_payload("q_reflection_feedback")
+        question.update({"status": "published", "practice_revision": "e" * 32, "version": 1})
+        storage.write_json("questions.json", {question["id"]: question})
+        payload = self._practice_run_payload(question)
+        visible = {"id": "chk_v", "passed": False, "points": 4, "points_earned": 0,
+                   "expected": "name=name, type=String", "actual": "name=age, type=int",
+                   "error": "FIELD_TYPE_MISMATCH"}
+        hidden = {"id": "chk_h", "passed": True, "points": 6, "points_earned": 6,
+                  "expected": _CANARY_HIDDEN, "actual": _CANARY_REF, "error": _CANARY_NOTE}
+        execution = {"verdict": "WA", "score": 0, "total_points": 4,
+                     "error_category": None, "checks": [visible, hidden]}
+        with patch("app.code_exams.execute_question", return_value=execution) as execute:
+            status, result = self.request("POST", "/api/student/practice/run", cookie=self.student_cookie, payload=payload)
+        self.assertEqual(status, 200, result)
+        self.assertTrue(execute.call_args.kwargs["visible_only"])
+        self.assertEqual([row["id"] for row in result["results"]], ["chk_v"])
+        self.assertEqual(result["results"][0]["expected"], visible["expected"])
+        self.assertEqual(result["results"][0]["actual"], visible["actual"])
+        serialized = json.dumps(result)
+        self.assertNotIn(_CANARY_HIDDEN, serialized)
+        self.assertNotIn(_CANARY_REF, serialized)
+        self.assertNotIn(_CANARY_NOTE, serialized)
+        status, refreshed = self.request("GET", "/api/student/practice/progress", cookie=self.student_cookie)
+        self.assertEqual(status, 200)
+        persisted = next(item for item in refreshed["progress"] if item["question_id"] == question["id"])["progress"]
+        self.assertEqual(persisted["result_summary"][0]["diagnostic"], "FIELD_TYPE_MISMATCH")
 
     def test_practice_run_authorization_eligibility_and_request_allowlist(self):
         question = self._store_practice_run_question("q_run_auth")
@@ -1164,6 +1253,7 @@ class PracticeFoundationTests(unittest.TestCase):
             "last_run_sequence": 4, "has_result": True, "earned_visible_points": 2,
             "maximum_visible_points": 5, "practice_percentage": 40.0, "score_available": True,
             "result_summary": [{"id": "v1", "verdict": "WA", "passed": False, "points_earned": 2}],
+            "run_diagnostic": "previous diagnostic",
             "updated_at": "before",
         }}})
         infrastructure = {"verdict": "JUDGE_INFRA_ERROR", "error_category": "JUDGE_INFRA_ERROR", "tests": []}
@@ -1174,6 +1264,7 @@ class PracticeFoundationTests(unittest.TestCase):
         retained = storage.read_json("practice_progress.json")["student-1"][question["id"]]
         self.assertEqual(retained["practice_percentage"], 40.0)
         self.assertEqual(retained["last_run_sequence"], 4)
+        self.assertEqual(retained["run_diagnostic"], "previous diagnostic")
 
         malformed_runner_result = {"verdict": ["AC"], "error_category": None, "tests": []}
         with patch("app.code_exams.execute_question", return_value=malformed_runner_result):
@@ -1184,7 +1275,9 @@ class PracticeFoundationTests(unittest.TestCase):
         self.assertEqual(retained["practice_percentage"], 40.0)
         self.assertEqual(retained["last_run_sequence"], 4)
 
-        compile_error = {"verdict": "CE", "error_category": None, "tests": [
+        compile_error = {"verdict": "CE", "error_category": None,
+                         "compile_result": {"stderr": "SyntaxError: invalid syntax"},
+                         "tests": [
             {"id": "v1", "verdict": "CE", "passed": False, "points": 5, "points_earned": 0, "is_visible": True}
         ]}
         with patch("app.code_exams.execute_question", return_value=compile_error):
@@ -1195,6 +1288,8 @@ class PracticeFoundationTests(unittest.TestCase):
         replaced = storage.read_json("practice_progress.json")["student-1"][question["id"]]
         self.assertEqual(replaced["last_run_sequence"], 5)
         self.assertEqual(replaced["practice_percentage"], 0.0)
+        self.assertEqual(replaced["run_diagnostic"], "SyntaxError: invalid syntax")
+        self.assertNotEqual(replaced["run_diagnostic"], "previous diagnostic")
 
         stale = dict(payload, expected_practice_revision="f" * 32)
         with patch("app.code_exams.execute_question") as execute:

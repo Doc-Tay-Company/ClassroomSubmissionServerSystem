@@ -65,16 +65,17 @@ const question = (id, rev = 'rev-1') => ({ question_id:id, title:`Question ${id}
 function createTab({student='student-1', sharedStorage=new Storage(), tabSession=new Storage(), request=async () => ({})} = {}) {
   const elements = Object.fromEntries(ids.map((id) => [id, new Element(id)]));
   elements['practice-root'].dataset.studentId = student;
-  const document = { readyState:'complete', getElementById:(id) => elements[id] || null,
-    createElement:() => new Element(), addEventListener:() => {}, querySelectorAll:() => [] };
+  const documentListeners = {}, windowListeners = {};
+  const document = { readyState:'complete', visibilityState:'visible', getElementById:(id) => elements[id] || null,
+    createElement:() => new Element(), addEventListener:(type, fn) => { (documentListeners[type] ||= []).push(fn); }, querySelectorAll:() => [] };
   const window = { document, localStorage:sharedStorage, sessionStorage:tabSession, location:{hash:''},
-    cssRequest:request, cssEscape:(v) => String(v ?? ''), confirm:() => true, alert:() => {},
-    addEventListener:() => {}, removeEventListener:() => {}, setTimeout, clearTimeout, setInterval, clearInterval,
+    cssRequest:request, cssEscape:(v) => String(v ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])), confirm:() => true, alert:() => {},
+    addEventListener:(type, fn) => { (windowListeners[type] ||= []).push(fn); }, removeEventListener:() => {}, setTimeout, clearTimeout, setInterval, clearInterval,
     crypto:null };
   const context = { window, document, localStorage:sharedStorage, console, setTimeout, clearTimeout,
     Uint8Array, Math, JSON, Number, String, Boolean, encodeURIComponent, decodeURIComponent, alert:() => {}, confirm:() => true };
   vm.createContext(context); vm.runInContext(script, context);
-  return { window, elements, storage:sharedStorage, session:tabSession, api:window.PracticeWorkspace };
+  return { window, document, documentListeners, windowListeners, elements, storage:sharedStorage, session:tabSession, api:window.PracticeWorkspace };
 }
 
 const tick = () => new Promise((resolve) => setImmediate(resolve));
@@ -377,11 +378,24 @@ async function main() {
   assert(scoreTab.elements['practice-catalog-list'].innerHTML.includes('0%'));
   console.log('PASS C2-F06 zero and unscored states are distinct in available/unavailable previews');
 
+  const feedbackTab=createTab();
+  feedbackTab.api.openPreviewModal({question_id:'qFeedback',title:'Feedback',language:'python',available:true,practice_revision:'r1',
+    progress:{has_result:true,score_available:true,practice_percentage:50,earned_visible_points:1,maximum_visible_points:2,
+      result_summary:[{id:'visible-1',verdict:'WA',passed:false,points_earned:0,points:2,
+        expected_output:'expected\n  line  ',actual_output:'<img src=x onerror=alert(1)>\nactual',diagnostic:'SyntaxError: invalid syntax'}]}});
+  const feedbackHtml=feedbackTab.elements['practice-modal-host'].innerHTML;
+  assert(feedbackHtml.includes('Expected output') && feedbackHtml.includes('expected\n  line  '));
+  assert(feedbackHtml.includes('Actual output') && feedbackHtml.includes('0 / 2 points'));
+  assert(feedbackHtml.includes('&lt;img') && !feedbackHtml.includes('<img src=x'));
+  assert(feedbackHtml.includes('SyntaxError: invalid syntax'));
+  console.log('PASS visible feedback is rendered with whitespace preserved and HTML escaped');
+
   // CP3: an invalid/missing scoring denominator displays unscored, never 0% or 0/0.
   const unscoredTab=createTab({request:async (url,opts={}) => {
     if (url.endsWith('/questions/qNoScore')) return {question:{...question('qNoScore','rev-zero'),starter_code:'starter-qNoScore'}};
     if (url.endsWith('/run-status')) return {active:false,attempt_id:null,practice_revision:null};
-    if (url.endsWith('/progress')) return {progress:[]};
+    if (url.endsWith('/progress')) return {progress:[{question_id:'qNoScore',title:'Question qNoScore',language:'python',available:true,
+      practice_revision:'rev-zero',progress:null}],catalog_token:'token-zero'};
     if (url === '/api/student/practice/run') return {ok:true,completed:true,question_id:'qNoScore',practice_revision:'rev-zero',
       attempt_id:JSON.parse(opts.body).attempt_id,run_sequence:1,verdict:'CE',earned_visible_points:0,
       maximum_visible_points:0,practice_percentage:null,score_available:false,results:[]};
@@ -393,13 +407,14 @@ async function main() {
   await unscoredTab.elements['practice-code-editor'].dispatchEvent({type:'input'});
   await unscoredTab.elements['practice-run-btn'].dispatchEvent({type:'click'});
   const unscoredHtml=unscoredTab.elements['practice-run-result'].innerHTML;
-  assert(unscoredHtml.includes('No visible test points can be scored'));
+  assert(unscoredHtml.includes('No visible test points can be scored'), unscoredHtml);
   assert(!unscoredHtml.includes('0%'));
   assert(!unscoredHtml.includes('0 / 0'));
   console.log('PASS CP3 missing visible denominator remains explicitly unscored');
 
   // CP3: first Run requires an edit/attempt; valid results render, and edits during a Run keep needs_retest.
-  let finishRun, rejectRun, submittedRun, runCount = 0, catalogProgress = [];
+  let finishRun, rejectRun, submittedRun, runCount = 0, catalogProgress = [{question_id:'qRun',title:'Question qRun',language:'python',available:true,
+    practice_revision:'rev-run',progress:null}];
   const cp3RunTab = createTab({request:async (url, opts={}) => {
     if (url.endsWith('/questions/qRun')) return {question:{...question('qRun','rev-run'),starter_code:'starter-qRun',visible_points:5}};
     if (url.endsWith('/run-status')) return {active:false,attempt_id:null,practice_revision:null};
@@ -457,8 +472,107 @@ async function main() {
   assert(cp3RunTab.elements['practice-run-result'].innerHTML.includes('100%'));
   console.log('PASS CP3 infrastructure failure retains result; later valid Run replaces it');
 
+  // Phase 3: token changes reconcile catalog/progress without replacing Workspace source.
+  let remoteToken='token-1', remoteProgress=[{question_id:'qPoll',title:'Question qPoll',language:'python',available:true,
+    practice_revision:'rev-1',progress:null}], progressFetches=0, catalogFetches=0;
+  const pollTab=createTab({request:async (url) => {
+    if (url==='/api/student/practice/questions') { catalogFetches++; return {catalog_token:remoteToken}; }
+    if (url.endsWith('/questions/qPoll')) return {question:{...question('qPoll','rev-1'),starter_code:'starter-poll'}};
+    if (url.endsWith('/progress')) { progressFetches++; return {progress:remoteProgress,catalog_token:remoteToken}; }
+    if (url.endsWith('/run-status')) return {active:false,attempt_id:null,practice_revision:null};
+    return {};
+  }});
   await tick();
-  console.log('\nAll Checkpoint 2 correction regression tests passed.');
+  pollTab.api.setCatalog(remoteProgress);
+  pollTab.api.setCatalogToken('token-1');
+  await pollTab.api.openWorkspace('qPoll');
+  pollTab.elements['practice-code-editor'].value='tab-local-code';
+  await pollTab.elements['practice-code-editor'].dispatchEvent({type:'input'});
+  const initialProgressFetches=progressFetches;
+  await pollTab.api.pollCatalogChanges();
+  assert.strictEqual(progressFetches,initialProgressFetches,'unchanged token must avoid a progress refresh');
+  assert.strictEqual(pollTab.api.getCatalogToken(),'token-1');
+
+  remoteToken='token-2';
+  remoteProgress=[{question_id:'qPoll',title:'Question qPoll updated',language:'python',available:true,
+    practice_revision:'rev-2',version:2,progress:null}];
+  await pollTab.api.pollCatalogChanges();
+  assert.strictEqual(catalogFetches,2);
+  assert.strictEqual(pollTab.api.getCatalogToken(),'token-2');
+  assert.strictEqual(pollTab.elements['practice-code-editor'].value,'tab-local-code');
+  assert(pollTab.elements['practice-revision-notice-text'].textContent.includes('Choose Update'));
+  assert.strictEqual(pollTab.elements['practice-ws-update-btn'].classList.contains('hidden'),false);
+  console.log('PASS Phase 3 token change detects revision and preserves Workspace source');
+
+  // A publication change is reflected in the filtered Library without replacing its state.
+  remoteToken='token-published';
+  remoteProgress=[...remoteProgress,{question_id:'qNew',title:'Newly published',language:'python',available:true,practice_revision:'rev-new',progress:null}];
+  await pollTab.api.pollCatalogChanges();
+  assert(pollTab.elements['practice-catalog-list'].innerHTML.includes('Newly published'));
+  console.log('PASS Phase 3 catalog polling discovers newly eligible questions');
+
+  // Availability changes disable Run but leave the tab's editor intact.
+  remoteToken='token-3';
+  remoteProgress=[{question_id:'qPoll',title:'Question qPoll',language:'python',available:false,
+    practice_revision:'rev-1',progress:{attempt_id:pollTab.api.getCurrentAttemptId(),has_result:false}}];
+  await pollTab.api.pollCatalogChanges();
+  assert(pollTab.elements['practice-revision-notice-text'].textContent.includes('Question unavailable'));
+  assert.strictEqual(pollTab.elements['practice-code-editor'].value,'tab-local-code');
+  assert.strictEqual(pollTab.elements['practice-run-btn'].disabled,true);
+  console.log('PASS Phase 3 unavailable question keeps local source and disables Run');
+
+  // Hidden tabs do not poll; visibility and online events trigger prompt synchronization.
+  pollTab.document.visibilityState='hidden';
+  const beforeHidden=catalogFetches;
+  const visibilityHandler=pollTab.documentListeners.visibilitychange[0];
+  await visibilityHandler();
+  await pollTab.api.pollCatalogChanges();
+  assert.strictEqual(catalogFetches,beforeHidden,'hidden tab must not issue catalog requests');
+  pollTab.document.visibilityState='visible';
+  await visibilityHandler();
+  await tick();
+  assert.strictEqual(catalogFetches,beforeHidden+1,'visible transition should synchronize promptly');
+  console.log('PASS Phase 3 polling pauses while hidden and resumes on visibility');
+
+  // A failed network check retains the last reconciled catalog and draft, then a later check recovers.
+  const preservedCatalog=pollTab.elements['practice-catalog-list'].innerHTML;
+  const preservedSource=pollTab.elements['practice-code-editor'].value;
+  let failNextCatalogCheck=true;
+  const originalPollRequest=pollTab.window.cssRequest;
+  pollTab.window.cssRequest=async (url,opts) => {
+    if (url==='/api/student/practice/questions' && failNextCatalogCheck) { failNextCatalogCheck=false; throw new Error('offline'); }
+    return originalPollRequest(url,opts);
+  };
+  await pollTab.api.pollCatalogChanges();
+  assert.strictEqual(pollTab.elements['practice-catalog-list'].innerHTML,preservedCatalog);
+  assert.strictEqual(pollTab.elements['practice-code-editor'].value,preservedSource);
+  assert(pollTab.elements['practice-notice'].textContent.includes('temporarily unavailable'));
+  remoteToken='token-4';
+  await pollTab.api.pollCatalogChanges();
+  assert.strictEqual(pollTab.api.getCatalogToken(),'token-4');
+  console.log('PASS Phase 3 network failure preserves state and later polling recovers');
+
+  // Concurrent triggers share one in-flight catalog request.
+  let releaseCatalog, overlapCalls=0;
+  const overlapTab=createTab({request:async (url) => {
+    if (url==='/api/student/practice/questions') { overlapCalls++; return new Promise(resolve => { releaseCatalog=resolve; }); }
+    if (url.endsWith('/progress')) return {progress:[],catalog_token:'overlap-token'};
+    return {};
+  }});
+  await tick();
+  overlapTab.api.setCatalogToken('before-overlap');
+  const firstPoll=overlapTab.api.pollCatalogChanges();
+  await tick();
+  const secondPoll=await overlapTab.api.pollCatalogChanges();
+  assert.strictEqual(secondPoll,false);
+  assert.strictEqual(overlapCalls,1);
+  releaseCatalog({catalog_token:'before-overlap'});
+  await firstPoll;
+  overlapTab.api.stopCatalogPolling();
+  console.log('PASS Phase 3 overlapping refresh triggers do not duplicate requests');
+
+  await tick();
+  console.log('\nAll Practice workspace and Run integration regression tests passed.');
 }
 
 main().catch((error) => { console.error(error); process.exitCode = 1; });

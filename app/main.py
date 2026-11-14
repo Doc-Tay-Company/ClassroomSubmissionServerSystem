@@ -398,7 +398,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._get_user_record(sess)
                 questions_data=read_json("questions.json")
                 progress=get_progress_with_availability(sess["user_id"],questions_data)
-                return self._json({"ok":True,"progress":progress})
+                return self._json({"ok":True,"progress":progress,"catalog_token":compute_catalog_token(questions_data)})
             if path.startswith("/api/student/practice/questions/") and path.endswith("/run-status"):
                 sess=self._auth(req,"student")
                 self._get_user_record(sess)

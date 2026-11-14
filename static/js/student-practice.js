@@ -42,6 +42,14 @@
 
   // --- State ---
   let catalog = [];
+  let catalogToken = null;
+  let catalogPollTimer = null;
+  let catalogPollInFlight = false;
+  let catalogPollPending = false;
+  let catalogPollingStopped = false;
+  let catalogRequestGeneration = 0;
+  let openPreviewQuestionId = null;
+  let workspaceUnavailable = false;
   let currentFilter = {
     search: "",
     language: "",
@@ -235,7 +243,7 @@
 
   function updateRunButton() {
     if (!wsRunBtn) return;
-    const canRun = Boolean(currentQuestion && questionDetailsVerified && currentAttemptId &&
+    const canRun = Boolean(currentQuestion && !workspaceUnavailable && questionDetailsVerified && currentAttemptId &&
       (hasApplicableResult || needsRetest) && !attemptConflict && !runBusy && !activeRun && runStatusChecked);
     wsRunBtn.disabled = !canRun;
     wsRunBtn.setAttribute("aria-disabled", String(!canRun));
@@ -263,9 +271,49 @@
       ? "No visible test points can be scored for this question."
       : `${escape(progress.earned_visible_points ?? "-")} / ${escape(progress.maximum_visible_points ?? "-")} visible points`;
     const staleText = needsRetest ? '<p class="muted">Current code has changed since this result; Run Test again to test it.</p>' : "";
-    const resultRows = rows.map((row) => `<li><strong>${escape(row.id || "")}</strong>: ${escape(row.verdict || "")}${row.points_earned !== undefined ? ` (${escape(row.points_earned)} points)` : ""}</li>`).join("");
-    wsRunResult.innerHTML = `<h3>Practice result: ${escape(scoreLabel)}</h3>${staleText}<p>${pointsLabel}</p>${resultRows ? `<ul>${resultRows}</ul>` : ""}`;
+    const resultRows = renderFeedbackRows(rows, escape);
+    const runDiagnostic = !rows.some((row) => row && row.diagnostic) && typeof progress.run_diagnostic === "string"
+      ? `<p class="practice-feedback-diagnostic">${escape(progress.run_diagnostic)}</p>`
+      : "";
+    wsRunResult.innerHTML = `<h3>Practice result: ${escape(scoreLabel)}</h3>${staleText}<p>${pointsLabel}</p>${runDiagnostic}${resultRows ? `<ul class="practice-feedback-list">${resultRows}</ul>` : ""}`;
     wsRunResult.classList.remove("hidden");
+  }
+
+  function renderFeedbackRows(rows, escape) {
+    if (!Array.isArray(rows)) return "";
+    return rows.map((row) => {
+      if (!row || typeof row !== "object") return "";
+      const points = row.points_earned !== undefined || row.points !== undefined
+        ? `${escape(row.points_earned ?? "-")}/${escape(row.points ?? "-")} points`
+        : "Points unavailable";
+      const blocks = [];
+      for (const [field, label] of [["expected_output", "Expected output"], ["expected", "Expected"]]) {
+        if (typeof row[field] === "string") blocks.push(`<div class="practice-feedback-detail"><strong>${label}</strong><pre class="practice-feedback-output">${escape(row[field])}</pre></div>`);
+      }
+      for (const [field, label] of [["actual_output", "Actual output"], ["actual", "Actual"]]) {
+        if (typeof row[field] === "string") blocks.push(`<div class="practice-feedback-detail"><strong>${label}</strong><pre class="practice-feedback-output">${escape(row[field])}</pre></div>`);
+      }
+      if (typeof row.diagnostic === "string" && row.diagnostic) {
+        blocks.push(`<div class="practice-feedback-diagnostic"><strong>Details</strong><pre class="practice-feedback-output">${escape(row.diagnostic)}</pre></div>`);
+      }
+      return `<li class="practice-feedback-row"><div class="practice-feedback-heading"><strong>${escape(row.id || "")}</strong><span>${escape(row.verdict || "")}</span><span>${points}</span></div>${blocks.join("")}</li>`;
+    }).join("");
+  }
+
+  function renderFeedbackTableRows(rows, escape) {
+    if (!Array.isArray(rows)) return "";
+    return rows.map((row) => {
+      if (!row || typeof row !== "object") return "";
+      const verdict = row.verdict || (row.passed ? "AC" : "WA");
+      const points = `${escape(row.points_earned ?? "-")} / ${escape(row.points ?? "-")}`;
+      const details = [];
+      for (const [field, label] of [["expected_output", "Expected output"], ["expected", "Expected"], ["actual_output", "Actual output"], ["actual", "Actual"], ["diagnostic", "Details"]]) {
+        if (typeof row[field] === "string" && row[field]) {
+          details.push(`<div class="practice-feedback-detail"><strong>${label}</strong><pre class="practice-feedback-output">${escape(row[field])}</pre></div>`);
+        }
+      }
+      return `<tr><td><strong>${escape(row.id || "")}</strong></td><td><span class="status-pill ${row.passed ? "status-green" : "status-red"}">${escape(verdict)}</span><br>${points} points</td><td>${details.join("")}</td></tr>`;
+    }).join("");
   }
 
   function setRunMessage(message, isError = false) {
@@ -406,6 +454,8 @@
     try {
       await refreshProgressCatalog();
       renderCatalog();
+      reconcileWorkspaceCatalog();
+      refreshOpenPreview();
     } catch (error) {
       if (listHost) {
         listHost.innerHTML = `<div class="alert alert-warning"><i class="fa fa-exclamation-triangle"></i> Không thể tải danh sách luyện tập: ${escape(error.message)}</div>`;
@@ -415,9 +465,128 @@
 
   async function refreshProgressCatalog() {
     const request = getRequest();
+    const generation = ++catalogRequestGeneration;
     const data = await request("/api/student/practice/progress");
+    if (generation !== catalogRequestGeneration) return false;
     catalog = Array.isArray(data.progress) ? data.progress : [];
-    return catalog;
+    if (typeof data.catalog_token === "string") catalogToken = data.catalog_token;
+    return true;
+  }
+
+  const CATALOG_POLL_INTERVAL_MS = 15000;
+
+  function clearCatalogPollTimer() {
+    if (catalogPollTimer !== null) {
+      window.clearTimeout(catalogPollTimer);
+      catalogPollTimer = null;
+    }
+  }
+
+  function canPollCatalog() {
+    return !catalogPollingStopped && document.visibilityState !== "hidden";
+  }
+
+  function scheduleCatalogPoll(delay = CATALOG_POLL_INTERVAL_MS) {
+    clearCatalogPollTimer();
+    if (!canPollCatalog()) return;
+    catalogPollTimer = window.setTimeout(() => {
+      catalogPollTimer = null;
+      pollCatalogChanges();
+    }, delay);
+    if (catalogPollTimer && typeof catalogPollTimer.unref === "function") catalogPollTimer.unref();
+  }
+
+  async function pollCatalogChanges() {
+    if (!canPollCatalog()) return false;
+    if (catalogPollInFlight) {
+      catalogPollPending = true;
+      return false;
+    }
+    catalogPollInFlight = true;
+    const request = getRequest();
+    try {
+      const response = await request("/api/student/practice/questions");
+      if (!canPollCatalog()) return false;
+      const observedToken = response && response.catalog_token;
+      if (typeof observedToken !== "string") throw new Error("The Practice catalog response has no change token.");
+      if (observedToken === catalogToken) {
+        if (noticeHost && noticeHost.textContent.includes("synchronization is temporarily unavailable")) setNotice("", false);
+        return true;
+      }
+
+      // Progress carries the token computed from the same Question Bank snapshot.
+      const generation = ++catalogRequestGeneration;
+      const progressResponse = await request("/api/student/practice/progress");
+      if (!canPollCatalog() || generation !== catalogRequestGeneration) return false;
+      if (!progressResponse || !Array.isArray(progressResponse.progress) || typeof progressResponse.catalog_token !== "string") {
+        throw new Error("The updated Practice catalog could not be verified.");
+      }
+
+      catalog = progressResponse.progress;
+      catalogToken = progressResponse.catalog_token;
+      renderCatalog();
+      reconcileWorkspaceCatalog();
+      refreshOpenPreview();
+      setNotice("", false);
+      return true;
+    } catch (error) {
+      if (canPollCatalog()) setNotice("Practice synchronization is temporarily unavailable. Your current work is preserved; retrying automatically.", true);
+      return false;
+    } finally {
+      catalogPollInFlight = false;
+      const refreshWasRequested = catalogPollPending;
+      catalogPollPending = false;
+      scheduleCatalogPoll(refreshWasRequested ? 0 : CATALOG_POLL_INTERVAL_MS);
+    }
+  }
+
+  function reconcileWorkspaceCatalog() {
+    if (currentView !== "workspace" || !currentQuestion) return;
+    const item = catalog.find((entry) => entry.question_id === currentQuestion.question_id);
+    const unavailable = !item || item.available !== true;
+    if (unavailable) {
+      workspaceUnavailable = true;
+      attemptConflict = true;
+      wsUpdateBtn?.classList.add("hidden");
+      if (wsRevisionNotice && wsRevisionNoticeText) {
+        wsRevisionNoticeText.textContent = "Question unavailable. Your current question view and local code are preserved; new Runs are disabled.";
+        wsRevisionNotice.classList.remove("hidden");
+      }
+      updateRunButton();
+      return;
+    }
+
+    const changed = item.practice_revision !== currentQuestion.practice_revision;
+    const wasUnavailable = workspaceUnavailable;
+    workspaceUnavailable = false;
+    if (changed) {
+      attemptConflict = true;
+      wsUpdateBtn?.classList.remove("hidden");
+      if (wsRevisionNotice && wsRevisionNoticeText) {
+        wsRevisionNoticeText.textContent = "Question content has changed. Choose Update when you are ready; your local code and current result are preserved.";
+        wsRevisionNotice.classList.remove("hidden");
+      }
+    } else if (wasUnavailable) {
+      // Availability was restored without replacing the open snapshot or source.
+      if (wsRevisionNotice && wsRevisionNoticeText && wsRevisionNoticeText.textContent.startsWith("Question unavailable.")) {
+        wsRevisionNotice.classList.add("hidden");
+      }
+      attemptConflict = false;
+      wsUpdateBtn?.classList.add("hidden");
+    }
+    updateRunButton();
+  }
+
+  function refreshOpenPreview() {
+    if (!openPreviewQuestionId || !modalHost || modalHost.classList.contains("hidden")) return;
+    const item = catalog.find((entry) => entry.question_id === openPreviewQuestionId);
+    if (item) openPreviewModal(item);
+    else closeModal();
+  }
+
+  function stopCatalogPolling() {
+    catalogPollingStopped = true;
+    clearCatalogPollTimer();
   }
 
   function syncAttemptFromProgress(progress) {
@@ -573,6 +742,7 @@
   // --- Modal Previews ---
   function openPreviewModal(item) {
     if (!modalHost) return;
+    openPreviewQuestionId = item.question_id;
     const escape = getEscape();
     const hasResult = item.progress && item.progress.has_result;
     const isUnavailable = !item.available;
@@ -636,13 +806,10 @@
       const pct = getValidScore(item.progress);
       const colorCls = getScoreColorClass(pct);
       const barCls = getProgressBarColorClass(pct);
-      const rows = (item.progress.result_summary || []).map((r) => `
-        <tr>
-          <td><strong>${escape(r.id || "")}</strong></td>
-          <td><span class="status-pill ${r.passed ? "status-green" : "status-red"}">${escape(r.verdict || (r.passed ? "AC" : "WA"))}</span></td>
-          <td>${r.points_earned !== undefined ? escape(r.points_earned) : "-"}</td>
-        </tr>
-      `).join("");
+      const rows = renderFeedbackTableRows(item.progress.result_summary || [], escape);
+      const runDiagnostic = !item.progress.result_summary?.some((r) => r && r.diagnostic) && typeof item.progress.run_diagnostic === "string"
+        ? `<p class="practice-feedback-diagnostic">${escape(item.progress.run_diagnostic)}</p>`
+        : "";
 
       resultSectionHtml = pct === null ? `
         <div class="practice-section"><span class="practice-badge practice-pill-neutral">Not scored</span></div>` : `
@@ -655,7 +822,7 @@
           <div class="practice-progress-bar">
             <div class="practice-progress-fill ${barCls}" data-width="${Math.min(100, Math.max(0, pct))}"></div>
           </div>
-          ${rows ? `
+          ${runDiagnostic}${rows ? `
           <div class="table-scroll">
             <table class="data-table">
               <thead><tr><th>Test ID</th><th>Kết quả</th><th>Điểm</th></tr></thead>
@@ -732,6 +899,7 @@
 
   function closeModal() {
     if (!modalHost) return;
+    openPreviewQuestionId = null;
     modalHost.className = "hidden";
     modalHost.innerHTML = "";
   }
@@ -791,6 +959,7 @@
         }),
       });
       updateCommittedUnloaded = true;
+      workspaceUnavailable = false;
 
       await openWorkspace(questionId, {
         attempt_id: progress.attempt_id,
@@ -829,6 +998,7 @@
     runStatusChecked = false;
     attemptConflict = false;
     hasApplicableResult = false;
+    workspaceUnavailable = false;
 
     currentView = "workspace";
     questionDetailsVerified = false;
@@ -870,6 +1040,7 @@
       const item = catalog.find((entry) => entry.question_id === questionId);
       const progress = item && item.progress;
       if (progress) syncAttemptFromProgress(progress);
+      reconcileWorkspaceCatalog();
       if (!currentAttemptId) setRunMessage("Edit the starter code to begin an attempt and enable Run Test.");
       else if (!hasApplicableResult && !needsRetest) setRunMessage("Edit the code before the first Run Test for this attempt.");
       updateRunButton();
@@ -1180,6 +1351,20 @@
 
     refreshBtn?.addEventListener("click", loadCatalog);
 
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "hidden") {
+        clearCatalogPollTimer();
+      } else {
+        pollCatalogChanges();
+      }
+    });
+    window.addEventListener("online", () => pollCatalogChanges());
+    window.addEventListener("pagehide", stopCatalogPolling);
+    window.addEventListener("pageshow", () => {
+      catalogPollingStopped = false;
+      pollCatalogChanges();
+    });
+
     // Workspace listeners
     wsBackBtn?.addEventListener("click", showLibraryView);
 
@@ -1228,9 +1413,12 @@
     const match = hash.match(/^#q=([^&]+)/);
     if (match && match[1]) {
       const qid = decodeURIComponent(match[1]);
-      loadCatalog().then(() => openWorkspace(qid));
+      loadCatalog().then(() => {
+        openWorkspace(qid);
+        scheduleCatalogPoll();
+      });
     } else {
-      loadCatalog();
+      loadCatalog().then(() => scheduleCatalogPoll());
     }
   }
 
@@ -1239,6 +1427,7 @@
     openWorkspace,
     showLibraryView,
     setCatalog: (c) => { catalog = c; renderCatalog(); },
+    setCatalogToken: (token) => { catalogToken = token; },
     getNeedsRetest: () => needsRetest,
     setNeedsRetest: (v) => { needsRetest = v; updateRetestBadge(); },
     getCurrentAttemptId: () => currentAttemptId,
@@ -1253,6 +1442,9 @@
     clearStoredAttempt,
     clearAllStoredForQuestion,
     generateHex32,
+    pollCatalogChanges,
+    stopCatalogPolling,
+    getCatalogToken: () => catalogToken,
   };
 
   if (document.readyState === "loading") {
