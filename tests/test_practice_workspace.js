@@ -126,12 +126,19 @@ async function main() {
   assert(!template.includes('practice-ws-redo-btn'));
   console.log('PASS attempted preview opens existing work; Redo is absent and Reset Code remains');
 
-  // C2-F03: A -> Library -> Update B uses B's draft/attempt, never A's global state.
-  let updateBody;
+  // BUG-01: stale Library revision is ignored; Update uses current detail + server progress.
+  let updateBody, qBProgressRevision='rev-1';
   const qTab = createTab({request:async (url, opts={}) => {
-    if (url.endsWith('/update')) { updateBody = JSON.parse(opts.body); return {ok:true}; }
+    if (url.endsWith('/update')) {
+      updateBody = JSON.parse(opts.body);
+      if (updateBody.new_practice_revision !== 'rev-3') { const e=new Error('revision mismatch'); e.status=409; throw e; }
+      qBProgressRevision='rev-3';
+      return {ok:true};
+    }
     if (url.endsWith('/questions/qA')) return {question:question('qA')};
-    if (url.endsWith('/questions/qB')) return {question:question('qB','rev-2')};
+    if (url.endsWith('/questions/qB')) return {question:question('qB','rev-3')};
+    if (url.endsWith('/progress')) return {progress:[{question_id:'qB',available:true,practice_revision:'rev-3',
+      progress:{has_result:qBProgressRevision!=='rev-3' ? true : false,attempt_id:idB,practice_revision:qBProgressRevision,practice_percentage:75,score_available:true}}]};
     return {progress:[]};
   }});
   const idA = 'b'.repeat(32), idB = 'c'.repeat(32);
@@ -145,17 +152,31 @@ async function main() {
   await qTab.elements['practice-modal-host'].querySelector('.modal-update-btn').dispatchEvent({type:'click'});
   assert.strictEqual(updateBody.expected_attempt_id,idB);
   assert.notStrictEqual(updateBody.expected_attempt_id,idA);
+  assert.strictEqual(updateBody.old_practice_revision,'rev-1');
+  assert.strictEqual(updateBody.new_practice_revision,'rev-3','Update must submit the fresh Question Bank revision, not cached Library rev-2');
   assert.strictEqual(qTab.api.getCurrentQuestion().question_id,'qB');
   assert.strictEqual(qTab.elements['practice-code-editor'].value,'B source');
   assert.strictEqual(qTab.api.getCurrentAttemptId(),idB);
-  console.log('PASS C2-F03 Update uses selected question B attempt and source');
+  assert.strictEqual(qTab.api.getNeedsRetest(),true,'successful Update invalidates the previous result');
+  console.log('PASS BUG-01 Update uses fresh revision and selected question B attempt while preserving source');
 
   // C2-F04: true tab separation; shared localStorage, separate sessionStorage and JS/DOM contexts.
   const shared = new Storage(), sessionA = new Storage(), sessionB = new Storage();
   let tabMutationRequests = 0;
-  const detailRequest = async (url) => {
+  let serverAttempt = null, successfulRunRequest = null;
+  const detailRequest = async (url, opts={}) => {
     if (/\/(update|run)$/.test(url)) tabMutationRequests++;
-    return url.includes('/questions/') ? {question:question('q1')} : {progress:[]};
+    if (url.endsWith('/questions/q1')) return {question:question('q1')};
+    if (url.endsWith('/run-status')) return {active:false,attempt_id:serverAttempt,practice_revision:'rev-1'};
+    if (url.endsWith('/progress')) return {progress:serverAttempt ? [{question_id:'q1',available:true,practice_revision:'rev-1',
+      progress:{attempt_id:serverAttempt,practice_revision:'rev-1',has_result:false}}] : []};
+    if (url === '/api/student/practice/run') {
+      successfulRunRequest=JSON.parse(opts.body || '{}');
+      serverAttempt=successfulRunRequest.attempt_id;
+      return {completed:true,attempt_id:successfulRunRequest.attempt_id,practice_revision:'rev-1',score_available:true,
+        practice_percentage:100,earned_visible_points:1,maximum_visible_points:1,results:[]};
+    }
+    return {};
   };
   const tabA = createTab({sharedStorage:shared,tabSession:sessionA,request:detailRequest});
   const tabB = createTab({sharedStorage:shared,tabSession:sessionB,request:detailRequest});
@@ -169,13 +190,15 @@ async function main() {
   const attemptA=tabA.api.getCurrentAttemptId(), attemptB=tabB.api.getCurrentAttemptId();
   assert.notStrictEqual(attemptA,attemptB);
   assert.strictEqual(Object.keys(shared.data).filter(k=>k.includes(':q1:tab:')).length,2);
+  serverAttempt=attemptA; // Tab A's first accepted Run established the shared server attempt.
   const refreshA=createTab({sharedStorage:shared,tabSession:sessionA,request:detailRequest});
   const refreshB=createTab({sharedStorage:shared,tabSession:sessionB,request:detailRequest});
   await Promise.all([refreshA.api.openWorkspace('q1'),refreshB.api.openWorkspace('q1')]);
   assert.strictEqual(refreshA.elements['practice-code-editor'].value,'source A');
   assert.strictEqual(refreshB.elements['practice-code-editor'].value,'source B');
   assert.strictEqual(refreshA.api.getCurrentAttemptId(),attemptA);
-  assert.strictEqual(refreshB.api.getCurrentAttemptId(),attemptB);
+  assert.strictEqual(refreshB.api.getCurrentAttemptId(),attemptA,'Tab B adopts server attempt A automatically');
+  assert.strictEqual(refreshB.api.loadDraftFromStorage('q1',attemptA).source_code,'source B','only attempt metadata changes; Tab B source stays local');
   assert.strictEqual(refreshA.api.getNeedsRetest(),true);
   assert.strictEqual(refreshB.api.getNeedsRetest(),true);
   const q2Attempt='e'.repeat(32);
@@ -183,16 +206,28 @@ async function main() {
   assert.strictEqual(tabA.api.loadDraftFromStorage('q1',attemptA).source_code,'source A');
   assert.strictEqual(tabA.api.loadDraftFromStorage('q2',q2Attempt).source_code,'question 2 source');
   assert.strictEqual(tabMutationRequests,0,'opening/editing in tabs must not create server attempts');
-  const otherStudent=createTab({student:'student-2',sharedStorage:shared,tabSession:new Storage(),request:detailRequest});
+  assert.strictEqual(refreshB.elements['practice-run-btn'].disabled,false,'recovered tab can run after status check');
+  const recoveredRun=refreshB.elements['practice-run-btn'].dispatchEvent({type:'click'});
+  await recoveredRun;
+  assert.strictEqual(successfulRunRequest.attempt_id,attemptA);
+  assert.strictEqual(successfulRunRequest.source_code,'source B');
+  assert.strictEqual(refreshB.api.getCurrentAttemptId(),attemptA);
+  const otherStudent=createTab({student:'student-2',sharedStorage:shared,tabSession:new Storage(),request:async (url) => {
+    if (url.endsWith('/questions/q1')) return {question:question('q1')};
+    if (url.endsWith('/run-status')) return {active:false,attempt_id:null,practice_revision:null};
+    if (url.endsWith('/progress')) return {progress:[]};
+    return {};
+  }});
   await otherStudent.api.openWorkspace('q1');
+  assert.strictEqual(otherStudent.api.getCurrentAttemptId(),null,'another student has no shared attempt');
   otherStudent.elements['practice-code-editor'].value='student 2 source';
   await otherStudent.elements['practice-code-editor'].dispatchEvent({type:'input'});
   assert.notStrictEqual(otherStudent.api.getCurrentAttemptId(),attemptA);
   assert.strictEqual(otherStudent.api.loadDraftFromStorage('q1',otherStudent.api.getCurrentAttemptId()).source_code,'student 2 source');
   assert.strictEqual(tabA.api.loadDraftFromStorage('q1',attemptA).source_code,'source A');
-  console.log('PASS C2-F04 separate tab drafts recover without cross-tab/student overwrites');
+  console.log('PASS BUG-02 separate tab drafts recover independently while sharing the authoritative attempt');
 
-  // A stale tab cannot Update shared progress with its independent stale attempt ID.
+  // A stale tab's Update adopts authoritative attempt metadata and keeps its source.
   let authoritative = attemptA, staleUpdateBody;
   const staleTab = createTab({sharedStorage:shared,tabSession:sessionB,request:async (url,opts={}) => {
     if (url.endsWith('/update')) {
@@ -200,23 +235,107 @@ async function main() {
       if (staleUpdateBody.expected_attempt_id !== authoritative) { const e=new Error('stale'); e.status=409; throw e; }
       return {ok:true};
     }
-    return url.endsWith('/questions/q1') ? {question:question('q1')} : {progress:[]};
+    if (url.endsWith('/questions/q1')) return {question:question('q1','rev-2')};
+    if (url.endsWith('/progress')) return {progress:[{question_id:'q1',available:true,practice_revision:'rev-2',progress:{
+      attempt_id:authoritative,practice_revision:staleUpdateBody ? 'rev-2' : 'rev-1',has_result:false}}]};
+    return {};
   }});
   staleTab.api.setCatalog([{question_id:'q1',available:true,practice_revision:'rev-2',progress:{attempt_id:attemptB,practice_revision:'rev-1'}}]);
   staleTab.api.saveDraftToStorage('q1',attemptB,{attempt_id:attemptB,source_code:'preserve B',needs_retest:true});
   await staleTab.api.handleUpdate('q1');
-  assert.strictEqual(staleUpdateBody.expected_attempt_id,attemptB);
+  assert.strictEqual(staleUpdateBody.expected_attempt_id,attemptA);
   assert.strictEqual(authoritative,attemptA);
-  assert.strictEqual(staleTab.api.loadDraftFromStorage('q1',attemptB).source_code,'preserve B');
-  console.log('PASS stale tab Update cannot replace shared attempt and preserves local source');
+  assert.strictEqual(staleTab.api.getCurrentAttemptId(),attemptA);
+  assert.strictEqual(staleTab.api.loadDraftFromStorage('q1',attemptA).source_code,'preserve B');
+  console.log('PASS stale-tab Update uses authoritative attempt and preserves local source');
+
+  // BUG-02: if authority changes while a Run is in flight, reopening recovers the
+  // attempt and the delayed old response cannot replace the current result.
+  const inflightId='1'.repeat(32), newerId='2'.repeat(32), inflightStorage=new Storage(), inflightSession=new Storage();
+  let inflightAuthority=inflightId, finishOldRun, oldRequestBody;
+  const inflightRequest=async (url,opts={}) => {
+    if (url.endsWith('/questions/qFlight')) return {question:question('qFlight')};
+    if (url.endsWith('/run-status')) return {active:false,attempt_id:inflightAuthority,practice_revision:'rev-1'};
+    if (url.endsWith('/progress')) return {progress:[{question_id:'qFlight',available:true,practice_revision:'rev-1',progress:{
+      attempt_id:inflightAuthority,practice_revision:'rev-1',has_result:false}}]};
+    if (url === '/api/student/practice/run') {
+      oldRequestBody=JSON.parse(opts.body);
+      return new Promise((resolve) => { finishOldRun=resolve; });
+    }
+    return {};
+  };
+  const inflightTab=createTab({sharedStorage:inflightStorage,tabSession:inflightSession,request:inflightRequest});
+  inflightTab.api.saveDraftToStorage('qFlight',inflightId,{question_id:'qFlight',attempt_id:inflightId,practice_revision:'rev-1',source_code:'in-flight source',needs_retest:true});
+  await inflightTab.api.openWorkspace('qFlight');
+  const oldRun=inflightTab.elements['practice-run-btn'].dispatchEvent({type:'click'});
+  await tick();
+  assert.strictEqual(oldRequestBody.attempt_id,inflightId);
+  inflightAuthority=newerId;
+  await inflightTab.api.openWorkspace('qFlight');
+  assert.strictEqual(inflightTab.api.getCurrentAttemptId(),newerId);
+  assert.strictEqual(inflightTab.elements['practice-code-editor'].value,'in-flight source');
+  finishOldRun({completed:true,attempt_id:inflightId,practice_revision:'rev-1',score_available:true,practice_percentage:100,
+    earned_visible_points:1,maximum_visible_points:1,results:[]});
+  await oldRun;
+  assert(!inflightTab.elements['practice-run-result'].innerHTML.includes('100%'));
+  assert.strictEqual(inflightTab.api.getCurrentAttemptId(),newerId);
+  assert.strictEqual(inflightTab.api.loadDraftFromStorage('qFlight',newerId).source_code,'in-flight source');
+  console.log('PASS BUG-02 delayed old-attempt Run response cannot overwrite recovered state');
+
+  // A stale Run rejection itself also fetches authoritative progress and recovers
+  // without requiring refresh, logout, or a manual action.
+  const retryOld='3'.repeat(32), retryCurrent='4'.repeat(32), retryStorage=new Storage(), retrySession=new Storage();
+  let retryAuthority=retryOld, staleRunCount=0, acceptedRunBody;
+  const retryAttemptTab=createTab({sharedStorage:retryStorage,tabSession:retrySession,request:async (url,opts={}) => {
+    if (url.endsWith('/questions/qRetry')) return {question:question('qRetry')};
+    if (url.endsWith('/run-status')) return {active:false,attempt_id:retryAuthority,practice_revision:'rev-1'};
+    if (url.endsWith('/progress')) return {progress:[{question_id:'qRetry',available:true,practice_revision:'rev-1',progress:{
+      attempt_id:retryAuthority,practice_revision:'rev-1',has_result:false}}]};
+    if (url === '/api/student/practice/run') {
+      const body=JSON.parse(opts.body);
+      if (staleRunCount++ === 0) { retryAuthority=retryCurrent; const e=new Error('stale attempt'); e.status=409; throw e; }
+      acceptedRunBody=body;
+      return {completed:true,attempt_id:body.attempt_id,practice_revision:'rev-1',score_available:true,practice_percentage:50,
+        earned_visible_points:1,maximum_visible_points:2,results:[]};
+    }
+    return {};
+  }});
+  retryAttemptTab.api.saveDraftToStorage('qRetry',retryOld,{question_id:'qRetry',attempt_id:retryOld,practice_revision:'rev-1',source_code:'retry this code',needs_retest:true});
+  await retryAttemptTab.api.openWorkspace('qRetry');
+  await retryAttemptTab.elements['practice-run-btn'].dispatchEvent({type:'click'});
+  assert.strictEqual(retryAttemptTab.api.getCurrentAttemptId(),retryCurrent);
+  assert.strictEqual(retryAttemptTab.elements['practice-code-editor'].value,'retry this code');
+  assert.strictEqual(retryAttemptTab.elements['practice-run-btn'].disabled,false,'Run is re-enabled after automatic recovery');
+  await retryAttemptTab.elements['practice-run-btn'].dispatchEvent({type:'click'});
+  assert.strictEqual(acceptedRunBody.attempt_id,retryCurrent);
+  assert.strictEqual(acceptedRunBody.source_code,'retry this code');
+  console.log('PASS BUG-02 stale Run rejection automatically recovers attempt and permits retry');
+
+  // BUG-01 race: a newer Teacher revision lands after the fresh read but before Update commits.
+  let racePayload, raceRevision='rev-C';
+  const raceStorage=new Storage(), raceSession=new Storage(), raceId='f'.repeat(32);
+  const raceTab=createTab({sharedStorage:raceStorage,tabSession:raceSession,request:async (url,opts={}) => {
+    if (url.endsWith('/questions/qRace')) return {question:question('qRace','rev-B')};
+    if (url.endsWith('/progress')) return {progress:[{question_id:'qRace',available:true,practice_revision:raceRevision,
+      progress:{attempt_id:raceId,practice_revision:'rev-A',has_result:true,practice_percentage:60}}]};
+    if (url.endsWith('/update')) { racePayload=JSON.parse(opts.body); const e=new Error('new revision arrived'); e.status=409; throw e; }
+    return {};
+  }});
+  raceTab.api.saveDraftToStorage('qRace',raceId,{question_id:'qRace',attempt_id:raceId,practice_revision:'rev-A',source_code:'race source',needs_retest:true});
+  await raceTab.api.handleUpdate('qRace');
+  assert.strictEqual(racePayload.new_practice_revision,'rev-B');
+  assert.strictEqual(raceTab.api.loadDraftFromStorage('qRace',raceId).source_code,'race source');
+  assert.strictEqual(raceTab.api.loadDraftFromStorage('qRace',raceId).practice_revision,'rev-A');
+  console.log('PASS BUG-01 revision conflict leaves tab-local source and revision metadata intact');
 
   // C2-F05: Update commits, detail fetch fails, editor/source remain; explicit retry succeeds.
-  let detailCalls=0, updateAttempt;
+  let detailCalls=0, updateAttempt, updateApplied=false;
   const updateSession=new Storage(), updateStorage=new Storage();
   const retryTab=createTab({sharedStorage:updateStorage,tabSession:updateSession,request:async (url,opts={}) => {
-    if (url.endsWith('/update')) { updateAttempt=JSON.parse(opts.body).expected_attempt_id; return {ok:true}; }
-    if (url.endsWith('/questions/q1')) { detailCalls++; if(detailCalls===2) throw new Error('temporary fetch failure'); return {question:question('q1','rev-2')}; }
-    if (url.endsWith('/progress')) return new Promise(() => {});
+    if (url.endsWith('/update')) { updateAttempt=JSON.parse(opts.body).expected_attempt_id; updateApplied=true; return {ok:true}; }
+    if (url.endsWith('/questions/q1')) { detailCalls++; if(detailCalls===3) throw new Error('temporary fetch failure'); return {question:question('q1','rev-2')}; }
+    if (url.endsWith('/progress')) return {progress:[{question_id:'q1',available:true,practice_revision:'rev-2',progress:{
+      attempt_id:runId,practice_revision:updateApplied?'rev-2':'rev-1',has_result:!updateApplied,practice_percentage:75}}]};
     return {progress:[]};
   }});
   const runId='d'.repeat(32);

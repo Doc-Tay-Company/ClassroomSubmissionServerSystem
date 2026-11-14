@@ -289,24 +289,30 @@
       runStatusChecked = true;
       const serverAttempt = status.attempt_id;
       if (activeRun && currentAttemptId && serverAttempt && currentAttemptId !== serverAttempt) {
-        attemptConflict = true;
-        setRunMessage("Another tab is running a different attempt. Your local code is preserved; this tab cannot run until the current attempt is resolved.", true);
+        try {
+          await refreshProgressCatalog();
+          if (generation !== workspaceGeneration) return;
+          const item = catalog.find((entry) => entry.question_id === questionId);
+          if (item && item.progress) syncAttemptFromProgress(item.progress);
+        } catch (error) {
+          attemptConflict = true;
+          setRunMessage(`Could not synchronize the current attempt: ${error.message}. Your local code is preserved.`, true);
+        }
       }
       updateRunButton();
       if (activeRun) {
         runStatusTimer = window.setTimeout(() => refreshRunStatus(questionId, generation), 1000);
       } else if (wasActive) {
-        await loadCatalog();
+        try {
+          await refreshProgressCatalog();
+          renderCatalog();
+        } catch (error) {
+          setRunMessage(`Could not refresh Practice progress: ${error.message}. Your local code is preserved.`, true);
+        }
         if (generation !== workspaceGeneration || !currentQuestion || currentQuestion.question_id !== questionId) return;
         const item = catalog.find((entry) => entry.question_id === questionId);
         const progress = item && item.progress;
-        if (progress && progress.attempt_id !== currentAttemptId) {
-          attemptConflict = true;
-          setRunMessage("The authoritative attempt changed in another tab. Your local draft is preserved, but it cannot be run as the current attempt.", true);
-        } else if (progress && progress.practice_revision === currentQuestion.practice_revision) {
-          hasApplicableResult = progress.has_result === true;
-          renderRunResult(progress);
-        }
+        if (progress) syncAttemptFromProgress(progress);
         updateRunButton();
       }
     } catch (error) {
@@ -362,6 +368,20 @@
       setRunMessage(needsRetest ? "Run completed for the submitted code. The current edited code still needs testing." : "Run completed.");
       await loadCatalog();
     } catch (error) {
+      if (error && error.status === 409 && generation === workspaceGeneration && currentQuestion && currentQuestion.question_id === questionId) {
+        try {
+          await refreshProgressCatalog();
+          if (generation === workspaceGeneration && currentQuestion && currentQuestion.question_id === questionId) {
+            const item = catalog.find((entry) => entry.question_id === questionId);
+            if (item && item.progress) {
+              const recovered = syncAttemptFromProgress(item.progress);
+              if (recovered) setRunMessage("This tab is using the current attempt now. Your local code was preserved; run again when ready.");
+            }
+          }
+        } catch (refreshError) {
+          // Keep the request error and local draft; a later Workspace open can retry recovery.
+        }
+      }
       if (generation === workspaceGeneration && currentQuestion && currentQuestion.question_id === questionId && currentAttemptId === attemptId) {
         setRunMessage(error.message || "Practice Run failed. Your previous valid result was retained.", true);
       }
@@ -384,14 +404,54 @@
       listHost.innerHTML = '<p class="muted pad"><i class="fa fa-spinner fa-spin"></i> Đang tải danh sách câu hỏi...</p>';
     }
     try {
-      const data = await request("/api/student/practice/progress");
-      catalog = data.progress || [];
+      await refreshProgressCatalog();
       renderCatalog();
     } catch (error) {
       if (listHost) {
         listHost.innerHTML = `<div class="alert alert-warning"><i class="fa fa-exclamation-triangle"></i> Không thể tải danh sách luyện tập: ${escape(error.message)}</div>`;
       }
     }
+  }
+
+  async function refreshProgressCatalog() {
+    const request = getRequest();
+    const data = await request("/api/student/practice/progress");
+    catalog = Array.isArray(data.progress) ? data.progress : [];
+    return catalog;
+  }
+
+  function syncAttemptFromProgress(progress) {
+    if (!progress || !currentQuestion || !progress.attempt_id) return false;
+    const questionId = currentQuestion.question_id;
+    const localDraft = loadDraftFromStorage(questionId, null);
+    const sameRevision = progress.practice_revision === currentQuestion.practice_revision;
+    const localDraftNeedsUpdate = Boolean(localDraft && localDraft.practice_revision &&
+      localDraft.practice_revision !== currentQuestion.practice_revision);
+    const attemptChanged = currentAttemptId !== progress.attempt_id;
+
+    if (attemptChanged) {
+      currentAttemptId = progress.attempt_id;
+      if (localDraft) {
+        localDraft.attempt_id = progress.attempt_id;
+        saveDraftToStorage(questionId, progress.attempt_id, localDraft);
+      }
+    }
+
+    attemptConflict = !sameRevision || localDraftNeedsUpdate;
+    if (attemptConflict) {
+      hasApplicableResult = false;
+      wsUpdateBtn?.classList.remove("hidden");
+      if (wsRevisionNotice && wsRevisionNoticeText) {
+        wsRevisionNoticeText.textContent = "Question content has changed. Update it before running; your local code is preserved.";
+        wsRevisionNotice.classList.remove("hidden");
+      }
+      setRunMessage("This question revision needs an Update before it can be run. Your local code and current attempt are preserved.", true);
+    } else {
+      hasApplicableResult = progress.has_result === true;
+      renderRunResult(progress);
+    }
+    updateRunButton();
+    return !attemptConflict;
   }
 
   function filteredCatalog() {
@@ -697,40 +757,56 @@
   // --- Update Action ---
   async function handleUpdate(questionId) {
     const request = getRequest();
-    const item = catalog.find((c) => c.question_id === questionId);
-    if (!item) return;
-
-    const oldRev = (item.progress && item.progress.practice_revision) || null;
-    const newRev = item.practice_revision;
     const localDraft = loadDraftFromStorage(questionId, null);
-    const activeAttempt = (localDraft && localDraft.attempt_id) ||
-      ((currentQuestion && currentQuestion.question_id === questionId) ? currentAttemptId : null) ||
-      (item.progress && item.progress.attempt_id) || null;
+    const source = currentQuestion && currentQuestion.question_id === questionId
+      ? wsEditor.value
+      : (localDraft ? localDraft.source_code : null);
 
     try {
+      const [questionData, progressData] = await Promise.all([
+        request(`/api/student/practice/questions/${encodeURIComponent(questionId)}`),
+        request("/api/student/practice/progress"),
+      ]);
+      const latestQuestion = questionData && questionData.question;
+      const item = Array.isArray(progressData.progress)
+        ? progressData.progress.find((entry) => entry.question_id === questionId)
+        : null;
+      const progress = item && item.progress;
+      if (!latestQuestion || !item || item.available !== true || !progress || !progress.attempt_id) {
+        throw new Error("Current question progress is unavailable. Refresh the Practice Library and try again.");
+      }
+      const oldRev = progress.practice_revision;
+      const newRev = latestQuestion.practice_revision;
+      if (!oldRev || !newRev || oldRev === newRev) {
+        throw new Error("The question has no newer revision to apply. Refresh the Practice Library.");
+      }
+
       await request(`/api/student/practice/questions/${encodeURIComponent(questionId)}/update`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          expected_attempt_id: activeAttempt,
+          expected_attempt_id: progress.attempt_id,
           old_practice_revision: oldRev,
           new_practice_revision: newRev,
         }),
       });
       updateCommittedUnloaded = true;
 
-      const source = localDraft ? localDraft.source_code :
-        ((currentQuestion && currentQuestion.question_id === questionId && currentAttemptId) ? wsEditor.value : null);
       await openWorkspace(questionId, {
-        attempt_id: activeAttempt,
+        attempt_id: progress.attempt_id,
         practice_revision: newRev,
         source_code: source,
         needs_retest: true,
       });
 
-      loadCatalog();
+      await loadCatalog();
     } catch (err) {
-      alert(`Không thể cập nhật đề: ${err.message}`);
+      if (err && err.status === 409) {
+        await loadCatalog();
+        alert(`Câu hỏi đã thay đổi trong lúc cập nhật. Mã nguồn của bạn được giữ nguyên. Hãy tải lại danh sách và thử lại. ${err.message}`);
+      } else {
+        alert(`Không thể cập nhật đề: ${err.message}`);
+      }
     }
   }
 
@@ -786,15 +862,14 @@
       } else {
         restoreOrInitDraft(currentQuestion);
       }
+      // Restore this tab's source first, then reconcile attempt metadata with
+      // the current server record. Never copy source from another tab.
+      await refreshProgressCatalog();
+      if (generation !== workspaceGeneration) return;
+      renderCatalog();
       const item = catalog.find((entry) => entry.question_id === questionId);
       const progress = item && item.progress;
-      if (progress && currentAttemptId && progress.attempt_id !== currentAttemptId) {
-        attemptConflict = true;
-        setRunMessage("Another tab has changed the authoritative attempt. Your local code is preserved, but this tab cannot run it.", true);
-      } else if (progress && progress.attempt_id === currentAttemptId && progress.practice_revision === currentQuestion.practice_revision) {
-        hasApplicableResult = progress.has_result === true;
-        renderRunResult(progress);
-      }
+      if (progress) syncAttemptFromProgress(progress);
       if (!currentAttemptId) setRunMessage("Edit the starter code to begin an attempt and enable Run Test.");
       else if (!hasApplicableResult && !needsRetest) setRunMessage("Edit the code before the first Run Test for this attempt.");
       updateRunButton();
