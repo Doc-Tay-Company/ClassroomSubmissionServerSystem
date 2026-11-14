@@ -52,6 +52,18 @@ from .questions import (
     revoke_question,
     update_question,
 )
+from .papers import (
+    PaperError,
+    archive_paper,
+    create_paper,
+    delete_paper,
+    get_paper,
+    list_papers,
+    preview_paper,
+    publish_paper,
+    restore_paper,
+    update_paper,
+)
 from .code_exams import (
     CodeExamError,
     create_code_exam,
@@ -312,7 +324,7 @@ class Handler(BaseHTTPRequestHandler):
                 allowed={"dashboard","monitor","notifications","exam","exams","accounts","submissions","server","admins","exam-management"}
                 if section not in allowed: section="dashboard"
                 tab=req.query.get("tab", ["questions"])[0]
-                if tab not in {"questions","exams","results"}: tab="questions"
+                if tab not in {"questions","papers","exams","results"}: tab="questions"
                 return self._html(self._render("admin.html",session=sess,section=section,tab=tab,exam_id=req.query.get("id",[""])[0],exam_files=list_exam_files(),settings=read_json("settings.json"),monitoring=monitoring_snapshot()))
             if path=="/admin/accounts-template.txt":
                 self._auth(req,"admin")
@@ -333,6 +345,17 @@ class Handler(BaseHTTPRequestHandler):
                 self._auth(req,"admin"); return self._json({"admins":[{"username":n,"active":d.get("active",True),"created_at":d.get("created_at"),"created_by":d.get("created_by")} for n,d in read_json("admins.json").items()]})
             if path=="/api/admin/questions":
                 self._auth(req,"admin"); return self._json({"questions":list_questions()})
+            if path=="/api/admin/papers":
+                self._auth(req,"admin"); return self._json({"papers":list_papers()})
+            if path.startswith("/api/admin/papers/"):
+                self._auth(req,"admin")
+                paper_path=urllib.parse.unquote(path[len("/api/admin/papers/"):]).strip("/")
+                if paper_path.endswith("/preview") and paper_path.count("/")==1:
+                    paper_id=paper_path[:-len("/preview")]
+                    version_ids=req.query.get("version_id",[])
+                    return self._json({"preview":preview_paper(paper_id,version_ids[0] if version_ids else None)})
+                if not paper_path or "/" in paper_path: raise ClientError(404,"Paper was not found.")
+                return self._json({"paper":get_paper(paper_path)})
             if path.startswith("/api/admin/questions/"):
                 self._auth(req,"admin")
                 question_id = urllib.parse.unquote(path[len("/api/admin/questions/"):]).strip("/")
@@ -433,7 +456,7 @@ class Handler(BaseHTTPRequestHandler):
                 audit("admin.submission_downloaded",sess["user_id"],client_ip(req),{"student_id":sid,"filename":filename})
                 return self._send(200,target.read_bytes(),mimetypes.guess_type(target.name)[0] or "application/octet-stream",{"Content-Disposition":f'attachment; filename="{target.name}"'})
             return self._send(404,"Không tìm thấy trang.")
-        except (ClientError, SecurityError, CodeExamError, QuestionError, ExamError, PracticeError) as e: return self._handle_error(e)
+        except (ClientError, SecurityError, CodeExamError, QuestionError, PaperError, ExamError, PracticeError) as e: return self._handle_error(e)
         except Exception:
             traceback.print_exc(); return self._json({"detail":"Lỗi máy chủ nội bộ."},500)
 
@@ -487,6 +510,32 @@ class Handler(BaseHTTPRequestHandler):
                 sess=self._auth(req,"admin"); payload=self._json_body(req)
                 question=create_question(payload,sess["user_id"],client_ip(req))
                 return self._json({"ok":True,"question":question},201)
+            if path=="/api/admin/papers":
+                sess=self._auth(req,"admin")
+                paper=create_paper(self._json_body(req),sess["user_id"],client_ip(req))
+                return self._json({"ok":True,"paper":paper},201)
+            if path.startswith("/api/admin/papers/"):
+                sess=self._auth(req,"admin")
+                paper_path=urllib.parse.unquote(path[len("/api/admin/papers/"):]).strip("/")
+                parts=paper_path.split("/")
+                if not parts[0] or len(parts)>2: raise ClientError(404,"Paper endpoint was not found.")
+                paper_id=parts[0]
+                action=parts[1] if len(parts)==2 else None
+                payload=self._json_body(req)
+                if getattr(self,"command","POST")=="PUT" and action is None:
+                    return self._json({"ok":True,"paper":update_paper(paper_id,payload,sess["user_id"],client_ip(req))})
+                if action=="update":
+                    return self._json({"ok":True,"paper":update_paper(paper_id,payload,sess["user_id"],client_ip(req))})
+                if action=="publish":
+                    return self._json({"ok":True,"paper":publish_paper(paper_id,payload,sess["user_id"],client_ip(req))})
+                if action=="archive":
+                    return self._json({"ok":True,"paper":archive_paper(paper_id,payload,sess["user_id"],client_ip(req))})
+                if action=="restore":
+                    return self._json({"ok":True,"paper":restore_paper(paper_id,payload,sess["user_id"],client_ip(req))})
+                if action=="delete":
+                    delete_paper(paper_id,payload,sess["user_id"],client_ip(req))
+                    return self._json({"ok":True})
+                raise ClientError(404,"Paper endpoint was not found.")
             if path.startswith("/api/admin/questions/") and path.endswith("/update"):
                 sess=self._auth(req,"admin")
                 question_id=urllib.parse.unquote(path[len("/api/admin/questions/"):-len("/update")].strip("/"))
@@ -809,7 +858,7 @@ class Handler(BaseHTTPRequestHandler):
                 admins[username]={"username":username,"password_hash":hash_password(password),"active":True,"created_at":utc_now(),"created_by":sess["user_id"]}; write_json("admins.json",admins); audit("admin.admin_created",sess["user_id"],client_ip(req),{"new_admin":username})
                 return self._json({"ok":True,"username":username})
             return self._json({"detail":"Không tìm thấy endpoint."},404)
-        except (ClientError, SecurityError, CodeExamError, QuestionError, ExamError, PracticeError) as e: return self._handle_error(e)
+        except (ClientError, SecurityError, CodeExamError, QuestionError, PaperError, ExamError, PracticeError) as e: return self._handle_error(e)
         except Exception:
             traceback.print_exc(); return self._json({"detail":"Lỗi máy chủ nội bộ."},500)
 
@@ -824,7 +873,7 @@ class Handler(BaseHTTPRequestHandler):
                 delete_student_question_progress(sess["user_id"],question_id)
                 return self._json({"ok":True})
             return self._json({"detail":"Không tìm thấy endpoint."},404)
-        except (ClientError, SecurityError, CodeExamError, QuestionError, ExamError, PracticeError) as e: return self._handle_error(e)
+        except (ClientError, SecurityError, CodeExamError, QuestionError, PaperError, ExamError, PracticeError) as e: return self._handle_error(e)
         except Exception:
             traceback.print_exc(); return self._json({"detail":"Lỗi máy chủ nội bộ."},500)
 

@@ -128,5 +128,26 @@ small.fine-print{font-style:italic;font-weight:400}
 #exam-root .qb-code{max-height:240px;overflow:auto;background:#0f172a;color:#e2e8f0;border-radius:8px;padding:10px;margin:6px 0}
 @media(max-width:900px){#exam-root .exam-builder{grid-template-columns:1fr}}
 
+/* Reusable Paper management and Paper selection in exam builder */
+#code-papers-view .exam-builder{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;min-width:0}
+#code-papers-view .qb-panel{border:1px solid #e5eaf2;border-radius:10px;padding:12px;min-width:0;display:flex;flex-direction:column;gap:8px}
+#code-papers-view .qb-picker-list,#code-papers-view .qb-selected-list{max-height:420px;overflow:auto;margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:6px}
+#code-papers-view .qb-item,#code-papers-view .qb-selected{display:flex;align-items:center;gap:8px;border:1px solid #dbe2ed;border-radius:9px;background:#f8faff;padding:8px;min-width:0}
+#code-papers-view .qb-selected.qb-warn{border-color:#d97706;background:#fffbeb}
+#code-papers-view .qb-main{display:flex;flex-direction:column;flex:1;min-width:0;overflow-wrap:anywhere}
+#code-papers-view .qb-main small{color:#64748b}
+#code-papers-view .qb-actions{display:flex;gap:4px;flex-shrink:0}
+#code-papers-view .qb-preview,#exam-root .qb-preview{border:1px solid #dbe2ed;border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:10px;min-width:0}
+#code-papers-view .qb-preview-item,#exam-root .qb-preview-item{border-top:1px solid #e5eaf2;padding-top:10px}
+#code-papers-view .qb-statement,#exam-root .qb-statement{white-space:pre-wrap;overflow-wrap:anywhere}
+#code-papers-view .qb-code,#exam-root .qb-code{max-height:240px;overflow:auto;background:#0f172a;color:#e2e8f0;border-radius:8px;padding:10px;margin:6px 0}
+#code-papers-view .qb-selected-list .qb-main{flex:1}
+#exam-root .paper-choice-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:8px}
+#exam-root .paper-choice{display:flex;align-items:flex-start;gap:9px;border:1px solid #dbe2ed;border-radius:9px;background:#f8faff;padding:10px;cursor:pointer;min-width:0}
+#exam-root .paper-choice:has(input:checked){border-color:#6693f5;background:#edf4ff}
+#exam-root .paper-choice span{display:flex;flex-direction:column;min-width:0;overflow-wrap:anywhere}
+#exam-root .paper-choice small{color:#64748b}
+@media(max-width:900px){#code-papers-view .exam-builder{grid-template-columns:1fr}}
+
 .q-row-clickable{cursor:pointer}
 .q-row-clickable:hover,.q-row-clickable:focus-visible{background:rgba(0,0,0,.04);outline:none}

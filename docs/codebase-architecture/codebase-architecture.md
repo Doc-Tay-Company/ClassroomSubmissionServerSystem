@@ -77,7 +77,7 @@ The repo has no Python dependency lockfile or declared `requires-python` floor/c
 | Security (`app/security.py`) | Password hash verification, session issuance/lookups, role checks, login attempt lockout, IP extraction. | `sessions.json`, `login_attempts.json`, user/admin JSON. |
 | Exam domain (`app/exams.py`) | Exam-file listing/distribution and student start/deadline handling. | `settings.json`, `assignments.json`, users and exam files; calls security/storage. |
 | ZIP submissions (`app/submissions.py`) | Validates ZIP boundaries/CRC/paths and stores upload bytes and metadata. | `submissions/`, `submissions.json`, `assignments.json`, `settings.json`, audit log. |
-| Question and code-exam domain (`questions.py`, `code_exams.py`) | Validates question schemas, snapshots published questions, manages code exams and pretest/final grading flows. | Question/exam/submission/run JSON; runners, grading, storage, Job limits. |
+| Question, Paper and code-exam domain (`questions.py`, `papers.py`, `code_exams.py`, `general_exams.py`) | Validates question schemas; manages reusable Paper drafts/immutable versions, release assignment, student code exam retrieval and grading flows. | `questions.json`, `papers.json`, `exams.json`, `assignments.json`, code submission/run JSON; runners, grading, storage, Job limits. |
 | Execution (`code_runner.py`, `java_runner.py`, `windows_job.py`, `judge/ReflectionJudge.java`) | Compiles/runs student code, captures bounded output, classifies execution results. | Temporary workspaces, child processes, Java/Python toolchains; Windows Job Object APIs. |
 | Scoring (`app/grading.py`) | Validates judge results and calculates question/exam points. | Pure transformations over configured cases/checks and execution results. |
 | Persistence (`app/storage.py`) | JSON read/write/update, atomic replacement, JSONL audit. | Files under `data/` and `logs/`; process-global `threading.RLock`. |
@@ -178,11 +178,12 @@ The diagram uses `Handler` as the composition point and shows the code-grading r
 
 ### Code question and grading
 
-1. Admin routes create/publish questions and code exams. `code_exams.create_code_exam` snapshots published questions so later edits do not silently mutate an already-created exam.
-2. Distribution associates the code exam with a release; student code endpoints are protected by role and active-exam context checks.
-3. `/api/student/code/run` invokes `run_pretest`: source size/hash, run budget/cooldown and semaphore are checked; visible tests/checks are executed; pretest history and audit are updated. It does not create a final scored submission.
-4. `/api/student/code/submit` invokes `submit_code`: reserves submission state, executes question mode, validates/grades results, then persists final submission and exam score.
-5. `execute_question()` dispatches Java reflection to `run_reflection_judge`, otherwise STDIO to `run_stdio`. The runners start bounded child processes. `grading.py` validates result shapes/verdicts and aggregates points.
+1. Admin routes create/publish questions and manage reusable Papers. `papers.publish_paper` captures ordered question snapshots in an immutable Paper version; source status is serialized as teacher-side warnings.
+2. The admin exam builder stores either a Paper `distribution` (`common`/`random` plus `paper_versions`) or a legacy `question_ids` item. `general_exams._build_release` creates Paper-referencing Code Exams and persists the server-selected Paper/version per student in the release.
+3. Starting the release copies `paper_id`, `paper_version_id`, and `code_exam_id` into student assignments. Student code endpoints check those references and return only the assigned ordered public questions; hidden checks remain server-side. Existing question-based records retain their legacy path.
+4. `/api/student/code/run` invokes `run_pretest`: source size/hash, run budget/cooldown and semaphore are checked; visible tests/checks are executed; pretest history and audit are updated. It does not create a final scored submission.
+5. `/api/student/code/submit` invokes `submit_code`: reserves submission state, executes question mode, validates/grades results, then persists final submission and exam score.
+6. `execute_question()` dispatches Java reflection to `run_reflection_judge`, otherwise STDIO to `run_stdio`. The runners start bounded child processes. `grading.py` validates result shapes/verdicts and aggregates points.
 6. Admin code-results and regrade routes read saved results or explicitly re-run grading.
 
 See [execution-path diagram](diagrams/execution-paths.mmd) and existing [`docs/JUDGE_EXECUTION_TECHNICAL_HANDOVER.md`](../JUDGE_EXECUTION_TECHNICAL_HANDOVER.md) for additional runner protocol and platform notes.
@@ -278,9 +279,12 @@ The lock is local to one Python process. Atomic replacement protects an individu
 | `settings.json` | Singleton exam configuration/release state, participant list, distribution settings. | Current release ID matches assignments and code-exam release. |
 | `assignments.json` | Mapping from student ID to exam file, release, state and timestamps. | Student account; ties submission and release. |
 | `submissions.json` | Mapping from student ID to array of submission metadata. | Metadata points to a file in `submissions/`; each attempt associates to release ID. |
-| `questions.json` | Question bank mapping; question schema is validated in `questions.py`. | Published question IDs referenced by code exams. |
-| `code_exams.json` | Code-exam records and question snapshots. | Question snapshots, release ID, student results. |
-| `code_submissions.json` | Per-student final code submissions and grade/result details. | Code exam, release, question, student identity. |
+| `questions.json` | Mutable Question Bank records. | Source records and published status for new Paper composition. |
+| `papers.json` | Paper metadata, draft question references, and published versions with ordered question snapshots/source references. | Release, assignment, and Paper Code Exam references resolve immutable versions here. |
+| `exams.json` | Exam records and release configuration, Paper pool and per-student Paper assignment map (plus ZIP assignment map). | Assignments and release-scoped Code Exams. |
+| `assignments.json` | Student exam assignment and lifecycle; Paper exams include `paper_id`, `paper_version_id`, `code_exam_id`. | Exact release/Paper version assigned to student. |
+| `code_exams.json` | Legacy question snapshots or Paper reference (`paper_ref`) and exam settings. | Release ID, Paper version, student results. |
+| `code_submissions.json` | Per-student final code submissions and grade/result details; Paper submissions retain Paper/version/question snapshot references. | Code exam, release, question, student identity. |
 | `code_runs.json` | Bounded pretest run records and outcomes. | Student, exam/release/question identifiers. |
 | `notifications.json` | Notification records with optional student target. | Admin author and optionally student recipient. |
 | `audit.jsonl` | Append-only events with timestamp/event/actor/IP/details. | Cross-cutting event trail; not a relational foreign-key system. |
@@ -386,7 +390,7 @@ These are architecture-level observations, not a security audit. They do not imp
 
 ## Unknowns requiring further verification
 
-- Whether the current frontend exposes all backend code-exam operations (notably code exam authoring and student run/submit flows) in the intended environment.
+- Whether all Paper management, exam-builder, and student-code interactions work end-to-end in supported browsers and on a real LAN; current source wiring does not itself establish browser/LAN behavior.
 - Whether deployment uses TLS directly in this server or a reverse proxy; no proxy-trust configuration was established.
 - Actual operational scale, concurrent class size, storage growth, and restart/recovery procedures.
 - The practical test coverage/runtime status on a clean environment, especially Windows-only job controls and installed JDK behavior.
@@ -416,7 +420,9 @@ Paths are relative to the repository root. Line references point to current chec
 | `distribute_exams`, `start_exam`, `remaining_seconds` | Functions | `app/exams.py:36`, `:149`, `:187` | Allocate exam files, begin student exam and calculate remaining time. | Handler routes, `assignments.json`, settings. |
 | `validate_zip`, `accept_submission` | Functions | `app/submissions.py:11`, `:39` | Validate and persist ZIP submission. | Handler upload route and JSON assignment state. |
 | `_validate_question`, `create_question`, `update_question` | Functions | `app/questions.py` | Validate/code-question schema and mutate bank. | `storage`, grading limits, code exams. |
+| `create_paper`, `update_paper`, `publish_paper`, `preview_paper` | Functions | `app/papers.py` | Manage Paper lifecycle and immutable ordered snapshots; serialize source warnings. | `questions.json`, `papers.json`, `code_exams`, `general_exams`. |
 | `create_code_exam` | Function | `app/code_exams.py:65` | Validate exam request and snapshot published questions. | Question bank, code exam persistence. |
+| `create_paper_code_exam`, `get_code_exam`, `get_student_code_exam` | Functions | `app/code_exams.py` | Store Paper version reference, hydrate exact snapshot, serve assigned public question payload. | `papers.json`, `assignments.json`, `code_exams.json`. |
 | `prepare_code_exam_distribution`, `transition_code_exam` | Functions | `app/code_exams.py:165`, `:184` | Attach code exam to release and transition lifecycle. | Admin distribution/end-exam routes. |
 | `execute_question` | Function | `app/code_exams.py:325` | Dispatch reflection versus STDIO execution. | `java_runner`, `code_runner`, scoring. |
 | `run_pretest` | Function | `app/code_exams.py:473` | Enforce pretest rules/capacity, run visible checks, store run history. | `code_runs.json`, runner, semaphore. |

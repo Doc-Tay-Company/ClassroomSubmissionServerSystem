@@ -24,9 +24,9 @@ Ghi chú này phản ánh code/test có trong checkout, không thay thế sign-o
 
 | Phần việc | Bằng chứng hiện có | Còn lại |
 |---|---|---|
-| Người 1 — backend judge | ReflectionJudge, Java/STDIO runners, Windows Job Objects và grading đã được tích hợp; toàn bộ unittest hiện tại chạy đạt (245 tests, 1 skip). | Người phụ trách cần rà soát và ký nhận theo checklist; không suy ra Job Object là sandbox đầy đủ. |
-| Người 2 — backend server | Question API/validation/publish, exam snapshots/lifecycle, pretest/submit/results, regrade có history, force-submit, monitor summary và JDK startup preflight đã có; API tests được chạy trong suite. | Người phụ trách cần rà soát/sign-off độc lập. |
-| Người 3 — frontend và QA web | Chưa thuộc phần tích hợp backend này. | Toàn bộ UI ngân hàng/đề thi/trang làm bài và nghiệm thu web vẫn cần thực hiện trước khi tuyên bố Phase 1 hoàn tất end-to-end. |
+| Người 1 — backend judge | ReflectionJudge, Java/STDIO runners, Windows Job Objects và grading đã có. Regression Prompt 06 chạy toàn bộ suite: 322 tests, 318 passed, 2 failed, 2 skipped; hai failure ở process-limit tests của `test_java_runner.py` và `test_windows_job.py`. | Cần chẩn đoán hai failure; người phụ trách vẫn phải rà soát/sign-off; không suy ra Job Object là sandbox đầy đủ. |
+| Người 2 — backend server | Question API, Paper snapshot/version, release COMMON/RANDOM, student assignment, submit/regrade và legacy question-based path có trong source; focused regression Paper/Code/Practice/Storage đạt 79 tests theo kết quả Prompt 06. | Rà soát regrade Paper khi `use_latest_spec=true`: hiện tùy chọn này dùng Question Bank version mới nhất, không giữ strict Paper snapshot. Cần sign-off độc lập. |
+| Người 3 — frontend và QA web | Admin Paper tab, exam builder chọn Paper COMMON/RANDOM và student Code Exam client được nối theo source. | Chưa có browser, LAN hay offline end-to-end verification; kiểm tra các bước thủ công ở README/SPECIFICATION trước khi tuyên bố hoàn tất. |
 
 ## Quyết định đã chốt — không được tự ý đổi khi làm
 

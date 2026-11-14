@@ -126,17 +126,19 @@ This is where CSS goes beyond a typical LMS. The admin dashboard gives live visi
 - Create additional admin accounts.
 - Full audit log: every action is recorded in `logs/audit.jsonl`.
 
-### Exam distribution modes
+### ZIP exam file distribution modes
 - **`random`** — shuffles the exam pool; tries to give adjacent IP addresses different exams.
 - **`parity`** — assigns exam A or B based on whether the last digit of the student ID is odd or even.
 - **`custom`** — maps each last digit (0–9) to a specific exam file.
 - Distribution is a **locked, one-way action** per session — prevents re-distribution mid-exam.
 
-### Automatic code grading (backend API)
-- Admin APIs manage question drafts, publishing, versioned updates, duplication, archiving, and safe deletion; code exams snapshot published questions.
-- Student APIs support visible-only pretests, final submissions, and score visibility governed by exam state.
-- Admin APIs expose full results and regrade completed submissions after an exam ends. Regrading can use the original exam snapshot or an explicitly selected latest published question version; prior grades are retained.
-- Code grading runs only on Windows under Job Objects. It is currently an API/backend feature; the teacher and student web interfaces are not yet integrated.
+### Automatic code grading and Exam Papers
+- The admin interface includes Question Bank, **Quản lý đề thi** for reusable Papers, Code Exam configuration, and code results.
+- A Paper draft stores an ordered question list. Publishing captures an immutable version with the display and grading snapshot; teacher views show warnings when a source question is no longer published or has been deleted. Referenced Paper history is retained.
+- Code Exam sessions select a Paper version using **COMMON** (one version for every eligible student) or **RANDOM** (server chooses one version per student from the configured pool). The release and student assignment retain the selected Paper/version references; students cannot choose from or see the alternative pool.
+- The student interface loads the assigned questions in order and retains the existing editor, pretest, submit, timer, and result behavior. Student responses omit hidden tests and expected values.
+- Existing question-based Code Exam records remain readable through the legacy path. ZIP distribution remains a separate workflow and its randomization does not randomize Code Exam Papers.
+- Code grading runs only on Windows under Job Objects. The checked-in interface and APIs are wired for these workflows, but this repository review did not perform browser, LAN, or offline end-to-end verification.
 
 ### Submission validation
 - Only `.zip` files accepted; magic bytes verified.
@@ -435,10 +437,13 @@ After starting the server, visit `/health`. A healthy server responds with:
 **Recommended pre-exam checklist:**
 1. Compile and run the unit tests (above).
 2. Start the server and verify `/health`.
-3. Log in as admin, import a test student account, place a sample exam file in `de-thi/`.
-4. Configure the exam and distribute.
-5. Log in as the test student, start the exam, and submit a sample ZIP.
-6. Verify the submission appears in the admin dashboard and can be downloaded.
+3. Log in as admin and use test accounts/data; do not use real student records for a trial.
+4. For a Code Exam, publish test questions, create/reorder/preview and publish a Paper, then configure COMMON with one Paper or RANDOM with a Paper pool.
+5. Start the release and verify the student receives the assigned ordered questions. For RANDOM, repeat retrieval/relogin and confirm the same Paper remains assigned and the alternative pool is not visible.
+6. Verify visible-only pretest, single-question and whole-exam submission, deadline/result behavior, and admin regrade. Test source unpublish/archive/delete and confirm historical Paper preview still works with a warning.
+7. For a ZIP exam, place a sample file in `de-thi/`, configure the ZIP distribution mode, then submit a sample ZIP and verify its metadata/download in the admin dashboard.
+
+These are manual verification steps, not results from an automated browser/LAN test. Paper distribution's browser, LAN and offline behavior must be verified separately before operational use.
 
 ---
 

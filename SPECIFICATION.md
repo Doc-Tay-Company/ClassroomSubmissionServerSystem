@@ -1,12 +1,12 @@
 # Đặc tả kỹ thuật — Classroom Submission Server
 
 **Phiên bản:** 0.1.0 (MVP chạy LAN)  
-**Mục tiêu:** Quản lý tài khoản, phân phối đề thi, theo dõi tiến độ và nhận bài ZIP trên máy giảng viên.  
+**Mục tiêu:** Quản lý tài khoản, Question Bank và Paper cho Code Exam, phát đề code hoặc đề ZIP, theo dõi tiến độ và nhận bài trên máy giảng viên.
 **Mô hình lưu trữ:** JSON/JSONL + thư mục file; không cần database server.
 
 **Dependency runtime:** chỉ Jinja2 để render HTML. HTTP server, parser form và multipart upload dùng thư viện chuẩn Python. Không sử dụng FastAPI, Pydantic, Uvicorn, Starlette, `python-multipart` hoặc PyYAML.
 
-**Code grading Phase 1 (backend API):** chỉ hỗ trợ chạy trên Windows có Windows Job Objects và JDK 17+ (`java`/`javac` thuộc cùng một JDK). Trên Windows, server kiểm tra JDK trước khi mở cổng; trên macOS/Linux chỉ luồng ZIP cũ được hỗ trợ và code grading không khả dụng. Giao diện web cho code grading chưa được tích hợp.
+**Code grading và Exam Paper:** backend và giao diện admin/sinh viên có luồng Question Bank, Paper, Code Exam, pretest, nộp bài và kết quả. Chạy code grading yêu cầu Windows có Windows Job Objects và JDK 17+ (`java`/`javac` thuộc cùng một JDK); trên macOS/Linux chỉ luồng ZIP được hỗ trợ. Browser/LAN/offline end-to-end chưa được xác nhận trong lần rà soát tài liệu này.
 
 **Dữ liệu runtime:** Các file JSON trong `data/` chứa dữ liệu cục bộ và bị Git bỏ qua. Checkout mới giữ thư mục bằng `.gitkeep`; `initialize()` tự tạo các file JSON mặc định. Quy tắc ignore không xóa hoặc ghi đè các file hiện có.
 
@@ -78,7 +78,15 @@ Gồm `exam_duration_minutes`, `submission_policy` (`once` hoặc `configurable`
 
 ### `assignments.json`
 
-Khóa theo MSSV; mỗi record gồm `exam_file`, `release_id`, `assigned_at`, `ip_at_assignment`, `ip_at_start`, `started_at`, `ends_at`, `status`. Sau khi phát, endpoint phân phối bị khóa trong cùng lượt.
+Khóa theo MSSV. Record Code Exam mới có thể gồm `code_exam_id`, `paper_id`, `paper_version_id`, `release_id`, `assigned_at`, `started_at`, `ends_at`, `status`; các trường ZIP như `exam_file` và thông tin IP vẫn thuộc luồng ZIP hiện hữu. Paper/version cụ thể được chốt tại release và giữ trong assignment; truy xuất sinh viên không lấy version mới nhất của Paper.
+
+### Question Bank, Paper và Code Exam JSON
+
+- `questions.json` giữ câu hỏi nguồn có thể chỉnh sửa cùng `status`/version hiện hành.
+- `papers.json` giữ Paper metadata (`id`, `title`, `metadata`, `status`, `revision`), bản nháp (`draft.question_ids`) và các version đã publish. Mỗi version (`id`, `version`, `published_at`, `title`, `metadata`, `questions`) chứa danh sách snapshot câu hỏi có `question_id`, `snapshot_version`, `snapshot_at`, `order`, nội dung và cấu hình grading; `source_ref` giữ danh tính/trạng thái nguồn tại thời điểm capture. Nội dung của version đã phát không đổi khi Paper draft hay Question Bank thay đổi.
+- `exams.json` giữ exam record và release. Code item mới dùng `distribution: {"mode":"common"|"random","paper_versions":[{"paper_id":"…","paper_version_id":"…"}]}`. Release lưu `distribution_mode`, `paper_pool`, `paper_assignments` theo MSSV và `paper_distribution_summary`; mỗi assignment map chỉ định `paper_id`, `paper_version_id`, `code_exam_id`.
+- `code_exams.json` giữ release-scoped Code Exam với `paper_ref: {paper_id, paper_version_id}`; khi đọc, backend phân giải question snapshots từ Paper version đó. `code_submissions.json` của bài Paper mới lưu `paper_id`, `paper_version_id`, `question_id` và `snapshot_version` cùng kết quả chấm.
+- Bản ghi cũ dựa trên `question_ids` vẫn đọc theo nhánh tương thích. Không tự tạo Paper giả hoặc chuyển đổi dữ liệu lịch sử.
 
 ### `submissions.json`
 
@@ -113,6 +121,8 @@ Mỗi dòng là một JSON object độc lập gồm `occurred_at`, `event`, `ac
 
 ### 4.3 Phân phối đề
 
+Các chế độ trong mục này áp dụng cho file đề của ZIP Exam. Chúng tách biệt với COMMON/RANDOM Paper của Code Exam ở mục 4.6.
+
 - `random`: xáo trộn tập file đề, phân nhóm theo subnet (`/24` IPv4 hoặc `/64` IPv6), sắp xếp theo IP đã biết và luân phiên đề để các IP gần nhau ưu tiên nhận đề khác nhau.
 - `parity`: chữ số cuối cùng có giá trị số trong MSSV quyết định nhóm chẵn/lẻ; Admin chọn file cụ thể cho từng nhóm.
 - `custom`: ánh xạ chữ số cuối `0`–`9` tới tên file đề thực tế.
@@ -136,13 +146,18 @@ Mỗi dòng là một JSON object độc lập gồm `occurred_at`, `event`, `ac
 - Chính sách `once`: chỉ một lần. `configurable`: theo `max_submissions` từ 1–20.
 - Nếu bật `overwrite_previous`, payload cũ bị xóa nhưng metadata lịch sử giữ lại; lần nộp vẫn được tính vào giới hạn.
 
-### 4.6 Chấm code (API backend)
+### 4.6 Code Exam và phân phối Paper
 
 - Ngân hàng câu hỏi lưu trong `questions.json`; bài nộp và lịch sử pretest lưu riêng trong `code_submissions.json` và `code_runs.json`.
 - Chỉ tổ hợp Java + Reflection, Java + STDIO, và Python + STDIO được chấp nhận. Câu hỏi phải được publish sau khi đáp án mẫu vượt qua toàn bộ test/check.
-- Code exam lưu snapshot question đã publish. Cập nhật ngân hàng không sửa snapshot của đề đã phát.
+- Admin tạo Paper từ câu hỏi đang Published, sắp xếp thứ tự, xem trước và xuất bản version bất biến. Có thể lưu Paper ở trạng thái nháp, archive/restore; không xóa Paper còn được release, assignment hoặc Code Exam tham chiếu.
+- Mỗi snapshot lưu nội dung/cấu hình cần cho hiển thị và chấm. Khi câu hỏi nguồn bị unpublish/archive hoặc xóa, Paper version vẫn render từ snapshot; giao diện admin hiển thị cảnh báo nguồn không còn hoạt động hoặc đã bị xóa. Câu hỏi inactive không được thêm mới vào Paper.
+- Code item của exam record chọn `distribution.mode` là `common` hoặc `random` và các `paper_versions`. COMMON yêu cầu đúng một version. RANDOM yêu cầu pool không rỗng; backend kiểm tra Paper/version đã publish, chọn Paper cho từng sinh viên lúc tạo release và lưu lựa chọn. Không random câu hỏi bên trong Paper.
+- Sinh viên tải đúng Code Exam/Paper version trong assignment; thứ tự câu hỏi ổn định. Payload sinh viên chỉ chứa dữ liệu public và visible tests/checks. Không gửi pool Paper thay thế, hidden tests hoặc expected values.
+- Bài nộp Paper mới liên kết `paper_id`, `paper_version_id`, `question_id`, `snapshot_version`; regrade phân giải snapshot gắn với Code Exam/release. Luồng `question_ids` lịch sử tiếp tục được hỗ trợ, không chuyển dữ liệu cũ thành Paper.
+- ZIP Exam vẫn là luồng riêng; chế độ random cho file ZIP không phải chế độ RANDOM cho Paper.
 - Pretest chỉ chạy check/test visible, có quota/cooldown; submission cuối chạy toàn bộ check/test và tuân theo release, exam state, deadline, số lần nộp và chính sách hiển thị điểm.
-- Chỉ admin xem kết quả đầy đủ/test ẩn. Sau khi đề kết thúc, admin có thể chấm lại từng submission; mặc định dùng snapshot gốc, `use_latest_spec=true` chọn phiên bản mới nhất đã publish. Kết quả chấm trước được giữ trong lịch sử.
+- Chỉ admin xem kết quả đầy đủ/test ẩn. Sau khi đề kết thúc, admin có thể chấm lại từng submission; mặc định dùng snapshot gốc, `use_latest_spec=true` chọn Question Bank version mới nhất đã publish. **Giới hạn hiện tại:** tùy chọn này cũng thay snapshot câu hỏi của Paper Exam, nên không bảo đảm regrade theo Paper version đã giao; cần khắc phục hoặc chốt policy trước khi coi historical regrade hoàn tất. Kết quả chấm trước được giữ trong lịch sử.
 - Xóa câu hỏi chỉ được phép khi chưa được tham chiếu bởi code exam, bài nộp hoặc pretest; câu hỏi đã dùng phải archive.
 
 ## 5. HTTP API
@@ -178,12 +193,22 @@ Mỗi dòng là một JSON object độc lập gồm `occurred_at`, `event`, `ac
 | POST | `/api/admin/questions/{id}/archive` | Admin | Lưu trữ câu hỏi đã dùng |
 | POST | `/api/admin/questions/{id}/delete` | Admin | Xóa câu hỏi chưa sử dụng |
 | POST | `/api/admin/questions/{id}/publish` | Admin | Xác thực đáp án mẫu và publish |
-| GET | `/api/admin/code-exams` | Admin | Danh sách đề code |
-| POST | `/api/admin/code-exams` | Admin | Tạo đề và snapshot câu hỏi |
+| GET/POST | `/api/admin/papers` | Admin | Liệt kê/tạo Paper (`title`, `metadata`, ordered `question_ids`) |
+| GET/PUT | `/api/admin/papers/{id}` | Admin | Lấy/cập nhật Paper; update gửi `expected_revision` |
+| GET | `/api/admin/papers/{id}/preview?version_id=...` | Admin | Xem trước draft/current hoặc version cụ thể |
+| POST | `/api/admin/papers/{id}/{publish\|archive\|restore\|delete}` | Admin | Chuyển trạng thái Paper; body cần `expected_revision` |
+| GET/POST | `/api/admin/exam-records` | Admin | Liệt kê/tạo exam record; code item dùng `distribution` Paper hoặc legacy `question_ids` |
+| GET | `/api/admin/exam-records/{id}` | Admin | Chi tiết exam record |
+| GET | `/api/admin/exam-records/{id}/preview` | Admin | Student-safe preview; Paper mode trả selected `paper_versions` |
+| POST | `/api/admin/exam-records/{id}/update` | Admin | Cập nhật draft/chưa áp dụng release theo quy tắc lifecycle |
+| POST | `/api/admin/exam-records/{id}/{publish\|start\|end\|revoke\|copy\|delete}` | Admin | Quản lý release và trạng thái exam |
+| GET | `/api/admin/code-exams` | Admin | Danh sách Code Exam, gồm record Paper và legacy |
+| POST | `/api/admin/code-exams` | Admin | Tạo Code Exam question-based theo API legacy |
 | GET | `/api/admin/code-results?exam_id=...` | Admin | Kết quả bài code |
 | POST | `/api/admin/code-results/{exam_id}/regrade` | Admin | Chấm lại một submission sau khi kỳ thi kết thúc |
 | POST | `/api/student/code/run` | Sinh viên | Chạy pretest visible |
 | POST | `/api/student/code/submit` | Sinh viên | Nộp và chấm toàn bộ test/check |
+| POST | `/api/student/code/submit-exam` | Sinh viên | Nộp tập câu trả lời của Code Exam |
 | GET | `/api/student/code-exam` | Sinh viên | Lấy snapshot đề đã giao, lọc test/check ẩn |
 | GET | `/api/student/code/submission?question_id=...` | Sinh viên | Xem submission theo quyền hiển thị điểm |
 | POST | `/api/student/start` | Sinh viên | Bắt đầu thi |
@@ -213,3 +238,7 @@ Mỗi dòng là một JSON object độc lập gồm `occurred_at`, `event`, `ac
 8. ZIP hợp lệ được nhận; file không phải ZIP, ZIP hỏng, ZIP quá lớn và nộp sau giờ bị từ chối.
 9. Chính sách nộp một lần/số lần cấu hình hoạt động; ghi đè xóa payload cũ nhưng vẫn giữ metadata lịch sử.
 10. Admin tải được file còn lưu; Dashboard cập nhật theo chu kỳ polling HTTP.
+
+### Kiểm tra thủ công Code Exam trên LAN
+
+Trên Windows/JDK 17+ dùng tài khoản thử nghiệm: publish câu hỏi, tạo Paper và đổi thứ tự câu, publish Paper version; tạo release COMMON rồi RANDOM; bắt đầu với sinh viên thử; tải lại trang/đăng nhập lại để xác nhận Paper không đổi; kiểm tra thứ tự câu, draft editor, pretest, nộp từng câu/toàn bài, timer/deadline, kết quả và regrade. Thử unpublish/archive/xóa câu hỏi nguồn sau khi đã lưu Paper và xác nhận cảnh báo admin cùng snapshot lịch sử. Không kiểm tra bằng dữ liệu sinh viên thật. Các bước này là hướng dẫn; chưa phải kết quả browser/LAN/offline đã xác nhận.
