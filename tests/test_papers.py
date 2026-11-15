@@ -161,6 +161,7 @@ class ExamPaperApiTests(unittest.TestCase):
         self.assertEqual(status, 200, listing)
         self.assertEqual(listing["papers"][0]["id"], paper["id"])
         self.assertEqual(listing["papers"][0]["metadata"], {"course": "CS"})
+        self.assertTrue(listing["papers"][0]["has_draft"])
         status, detail = self.request("GET", f"/api/admin/papers/{paper['id']}", cookie=self.admin_cookie)
         self.assertEqual(status, 200, detail)
         self.assertEqual(detail["paper"]["draft"]["question_ids"], ["q-2", "q-1"])
@@ -187,6 +188,73 @@ class ExamPaperApiTests(unittest.TestCase):
         self.assertEqual(status, 200, archived)
         self.assertEqual(archived["paper"]["status"], "archived")
         self.assertEqual(archived["paper"]["versions"], {})
+
+    def test_create_independent_paper_from_published_version_preserves_source_and_references(self):
+        source = self.create_paper(("q-1", "q-2"))
+        status, published = self.publish(source)
+        self.assertEqual(status, 200, published)
+        source_id = published["paper"]["id"]
+        source_version_id = published["paper"]["current_version_id"]
+
+        status, source_with_draft = self.request(
+            "PUT", f"/api/admin/papers/{source_id}", cookie=self.admin_cookie,
+            payload={"expected_revision": published["paper"]["revision"], "title": "Existing source Draft",
+                "metadata": {"source_draft": True}, "question_ids": ["q-1"], "question_limit": 1,
+                "question_filters": {"language": "python"}},
+        )
+        self.assertEqual(status, 200, source_with_draft)
+        original = storage.read_json("papers.json")[source_id]
+        self.assertEqual(original["draft"]["title"], "Existing source Draft")
+
+        exams = {"exam-old": {"release": {"paper_pool": [{"paper_id": source_id, "paper_version_id": source_version_id}]}}}
+        assignments = {"student-1": {"paper_id": source_id, "paper_version_id": source_version_id,
+            "snapshot": {"title": "Historical Paper", "question_ids": ["q-1", "q-2"]}}}
+        storage.write_json("exams.json", exams)
+        storage.write_json("assignments.json", assignments)
+
+        submitted = {"title": "Independent fork", "metadata": {"edited": True}, "question_ids": ["q-2"],
+            "question_limit": 2, "question_filters": {"language": "python", "tags": []}}
+        status, created = self.request("POST", "/api/admin/papers", cookie=self.admin_cookie, payload=submitted)
+        self.assertEqual(status, 201, created)
+        fork = created["paper"]
+
+        self.assertNotEqual(fork["id"], source_id)
+        self.assertEqual(fork["status"], "draft")
+        self.assertEqual(fork["revision"], 1)
+        expected_draft = {**submitted, "question_filters": {
+            "search": "", "category": "", "language": "python", "grading_mode": "", "difficulty": "", "tags": [],
+        }}
+        self.assertEqual({key: fork["draft"][key] for key in expected_draft}, expected_draft)
+        self.assertEqual(fork["versions"], {})
+        self.assertIsNone(fork["current_version_id"])
+        self.assertEqual(storage.read_json("papers.json")[source_id], original)
+        self.assertEqual(storage.read_json("exams.json"), exams)
+        self.assertEqual(storage.read_json("assignments.json"), assignments)
+
+        status, second_created = self.request("POST", "/api/admin/papers", cookie=self.admin_cookie, payload=submitted)
+        self.assertEqual(status, 201, second_created)
+        self.assertNotEqual(second_created["paper"]["id"], fork["id"])
+        self.assertNotEqual(second_created["paper"]["id"], source_id)
+        status, listing = self.request("GET", "/api/admin/papers", cookie=self.admin_cookie)
+        self.assertEqual(status, 200, listing)
+        listed_ids = {paper["id"] for paper in listing["papers"]}
+        self.assertIn(fork["id"], listed_ids, "new Paper is returned by the management list API")
+        self.assertIn(second_created["paper"]["id"], listed_ids)
+        fork_summary = next(paper for paper in listing["papers"] if paper["id"] == fork["id"])
+        self.assertEqual(fork_summary["status"], "draft")
+        self.assertTrue(fork_summary["has_draft"])
+
+        papers_before_invalid = storage.read_json("papers.json")
+        status, invalid = self.request(
+            "POST", "/api/admin/papers", cookie=self.admin_cookie,
+            payload={"title": "Must not persist", "metadata": {}, "question_ids": ["q-draft"],
+                "question_limit": 1, "question_filters": {}},
+        )
+        self.assertEqual(status, 409, invalid)
+        self.assertEqual(storage.read_json("papers.json"), papers_before_invalid)
+        self.assertEqual(storage.read_json("papers.json")[source_id], original)
+        self.assertEqual(storage.read_json("exams.json"), exams)
+        self.assertEqual(storage.read_json("assignments.json"), assignments)
 
     def test_selection_rejects_missing_duplicate_unpublished_and_invalid_payload(self):
         bank = storage.read_json("questions.json")
@@ -244,27 +312,42 @@ class ExamPaperApiTests(unittest.TestCase):
         self.assertEqual(status, 200, first_publish)
         first = first_publish["paper"]
         first_version_id = first["current_version_id"]
+        self.assertIsNone(first["draft"], "successful publication finalizes the current draft")
+        status, after_publish = self.request("GET", "/api/admin/papers", cookie=self.admin_cookie)
+        self.assertEqual(status, 200, after_publish)
+        listed_paper = next(item for item in after_publish["papers"] if item["id"] == paper["id"])
+        self.assertEqual(listed_paper["status"], "published")
+        self.assertFalse(listed_paper["has_draft"])
+        status, duplicate_publish = self.publish(first)
+        self.assertEqual(status, 409, duplicate_publish)
+        self.assertEqual(len(storage.read_json("papers.json")[paper["id"]]["versions"]), 1)
         first_version = json.loads(json.dumps(first["versions"][first_version_id]))
         self.assertEqual(first["versions"][first_version_id]["version"], 1)
 
         status, draft_preview = self.request(
             "GET", f"/api/admin/papers/{paper['id']}/preview?draft=1", cookie=self.admin_cookie,
         )
-        self.assertEqual(status, 200, draft_preview)
-        self.assertIn("draft", draft_preview["preview"])
-        self.assertNotIn("version", draft_preview["preview"])
+        self.assertEqual(status, 409, draft_preview)
 
         status, edited = self.request(
             "PUT", f"/api/admin/papers/{paper['id']}", cookie=self.admin_cookie,
             payload={"expected_revision": first["revision"], "title": "Lifecycle edited", "question_ids": ["q-2", "q-1"], "question_limit": 2},
         )
         self.assertEqual(status, 200, edited)
+        self.assertEqual(edited["paper"]["status"], "published")
+        self.assertEqual(edited["paper"]["id"], paper["id"])
+        self.assertEqual(edited["paper"]["draft"]["question_ids"], ["q-2", "q-1"])
+        status, with_working_draft = self.request("GET", "/api/admin/papers", cookie=self.admin_cookie)
+        listed_paper = next(item for item in with_working_draft["papers"] if item["id"] == paper["id"])
+        self.assertEqual(listed_paper["status"], "published")
+        self.assertTrue(listed_paper["has_draft"])
         self.assertEqual(edited["paper"]["versions"][first_version_id], first_version)
         status, second_publish = self.publish(edited["paper"])
         self.assertEqual(status, 200, second_publish)
         second = second_publish["paper"]
         self.assertEqual(second["versions"][second["current_version_id"]]["version"], 2)
         self.assertEqual(second["versions"][first_version_id], first_version)
+        self.assertIsNone(second["draft"])
 
     def test_explicit_selection_order_is_stable_through_save_reload_preview_and_publish(self):
         payload = {
@@ -451,6 +534,8 @@ class ExamPaperApiTests(unittest.TestCase):
         )
         self.assertEqual(status, 200, updated)
         persisted = storage.read_json("papers.json")[record["id"]]
+        self.assertEqual(storage.read_json("assignments.json"), assignments)
+        self.assertEqual(storage.read_json("exams.json"), exams)
         old_snapshot = persisted["versions"][version_id]["questions"][1]
         self.assertEqual(old_snapshot["title"], "Question q-1")
         self.assertEqual(old_snapshot["tests"][1]["expected_stdout"], "private-answer\n")

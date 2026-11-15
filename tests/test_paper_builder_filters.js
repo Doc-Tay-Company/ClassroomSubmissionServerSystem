@@ -13,9 +13,10 @@ class Element {
     this.dataset = {};
     this.className = attrs.class || '';
     this.type = attrs.type || '';
-    this.value = attrs.value ?? '';
+    this.value = attrs.value ?? (this.tagName === 'TEXTAREA' ? this.children.map((child) => String(child)).join('') : '');
     this.checked = Boolean(attrs.checked);
     this.disabled = Boolean(attrs.disabled);
+    this.hidden = Boolean(attrs.hidden);
     this.indeterminate = Boolean(attrs.indeterminate);
     this.classValues = new Set(this.className.split(/\s+/).filter(Boolean));
     this.classList = {
@@ -43,6 +44,7 @@ class Element {
       if (selector.startsWith('#')) return node.attrs.id === selector.slice(1);
       if (selector === 'button') return node.tagName === 'BUTTON';
       if (selector === 'input') return node.tagName === 'INPUT';
+      if (selector === 'tr') return node.tagName === 'TR';
       const field = selector.match(/^\[data-field="?([^\]"]+)"?\]$/);
       if (field) return node.dataset.field === field[1];
       const filter = selector.match(/^\[data-filter="?([^\]"]+)"?\]$/);
@@ -79,6 +81,7 @@ async function main() {
   const requests = [];
   let storedPaper = null;
   let failNextPublish = false;
+  let failNextUpdate = false;
   let staleNextUpdate = false;
   const clone = (value) => JSON.parse(JSON.stringify(value));
   const apiRequest = async (url, options = {}) => {
@@ -93,9 +96,13 @@ async function main() {
         staleNextUpdate = false;
         const error = new Error('Paper has changed; reload before retrying'); error.status = 409; error.code = 'PAPER_CHANGED'; throw error;
       }
+      if (failNextUpdate) {
+        failNextUpdate = false;
+        const error = new Error('temporary network failure'); error.status = 503; throw error;
+      }
       const payload = JSON.parse(options.body);
       storedPaper = { ...storedPaper, title: payload.title, metadata: payload.metadata, revision: storedPaper.revision + 1,
-        status: 'draft', draft: { title: payload.title, metadata: payload.metadata, question_ids: payload.question_ids,
+        status: Object.keys(storedPaper.versions || {}).length ? 'published' : 'draft', draft: { title: payload.title, metadata: payload.metadata, question_ids: payload.question_ids,
           question_limit: payload.question_limit, question_filters: payload.question_filters } };
       return { paper: clone(storedPaper) };
     }
@@ -108,7 +115,8 @@ async function main() {
     }
     const preview = url.match(/^\/api\/admin\/papers\/([^/?]+)\/preview(?:\?.*)?$/);
     if (preview) return { preview: { paper_id: preview[1], status: storedPaper.status,
-      draft: { title: storedPaper.draft.title, questions: storedPaper.draft.question_ids.map((id) => ({ ...bank.find((q) => q.id === id), question_id: id })) } } };
+      ...(storedPaper.status === 'published' ? { version: storedPaper.versions[storedPaper.current_version_id] }
+        : { draft: { title: storedPaper.draft.title, questions: storedPaper.draft.question_ids.map((id) => ({ ...bank.find((q) => q.id === id), question_id: id })) } }) } };
     const publish = url.match(/^\/api\/admin\/papers\/([^/?]+)\/publish$/);
     if (publish) {
       if (failNextPublish) { failNextPublish = false; const error = new Error('publish service unavailable'); error.status = 503; throw error; }
@@ -117,7 +125,7 @@ async function main() {
       const version = { id, version: number, title: storedPaper.draft.title,
         questions: storedPaper.draft.question_ids.map((question_id, order) => ({ question_id, order })) };
       storedPaper = { ...storedPaper, status: 'published', revision: storedPaper.revision + 1,
-        current_version_id: id, versions: { ...storedPaper.versions, [id]: version } };
+        draft: null, current_version_id: id, versions: { ...storedPaper.versions, [id]: version } };
       return { paper: clone(storedPaper) };
     }
     throw new Error(`Unexpected request: ${options.method || 'GET'} ${url}`);
@@ -126,16 +134,23 @@ async function main() {
     cssUi: { h, errorBox: (error) => h('div', {}, error.message), errorText: (error) => error.message, setNotice: (node, message) => { if (node) node.textContent = message; } },
     cssRequest: apiRequest,
     confirm: (message) => { confirmations.push(message); return confirmNext; },
+    addEventListener() {},
   };
-  const context = { window, document, URLSearchParams, encodeURIComponent, Set, Map, Promise, console };
+  const timers = new Map();
+  let nextTimerId = 0;
+  const context = { window, document, URLSearchParams, encodeURIComponent, Set, Map, Promise, console,
+    setTimeout: (callback) => { const id = ++nextTimerId; timers.set(id, callback); return id; },
+    clearTimeout: (id) => timers.delete(id) };
   vm.createContext(context);
   vm.runInContext(fs.readFileSync(path.join(__dirname, '../static/js/code-papers.js'), 'utf8'), context);
   await new Promise((resolve) => setImmediate(resolve));
   await list.querySelectorAll('button').find((button) => button.textContent.includes('Tạo đề thi')).dispatch('click');
   await new Promise((resolve) => setImmediate(resolve));
 
-  assert(editor.querySelectorAll('button').find((button) => button.textContent.includes('Preview Draft')).disabled, 'new unsaved Paper explains that it must be saved before preview');
-  assert(editor.textContent.includes('Lưu bản nháp để có Paper ID'), 'new Paper preview prerequisite is explained');
+  assert(!editor.textContent.includes('Preview Draft'), 'new Paper has no Draft Preview workflow');
+  const saveButton = () => editor.querySelectorAll('button').find((button) => button.textContent.includes('Lưu Thành Bản Nháp'));
+  assert(saveButton() && !saveButton().hidden, 'new Paper shows Save as Draft');
+  assert(editor.textContent.includes('Lưu thành bản nháp để tạo Paper ID'), 'new Paper explains the draft transition');
 
   const control = (name) => { const node = editor.querySelector(`[data-filter="${name}"]`); assert(node, `missing ${name} filter`); return node; };
   const available = () => editor.querySelector('.qb-picker-list').textContent;
@@ -227,26 +242,37 @@ async function main() {
   const title = editor.querySelector('#cp-title');
   title.value = 'Lifecycle Paper'; await title.dispatch('input');
   assert(editor.querySelector('[data-role="paper-lifecycle"]').textContent.includes('Unsaved Changes'), 'editor shows unsaved changes');
-  const saveButton = () => editor.querySelectorAll('button').find((button) => button.textContent.includes('Lưu bản nháp'));
   const saveCallsBefore = requests.filter((request) => request.url === '/api/admin/papers' && request.method === 'POST').length;
   const firstSave = saveButton().dispatch('click');
   await saveButton().dispatch('click');
   await firstSave;
   assert.strictEqual(requests.filter((request) => request.url === '/api/admin/papers' && request.method === 'POST').length - saveCallsBefore, 1, 'duplicate save clicks create only one Paper');
   assert.strictEqual(storedPaper.id, 'paper-lifecycle', 'saving a new Paper retains its server ID');
+  assert(editor.classList.contains('hidden'), 'successful new Paper creation closes the Editor');
+  assert(!list.classList.contains('hidden'), 'successful new Paper creation returns to the refreshed list');
+  const draftActions = list.querySelectorAll('button').map((button) => button.textContent);
+  assert.deepStrictEqual(draftActions, [' Tạo đề thi', 'Chỉnh sửa', 'Lưu trữ', 'Xóa'], 'Draft row exposes only Edit, Archive, and Delete');
+  assert(!draftActions.includes('Mở'), 'Draft row has no Open action');
+  await list.querySelectorAll('button').find((button) => button.textContent.includes('Chỉnh sửa')).dispatch('click');
+  await new Promise((resolve) => setImmediate(resolve));
   assert(editor.querySelector('[data-role="paper-lifecycle"]').textContent.includes('draft revision 1'), 'saved state shows server revision');
+  assert(saveButton().hidden, 'persisted Draft opened from the list hides manual Save as Draft');
 
   const publishButton = () => editor.querySelectorAll('button').find((button) => button.textContent.includes('Xuất bản version'));
   const titleForPublish = editor.querySelector('#cp-title');
   titleForPublish.value = 'Published without preview'; await titleForPublish.dispatch('input');
   await publishButton().dispatch('click');
   assert.strictEqual(storedPaper.status, 'published', 'dirty Paper saves and publishes without requiring preview');
-  assert.strictEqual(requests.filter((request) => request.url.includes('/preview')).length, 0, 'publish path does not call preview');
+  assert.strictEqual(requests.filter((request) => request.url.endsWith('/preview?draft=1')).length, 0, 'publish never opens Draft Preview');
   assert(editor.textContent.includes('paper-lifecycle:v1') && editor.textContent.includes('v1'), 'publish success shows the published version ID and number');
+  assert.strictEqual(storedPaper.draft, null, 'successful publication finalizes the current draft');
 
-  await editor.querySelectorAll('button').find((button) => button.textContent.includes('Chỉnh sửa bản mới')).dispatch('click');
+  await editor.querySelectorAll('button').find((button) => button.textContent.includes('Quay lại')).dispatch('click');
+  await new Promise((resolve) => setImmediate(resolve));
+  await list.querySelectorAll('button').find((button) => button.textContent.includes('Chỉnh sửa')).dispatch('click');
   await new Promise((resolve) => setTimeout(resolve, 10));
-  assert(editor.querySelector('#cp-title'), `editor did not reopen: ${editor.textContent}`);
+  assert(editor.querySelector('#cp-title'), `editor did not reopen from the list: ${editor.textContent}`);
+  assert(!saveButton().hidden, 'editing a published Paper without a Draft shows Save as Draft');
   const titleAfterEdit = editor.querySelector('#cp-title');
   titleAfterEdit.value = 'Saved but publish fails'; await titleAfterEdit.dispatch('input');
   failNextPublish = true;
@@ -254,25 +280,45 @@ async function main() {
   assert.strictEqual(storedPaper.title, 'Saved but publish fails', 'draft save succeeds before the simulated publication failure');
   assert(editor.querySelector('[data-role="paper-lifecycle"]').textContent.includes('Draft saved'), 'partial failure explicitly says Draft saved');
   assert(editor.querySelector('[data-role="paper-lifecycle"]').textContent.includes('publishing failed'), 'partial failure explicitly says publishing failed');
+  assert(saveButton().hidden, 'a persisted Draft hides Save as Draft after the transition');
+
+  const autosavedTitle = editor.querySelector('#cp-title');
+  autosavedTitle.value = 'Existing Draft autosaved'; await autosavedTitle.dispatch('input');
+  const autosaveTimer = [...timers.values()][0];
+  assert(autosaveTimer, 'editing an existing Draft schedules autosave');
+  await autosaveTimer();
+  timers.clear();
+  assert.strictEqual(storedPaper.draft.title, 'Existing Draft autosaved', 'autosave persists the current Draft');
+
+  const failedSaveTitle = editor.querySelector('#cp-title');
+  failedSaveTitle.value = 'Keep after autosave failure'; await failedSaveTitle.dispatch('input');
+  failNextUpdate = true;
+  const failedSaveTimer = [...timers.values()][0];
+  await failedSaveTimer();
+  timers.clear();
+  assert.strictEqual(editor.querySelector('#cp-title').value, 'Keep after autosave failure', 'failed autosave keeps local editor content');
+  assert(editor.querySelector('[data-role="retry-autosave"]'), 'failed autosave exposes an explicit retry');
+  await editor.querySelector('[data-role="retry-autosave"]').dispatch('click');
+  assert.strictEqual(storedPaper.draft.title, 'Keep after autosave failure', 'retry persists the retained local content');
 
   const staleTitle = editor.querySelector('#cp-title');
   staleTitle.value = 'Local edits retained after conflict'; await staleTitle.dispatch('input');
   staleNextUpdate = true;
-  await saveButton().dispatch('click');
+  for (const callback of [...timers.values()]) await callback();
+  timers.clear();
   assert.strictEqual(editor.querySelector('#cp-title').value, 'Local edits retained after conflict', 'stale revision keeps the local edits');
   assert(editor.querySelector('[data-role="paper-lifecycle"]').textContent.includes('đã thay đổi ở nơi khác'), 'stale revision explains the conflict');
   assert(editor.querySelector('[data-role="reload-stale-paper"]'), 'stale revision offers an explicit reload action');
   const publishedCalls = requests.filter((request) => request.url.endsWith('/publish')).length;
   await editor.querySelector('[data-role="reload-stale-paper"]').dispatch('click');
   await new Promise((resolve) => setImmediate(resolve));
-  const previewsBefore = requests.filter((request) => request.url.includes('/preview')).length;
-  await editor.querySelectorAll('button').find((button) => button.textContent.includes('Preview Draft')).dispatch('click');
-  assert(requests.some((request) => request.url.endsWith('/preview?draft=1'))
-    && requests.filter((request) => request.url.includes('/preview')).length > previewsBefore, 'Preview Draft requests the saved draft explicitly');
-  assert.strictEqual(requests.filter((request) => request.url.endsWith('/publish')).length, publishedCalls, 'preview does not publish a version');
+  assert(!editor.textContent.includes('Preview Draft'), 'editor never renders a Draft Preview action');
+  assert.strictEqual(requests.filter((request) => request.url.endsWith('/publish')).length, publishedCalls, 'editor preview removal does not publish a version');
 
-  console.log('PASS Paper Builder filters, selection, save/preview/publish lifecycle, dirty state, stale conflict, and version status');
+  console.log('PASS Paper Builder filters, selection, Save as Draft, autosave, publish lifecycle, dirty state, stale conflict, and latest preview');
   await testCardSwitchRace();
+  await testDraftListOpensEditor();
+  await testPublishedPaperForkAndStatusRendering();
 }
 
 async function testCardSwitchRace() {
@@ -280,8 +326,9 @@ async function testCardSwitchRace() {
   const editor = new Element('div');
   const notice = new Element('div');
   const document = { getElementById: (id) => ({ 'code-papers-view': list, 'cp-list': list, 'cp-editor': editor, 'cp-notice': notice })[id] || null };
-  const makePaper = (id, title, revision) => ({ id, title, metadata: {}, status: 'draft', revision,
-    current_version_id: null, versions: {}, draft: { title, metadata: {}, question_ids: ['q1'], question_limit: 1, question_filters: {} } });
+  const makePaper = (id, title, revision) => ({ id, title, metadata: {}, status: 'published', revision,
+    current_version_id: `${id}:v1`, versions: { [`${id}:v1`]: { id: `${id}:v1`, version: 1, title, questions: [] } },
+    draft: { title, metadata: {}, question_ids: ['q1'], question_limit: 1, question_filters: {} } });
   const papers = new Map([['paper-a', makePaper('paper-a', 'Paper A', 2)], ['paper-b', makePaper('paper-b', 'Paper B', 7)]]);
   const clone = (value) => JSON.parse(JSON.stringify(value));
   const requests = [];
@@ -290,6 +337,8 @@ async function testCardSwitchRace() {
   const delayedAPreview = deferred();
   const delayedASave = deferred();
   const delayedAPublish = deferred();
+  const timers = new Map();
+  let nextTimerId = 0;
   let delayAOpen = true;
   let delayAOpenDetail = true;
   let delayAPreview = true;
@@ -336,13 +385,16 @@ async function testCardSwitchRace() {
         delayAPreview = false;
         return delayedAPreview.promise;
       }
-      return { preview: { paper_id: preview[1], draft: { title: papers.get(preview[1]).title, questions: [] } } };
+      const paper = papers.get(preview[1]);
+      return { preview: { paper_id: preview[1], status: paper.status,
+        version: paper.versions[paper.current_version_id] } };
     }
     const publish = url.match(/^\/api\/admin\/papers\/([^/?]+)\/publish$/);
     if (publish && method === 'POST') {
       const paper = papers.get(publish[1]);
       const updated = { ...paper, status: 'published', revision: paper.revision + 1,
-        current_version_id: `${paper.id}:v1`, versions: { [`${paper.id}:v1`]: { id: `${paper.id}:v1`, version: 1, title: paper.title, questions: [] } } };
+        current_version_id: `${paper.id}:v1`, draft: null,
+        versions: { [`${paper.id}:v1`]: { id: `${paper.id}:v1`, version: 1, title: paper.title, questions: [] } } };
       if (paper.id === 'paper-a') {
         return delayedAPublish.promise.then(() => {
           papers.set(paper.id, updated);
@@ -358,8 +410,11 @@ async function testCardSwitchRace() {
     cssUi: { h, errorBox: (error) => h('div', {}, error.message), errorText: (error) => error.message, setNotice: () => {} },
     cssRequest: apiRequest,
     confirm: () => true,
+    addEventListener() {},
   };
-  const context = { window, document, URLSearchParams, encodeURIComponent, Set, Map, Promise, console };
+  const context = { window, document, URLSearchParams, encodeURIComponent, Set, Map, Promise, console,
+    setTimeout: (callback) => { const id = ++nextTimerId; timers.set(id, callback); return id; },
+    clearTimeout: (id) => timers.delete(id) };
   vm.createContext(context);
   vm.runInContext(fs.readFileSync(path.join(__dirname, '../static/js/code-papers.js'), 'utf8'), context);
   const tick = () => new Promise((resolve) => setImmediate(resolve));
@@ -388,32 +443,25 @@ async function testCardSwitchRace() {
   assert.strictEqual(editTitle().value, 'Paper B', 'late A editor hydration cannot replace B');
 
   await backToList();
-  clickOpen('Paper A');
+  const pendingPreview = clickOpen('Paper A');
   await clickOpen('Paper B');
   await tick();
   delayedAOpenDetail.resolve({ paper: clone(papers.get('paper-a')) });
   await tick();
   assert(editor.textContent.includes('Paper B'), 'late A detail load cannot replace B detail view');
-
-  await backToList();
-  await clickEdit('Paper A');
-  await tick();
-  const previewButton = editor.querySelectorAll('button').find((button) => button.textContent.includes('Preview Draft'));
-  const pendingPreview = previewButton.dispatch('click');
-  await backToList();
-  await clickEdit('Paper B');
-  await tick();
   delayedAPreview.resolve({ preview: { paper_id: 'paper-a', draft: { title: 'Paper A preview', questions: [] } } });
   await pendingPreview;
-  assert.strictEqual(editTitle().value, 'Paper B', 'late A draft preview cannot replace B editor');
+  assert(editor.textContent.includes('Paper B'), 'late A published preview cannot replace B detail view');
 
   await backToList();
   await clickEdit('Paper A');
   await tick();
   editTitle().value = 'Paper A saved in background';
   await editTitle().dispatch('input');
-  const saveButton = editor.querySelectorAll('button')[1];
-  const pendingSave = saveButton.dispatch('click');
+  const saveTimer = [...timers.entries()][0];
+  assert(saveTimer, 'editing a persisted draft schedules autosave');
+  timers.delete(saveTimer[0]);
+  const pendingSave = saveTimer[1]();
   await tick();
   await backToList();
   await clickEdit('Paper B');
@@ -425,7 +473,9 @@ async function testCardSwitchRace() {
 
   editTitle().value = 'Paper B updated';
   await editTitle().dispatch('input');
-  await editor.querySelectorAll('button')[1].dispatch('click');
+  const bSaveTimer = [...timers.values()][0];
+  assert(bSaveTimer, 'Paper B schedules autosave');
+  await bSaveTimer();
   const bUpdate = requests.find((request) => request.method === 'PUT' && request.url.endsWith('/paper-b'));
   assert(bUpdate, 'Paper B save uses Paper B URL');
   assert.strictEqual(JSON.parse(bUpdate.body).expected_revision, 7, 'Paper B save uses Paper B revision');
@@ -435,7 +485,7 @@ async function testCardSwitchRace() {
   await backToList();
   await clickEdit('Paper A');
   await tick();
-  const publishButton = editor.querySelectorAll('button')[3];
+  const publishButton = editor.querySelectorAll('button').find((button) => button.textContent.includes('Publish Version'));
   const pendingPublish = publishButton.dispatch('click');
   await tick();
   await backToList();
@@ -446,6 +496,239 @@ async function testCardSwitchRace() {
   assert.strictEqual(editTitle().value, 'Paper B updated', 'late A publish response cannot replace B editor');
   assert.strictEqual(papers.get('paper-a').status, 'published', 'the pending publish remains bound to Paper A');
   console.log('PASS Paper card isolation: delayed detail/edit/preview/save/publish responses stay bound to their Paper');
+}
+
+async function testDraftListOpensEditor() {
+  const list = new Element('div');
+  const editor = new Element('div');
+  const notice = new Element('div');
+  const paper = { id: 'draft-only', title: 'Draft Only', metadata: {}, status: 'draft', revision: 1,
+    has_draft: true, version_count: 0, current_version_id: null, versions: {},
+    draft: { title: 'Draft Only', metadata: {}, question_ids: [], question_limit: 1, question_filters: {} } };
+  const calls = [];
+  const document = { getElementById: (id) => ({ 'code-papers-view': list, 'cp-list': list, 'cp-editor': editor, 'cp-notice': notice })[id] || null };
+  const window = {
+    cssUi: { h, errorBox: (error) => h('div', {}, error.message), errorText: (error) => error.message, setNotice() {} },
+    cssRequest: async (url) => {
+      calls.push(url);
+      if (url === '/api/admin/papers') return { papers: [paper] };
+      if (url === '/api/admin/questions') return { questions: bank };
+      if (url === `/api/admin/papers/${paper.id}`) return { paper };
+      throw new Error(`Unexpected request: ${url}`);
+    },
+    addEventListener() {}, confirm: () => true,
+  };
+  const context = { window, document, URLSearchParams, encodeURIComponent, Set, Map, Promise, console,
+    setTimeout, clearTimeout };
+  vm.createContext(context);
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '../static/js/code-papers.js'), 'utf8'), context);
+  await new Promise((resolve) => setImmediate(resolve));
+  const actions = list.querySelectorAll('button').map((button) => button.textContent);
+  assert.deepStrictEqual(actions, [' Tạo đề thi', 'Chỉnh sửa', 'Lưu trữ', 'Xóa'], 'Draft row exposes only Edit, Archive, and Delete');
+  assert(!actions.includes('Mở'), 'Draft row has no Open action');
+  await list.querySelectorAll('button').find((button) => button.textContent.includes('Chỉnh sửa')).dispatch('click');
+  await new Promise((resolve) => setImmediate(resolve));
+  assert(editor.querySelector('#cp-title'), 'clicking a Draft opens its Editor directly');
+  assert(!calls.some((url) => url.includes('/preview')), 'Draft navigation does not open a Preview route');
+  assert(editor.querySelectorAll('button').find((button) => button.textContent.includes('Lưu Thành Bản Nháp')).hidden,
+    'a persisted Draft does not show the manual Save as Draft button');
+  console.log('PASS Draft list navigation opens the persisted Draft editor directly');
+}
+
+async function testPublishedPaperForkAndStatusRendering() {
+  const list = new Element('div');
+  const editor = new Element('div');
+  const notice = new Element('div');
+  const source = {
+    id: 'published-source', title: 'Published with Draft', metadata: { root: true }, status: 'published', revision: 9,
+    current_version_id: 'published-source:v2',
+    versions: { 'published-source:v2': { id: 'published-source:v2', version: 2, title: 'Latest Published title',
+      metadata: { version: 2 }, questions: [{ question_id: 'q1', order: 0 }, { question_id: 'q2', order: 1 }] } },
+    draft: { title: 'Existing source Draft', metadata: { draft: true }, question_ids: ['q3'], question_limit: 1, question_filters: {} },
+  };
+  const cleanPublished = { id: 'published-clean', title: 'Published clean', metadata: {}, status: 'published', revision: 2,
+    has_draft: false, version_count: 1, question_count: 1, current_version_id: 'published-clean:v1',
+    versions: { 'published-clean:v1': { id: 'published-clean:v1', version: 1, title: 'Published clean', metadata: {}, questions: [{ question_id: 'q1', order: 0 }] } }, draft: null };
+  const existingDraft = { id: 'draft-existing', title: 'Existing Draft', metadata: {}, status: 'draft', revision: 1,
+    has_draft: true, version_count: 0, question_count: 0, current_version_id: null, versions: {},
+    draft: { title: 'Existing Draft', metadata: {}, question_ids: [], question_limit: 1, question_filters: {} } };
+  const archived = { id: 'archived-paper', title: 'Archived Paper', metadata: {}, status: 'archived', revision: 4,
+    has_draft: false, version_count: 1, question_count: 1, current_version_id: 'archived-paper:v1', versions: {}, draft: null };
+  const papers = new Map([[source.id, source], [cleanPublished.id, cleanPublished], [existingDraft.id, existingDraft], [archived.id, archived]]);
+  const sourceBefore = JSON.stringify(source);
+  const requests = [];
+  let nextPaper = 0;
+  let failNextPost = false;
+  let nextPostGate = null;
+  const timers = new Map();
+  let nextTimer = 0;
+  const clone = (value) => JSON.parse(JSON.stringify(value));
+  const summary = (paper) => ({ ...clone(paper), has_draft: Boolean(paper.draft),
+    version_count: Object.keys(paper.versions || {}).length,
+    question_count: paper.versions?.[paper.current_version_id]?.questions?.length || paper.draft?.question_ids?.length || 0 });
+  const apiRequest = async (url, options = {}) => {
+    const method = options.method || 'GET';
+    requests.push({ url, method, body: options.body });
+    if (url === '/api/admin/papers' && method === 'GET') return { papers: [...papers.values()].map(summary) };
+    if (url === '/api/admin/questions') return { questions: bank };
+    if (url === '/api/admin/papers' && method === 'POST') {
+      if (failNextPost) {
+        failNextPost = false;
+        const error = new Error('question validation failed'); error.status = 422; throw error;
+      }
+      if (nextPostGate) { const gate = nextPostGate; nextPostGate = null; await gate.promise; }
+      const payload = JSON.parse(options.body);
+      const id = `fork-created-${++nextPaper}`;
+      const paper = { id, title: payload.title, metadata: payload.metadata, status: 'draft', revision: 1,
+        draft: { title: payload.title, metadata: payload.metadata, question_ids: payload.question_ids,
+          question_limit: payload.question_limit, question_filters: payload.question_filters },
+        current_version_id: null, versions: {} };
+      papers.set(id, paper);
+      return { ok: true, paper: clone(paper) };
+    }
+    const detail = url.match(/^\/api\/admin\/papers\/([^/?]+)$/);
+    if (detail && method === 'GET') return { paper: clone(papers.get(detail[1])) };
+    if (detail && method === 'PUT') {
+      const paper = papers.get(detail[1]);
+      const payload = JSON.parse(options.body);
+      const updated = { ...paper, title: payload.title, metadata: payload.metadata, revision: paper.revision + 1,
+        draft: { title: payload.title, metadata: payload.metadata, question_ids: payload.question_ids,
+          question_limit: payload.question_limit, question_filters: payload.question_filters } };
+      papers.set(detail[1], updated);
+      return { ok: true, paper: clone(updated) };
+    }
+    const preview = url.match(/^\/api\/admin\/papers\/([^/?]+)\/preview(?:\?.*)?$/);
+    if (preview) {
+      const paper = papers.get(preview[1]);
+      return { preview: { paper_id: paper.id, status: paper.status,
+        version: paper.versions?.[paper.current_version_id] } };
+    }
+    throw new Error(`Unexpected request: ${method} ${url}`);
+  };
+  const document = { getElementById: (id) => ({ 'code-papers-view': list, 'cp-list': list, 'cp-editor': editor, 'cp-notice': notice })[id] || null };
+  const window = {
+    cssUi: { h, errorBox: (error) => h('div', {}, error.message), errorText: (error) => error.message,
+      setNotice: (node, message) => { if (node) node.textContent = message; } },
+    cssRequest: apiRequest, confirm: () => true, addEventListener() {},
+  };
+  const context = { window, document, URLSearchParams, encodeURIComponent, Set, Map, Promise, console,
+    setTimeout: (callback) => { const id = ++nextTimer; timers.set(id, callback); return id; },
+    clearTimeout: (id) => timers.delete(id) };
+  vm.createContext(context);
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '../static/js/code-papers.js'), 'utf8'), context);
+  await new Promise((resolve) => setImmediate(resolve));
+
+  const expectedStatuses = new Map([
+    ['Existing Draft', 'Nháp'], ['Published clean', 'Đã xuất bản'],
+    ['Published with Draft', 'Đã xuất bản · Có bản nháp'], ['Archived Paper', 'Lưu trữ'],
+  ]);
+  const statusRows = list.querySelectorAll('tr');
+  const rowForStatusActions = (rows, title) => rows.find((row) => row.textContent.includes(title))
+    .querySelectorAll('button').map((button) => button.textContent);
+  for (const [title, label] of expectedStatuses) {
+    const row = statusRows.find((candidate) => candidate.textContent.includes(title));
+    assert(row, `status fixture ${title} is rendered`);
+    assert.strictEqual(row.querySelectorAll('.status-pill').length, 1, `${title} has exactly one primary status pill`);
+    assert(row.querySelector('.status-pill').textContent.includes(label), `${title} displays ${label}`);
+    assert(!row.querySelectorAll('.qb-change-badge').some((badge) => badge.textContent.includes('Draft')),
+      `${title} does not render a separate Draft badge by its title`);
+  }
+  assert.deepStrictEqual(rowForStatusActions(statusRows, 'Existing Draft'), ['Chỉnh sửa', 'Lưu trữ', 'Xóa'],
+    'Draft has exactly Edit, Archive, and Delete');
+  assert.deepStrictEqual(rowForStatusActions(statusRows, 'Published clean'), ['Mở', 'Chỉnh sửa', 'Lưu trữ', 'Xóa'],
+    'Published retains Open and its other supported actions');
+  assert.deepStrictEqual(rowForStatusActions(statusRows, 'Published with Draft'), ['Mở', 'Chỉnh sửa', 'Lưu trữ', 'Xóa'],
+    'Published with Draft retains its supported actions');
+  assert.deepStrictEqual(rowForStatusActions(statusRows, 'Archived Paper'), ['Mở', 'Khôi phục', 'Xóa'],
+    'Archived actions retain their existing behavior');
+
+  const rowFor = (title) => list.querySelectorAll('tr').find((row) => row.textContent.includes(title));
+  await rowFor('Published with Draft').querySelectorAll('button').find((button) => button.textContent.includes('Mở')).dispatch('click');
+  await new Promise((resolve) => setImmediate(resolve));
+  await editor.querySelectorAll('button').find((button) => button.textContent.includes('Chỉnh sửa bản mới')).dispatch('click');
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.strictEqual(editor.querySelector('#cp-title').value, 'Latest Published title', 'fork Editor is initialized from the latest Published Version, not the source Draft');
+  assert(editor.querySelector('#cp-metadata').value.includes('"version": 2'), `fork metadata comes from the Published Version: ${editor.querySelector('#cp-metadata').value}`);
+  assert(editor.querySelector('.qb-selected-list').textContent.includes('Loops Intro'), 'Published Version question selection is loaded');
+  assert(!editor.querySelector('.qb-selected-list').textContent.includes('Array Basics'), 'source Draft selection is not loaded into the fork');
+
+  editor.querySelector('#cp-title').value = 'Fork title edited in Editor';
+  editor.querySelector('#cp-metadata').value = '{"edited":true}';
+  failNextPost = true;
+  await editor.querySelectorAll('button').find((button) => button.textContent.includes('Lưu Thành Bản Nháp')).dispatch('click');
+  assert(!editor.classList.contains('hidden'), 'failed fork creation keeps Editor open');
+  assert.strictEqual(editor.querySelector('#cp-title').value, 'Fork title edited in Editor', 'failed creation preserves the edited title');
+  assert.strictEqual(editor.querySelector('#cp-metadata').value, '{"edited":true}', 'failed creation preserves edited metadata');
+  assert.strictEqual(JSON.stringify(papers.get(source.id)), sourceBefore, 'failed creation leaves the source Paper unchanged');
+
+  const postGate = deferred();
+  nextPostGate = postGate;
+  const saveButton = editor.querySelectorAll('button').find((button) => button.textContent.includes('Lưu Thành Bản Nháp'));
+  const savePending = saveButton.dispatch('click');
+  await saveButton.dispatch('click');
+  assert(saveButton.disabled, 'fork Save button is disabled while its POST is pending');
+  const postRequests = requests.filter((request) => request.url === '/api/admin/papers' && request.method === 'POST');
+  assert.strictEqual(postRequests.length, 2, 'one failed POST and one pending POST; duplicate click adds no request');
+  assert(!requests.some((request) => request.method === 'PUT' && request.url.endsWith(`/${source.id}`)), 'fork does not PUT to the source Paper');
+  const payload = JSON.parse(postRequests[1].body);
+  assert.strictEqual(payload.title, 'Fork title edited in Editor', 'POST includes current Editor title');
+  assert.deepStrictEqual(payload.metadata, { edited: true }, 'POST includes current Editor metadata');
+  assert.deepStrictEqual(payload.question_ids, ['q1', 'q2'], 'POST includes the current ordered selection');
+  assert(Object.prototype.hasOwnProperty.call(payload, 'question_limit'), 'POST includes question_limit');
+  assert(Object.prototype.hasOwnProperty.call(payload, 'question_filters'), 'POST includes question_filters');
+  assert(!Object.prototype.hasOwnProperty.call(payload, 'expected_revision'), 'new fork POST omits source revision');
+  postGate.resolve();
+  await savePending;
+
+  const created = [...papers.values()].find((paper) => paper.title === payload.title);
+  assert(created && created.id !== source.id, 'fork receives a distinct Paper ID');
+  assert.strictEqual(created.status, 'draft', 'fork starts as a Draft');
+  assert.deepStrictEqual(created.draft.question_ids, payload.question_ids, 'fork Draft contains submitted questions');
+  assert.deepStrictEqual(created.versions, {}, 'fork starts without Published Versions');
+  assert.strictEqual(created.current_version_id, null, 'fork has no current Published Version');
+  assert.strictEqual(JSON.stringify(papers.get(source.id)), sourceBefore, 'successful fork leaves source Paper and its Draft unchanged');
+  assert(editor.classList.contains('hidden'), 'successful POST closes the Editor');
+  assert(!list.classList.contains('hidden'), 'successful POST returns to the refreshed Paper list');
+  assert(rowFor('Fork title edited in Editor'), 'refreshed list includes the new Draft');
+  assert.strictEqual(rowFor('Fork title edited in Editor').querySelectorAll('.status-pill').length, 1, 'new Draft has one status pill');
+  assert.deepStrictEqual(rowFor('Fork title edited in Editor').querySelectorAll('button').map((button) => button.textContent),
+    ['Chỉnh sửa', 'Lưu trữ', 'Xóa'], 'new Draft is listed with exactly its permitted actions');
+
+  await rowFor('Fork title edited in Editor').querySelectorAll('button').find((button) => button.textContent.includes('Chỉnh sửa')).dispatch('click');
+  await new Promise((resolve) => setImmediate(resolve));
+  assert(editor.querySelectorAll('button').find((button) => button.textContent.includes('Lưu Thành Bản Nháp')).hidden,
+    'the newly created Paper opens as an ordinary persisted Draft');
+  const forkDraftTitle = editor.querySelector('#cp-title');
+  forkDraftTitle.value = 'Fork autosaved'; await forkDraftTitle.dispatch('input');
+  const forkAutosave = [...timers.values()][0];
+  assert(forkAutosave, 'the fork Draft schedules the existing autosave');
+  await forkAutosave();
+  timers.clear();
+  assert.strictEqual(papers.get(created.id).draft.title, 'Fork autosaved', 'subsequent Draft autosave updates the new Paper');
+  assert(requests.some((request) => request.method === 'PUT' && request.url.endsWith(`/${created.id}`)),
+    'subsequent autosave targets the new Paper ID');
+  assert(!requests.some((request) => request.method === 'PUT' && request.url.endsWith(`/${source.id}`)),
+    'subsequent autosave never targets the Published source');
+  assert.strictEqual(JSON.stringify(papers.get(source.id)), sourceBefore, 'subsequent Draft autosave still preserves the source Paper');
+
+  const staleGate = deferred();
+  nextPostGate = staleGate;
+  await rowFor('Published clean').querySelectorAll('button').find((button) => button.textContent.includes('Mở')).dispatch('click');
+  await new Promise((resolve) => setImmediate(resolve));
+  await editor.querySelectorAll('button').find((button) => button.textContent.includes('Chỉnh sửa bản mới')).dispatch('click');
+  await new Promise((resolve) => setImmediate(resolve));
+  editor.querySelector('#cp-title').value = 'Pending stale fork';
+  const staleSave = editor.querySelectorAll('button').find((button) => button.textContent.includes('Lưu Thành Bản Nháp')).dispatch('click');
+  await editor.querySelectorAll('button').find((button) => button.textContent.includes('Quay lại')).dispatch('click');
+  await new Promise((resolve) => setImmediate(resolve));
+  await rowFor('Existing Draft').querySelectorAll('button').find((button) => button.textContent.includes('Chỉnh sửa')).dispatch('click');
+  await new Promise((resolve) => setImmediate(resolve));
+  assert(editor.querySelector('#cp-title').value === 'Existing Draft', 'a newer Editor is active while the older POST is pending');
+  staleGate.resolve();
+  await staleSave;
+  assert(!editor.classList.contains('hidden'), 'stale create response does not close a newer Editor');
+  assert.strictEqual(editor.querySelector('#cp-title').value, 'Existing Draft', 'stale create response does not replace newer Editor content');
+  console.log('PASS Published Paper fork, source Draft preservation, POST creation, status rendering, and stale POST isolation');
 }
 
 function deferred() {

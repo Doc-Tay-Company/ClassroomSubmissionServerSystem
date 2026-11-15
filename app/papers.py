@@ -237,6 +237,8 @@ def _serialize_version(version: Mapping) -> dict:
 
 def _serialize_paper(paper: Mapping) -> dict:
     result = deepcopy(dict(paper))
+    if result.get("versions") and result.get("status") != "archived":
+        result["status"] = "published"
     for version_id, version in result.get("versions", {}).items():
         result["versions"][version_id] = _serialize_version(version)
     draft = result.get("draft")
@@ -266,7 +268,8 @@ def list_papers() -> list[dict]:
             "id": paper["id"],
             "title": paper.get("title", ""),
             "metadata": deepcopy(paper.get("metadata", {})),
-            "status": paper.get("status", "draft"),
+            "status": "published" if paper.get("versions") and paper.get("status") != "archived" else paper.get("status", "draft"),
+            "has_draft": isinstance(paper.get("draft"), Mapping),
             "revision": paper.get("revision", 1),
             "current_version_id": current_id,
             "version_count": len(paper.get("versions", {})),
@@ -381,6 +384,8 @@ def update_paper(paper_id: str, payload: Mapping, actor: str, ip: str) -> dict:
             "title": paper.get("title", ""),
             "metadata": deepcopy(paper.get("metadata", {})),
             "question_ids": [item["question_id"] for item in paper.get("versions", {}).get(paper.get("current_version_id"), {}).get("questions", [])],
+            "question_limit": len(paper.get("versions", {}).get(paper.get("current_version_id"), {}).get("questions", [])) or None,
+            "question_filters": {},
         }
         title = _validate_title(payload.get("title", draft.get("title")))
         metadata = _validate_metadata(payload.get("metadata", draft.get("metadata", {})))
@@ -399,7 +404,7 @@ def update_paper(paper_id: str, payload: Mapping, actor: str, ip: str) -> dict:
             **paper,
             "title": title,
             "metadata": metadata,
-            "status": "draft",
+            "status": "published" if paper.get("versions") else "draft",
             "revision": paper.get("revision", 1) + 1,
             "draft": {
                 "title": title,
@@ -498,6 +503,7 @@ def publish_paper(paper_id: str, payload: Mapping, actor: str, ip: str) -> dict:
             "metadata": deepcopy(draft.get("metadata", {})),
             "status": "published",
             "revision": paper.get("revision", 1) + 1,
+            "draft": None,
             "current_version_id": version["id"],
             "versions": {**paper.get("versions", {}), version["id"]: version},
             "updated_at": utc_now(),
