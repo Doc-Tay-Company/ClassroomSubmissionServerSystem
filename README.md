@@ -134,6 +134,7 @@ This is where CSS goes beyond a typical LMS. The admin dashboard gives live visi
 
 ### Automatic code grading and Exam Papers
 - The admin interface includes Question Bank, **Quản lý đề thi** for reusable Papers, Code Exam configuration, and code results.
+- Current Question/Paper/Exam terminology, Paper quantity/filter/random/Select All behavior, save-preview-publish lifecycle, verified API shapes, compatibility, and snapshot limits are documented in [`docs/EXAM_PAPER_GUIDE.md`](docs/EXAM_PAPER_GUIDE.md). Focused acceptance evidence and untested areas are in [`docs/ai/ACCEPTANCE_REPORT.md`](docs/ai/ACCEPTANCE_REPORT.md).
 - A Paper draft stores an ordered question list. Publishing captures an immutable version with the display and grading snapshot; teacher views show warnings when a source question is no longer published or has been deleted. Referenced Paper history is retained.
 - Code Exam sessions select a Paper version using **COMMON** (one version for every eligible student) or **RANDOM** (server chooses one version per student from the configured pool). The release and student assignment retain the selected Paper/version references; students cannot choose from or see the alternative pool.
 - The student interface loads the assigned questions in order and retains the existing editor, pretest, submit, timer, and result behavior. Student responses omit hidden tests and expected values.

@@ -14,6 +14,7 @@ from .storage import audit, read_json, transaction, update_json, utc_now, write_
 
 _ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,80}$")
 _SUPPORTED_CODE_KINDS = {("java", "reflection"), ("java", "stdio"), ("python", "stdio")}
+_QUESTION_FILTER_KEYS = {"search", "category", "language", "grading_mode", "difficulty", "tags"}
 
 
 class PaperError(ValueError):
@@ -32,9 +33,10 @@ def _copy_json(value, label: str):
         raise PaperError(f"{label} must contain valid JSON values", 422) from exc
 
 
-def _validate_ids(question_ids) -> list[str]:
-    if not isinstance(question_ids, list) or not question_ids:
-        raise PaperError("question_ids must be a non-empty array", 422)
+def _validate_ids(question_ids, *, allow_empty: bool = False) -> list[str]:
+    if not isinstance(question_ids, list) or (not allow_empty and not question_ids):
+        message = "question_ids must be an array" if allow_empty else "question_ids must be a non-empty array"
+        raise PaperError(message, 422)
     if any(not isinstance(qid, str) or not _ID_PATTERN.fullmatch(qid) for qid in question_ids):
         raise PaperError("question_ids contains an invalid question id", 422)
     if len(set(question_ids)) != len(question_ids):
@@ -80,6 +82,117 @@ def _validate_new_questions(question_ids: list[str]) -> None:
         raise PaperError(str(exc), exc.status, "QUESTION_NOT_ELIGIBLE") from exc
     except (KeyError, TypeError, ValueError) as exc:
         raise PaperError(f"A selected question is missing required grading fields: {exc}", 422, "QUESTION_NOT_ELIGIBLE") from exc
+
+
+def _normalize_question_filters(value) -> dict:
+    if value is None:
+        value = {}
+    if not isinstance(value, Mapping):
+        raise PaperError("question_filters must be an object", 422, "INVALID_QUESTION_FILTERS")
+    if set(value) - _QUESTION_FILTER_KEYS:
+        raise PaperError("question_filters contains an unsupported field", 422, "INVALID_QUESTION_FILTERS")
+
+    result = {}
+    for key in ("search", "category", "language", "grading_mode", "difficulty"):
+        raw = value.get(key, "")
+        if not isinstance(raw, str) or len(raw) > 200:
+            raise PaperError(f"question_filters.{key} must be text of at most 200 characters", 422, "INVALID_QUESTION_FILTERS")
+        result[key] = raw.strip().casefold()
+    if result["language"] not in {"", "java", "python"}:
+        raise PaperError("question_filters.language is not supported", 422, "INVALID_QUESTION_FILTERS")
+    if result["grading_mode"] not in {"", "reflection", "stdio"}:
+        raise PaperError("question_filters.grading_mode is not supported", 422, "INVALID_QUESTION_FILTERS")
+
+    tags = value.get("tags", [])
+    if not isinstance(tags, list) or len(tags) > 100 or any(not isinstance(tag, str) or len(tag) > 100 for tag in tags):
+        raise PaperError("question_filters.tags must be an array of at most 100 text values", 422, "INVALID_QUESTION_FILTERS")
+    result["tags"] = list(dict.fromkeys(tag.strip().casefold() for tag in tags if tag.strip()))
+    return result
+
+
+def _question_tags(question: Mapping) -> list[str]:
+    raw = question.get("tags", [])
+    if isinstance(raw, str):
+        values = raw.split(",")
+    elif isinstance(raw, list):
+        values = raw
+    else:
+        values = []
+    return [tag.strip().casefold() for tag in values if isinstance(tag, str) and tag.strip()]
+
+
+def _question_matches_filters(question: Mapping, filters: Mapping) -> bool:
+    for key in ("category", "difficulty"):
+        requested = filters.get(key, "")
+        actual = question.get(key)
+        actual = actual.strip().casefold() if isinstance(actual, str) else ""
+        if requested and actual != requested:
+            return False
+    for key in ("language", "grading_mode"):
+        requested = filters.get(key, "")
+        actual = question.get(key)
+        actual = actual.strip().casefold() if isinstance(actual, str) else ""
+        if requested and actual != requested:
+            return False
+    wanted_tags = filters.get("tags", [])
+    if wanted_tags and not set(wanted_tags).intersection(_question_tags(question)):
+        return False
+    search = filters.get("search", "")
+    if search:
+        haystack = " ".join(
+            [str(question.get("title") or ""), str(question.get("id") or ""), *_question_tags(question)]
+        ).casefold()
+        if search not in haystack:
+            return False
+    return True
+
+
+def _is_eligible_question(question_id: str, question: Mapping) -> bool:
+    if question.get("status") != "published" or (question.get("language"), question.get("grading_mode")) not in _SUPPORTED_CODE_KINDS:
+        return False
+    try:
+        _validate_question(question, question_id=question_id, actor="paper-pool-validation")
+    except (QuestionError, KeyError, TypeError, ValueError):
+        return False
+    return True
+
+
+def _filtered_eligible_questions(filters: Mapping) -> dict[str, dict]:
+    bank = read_json("questions.json")
+    return {
+        question_id: question
+        for question_id, question in bank.items()
+        if isinstance(question, Mapping)
+        and _is_eligible_question(question_id, question)
+        and _question_matches_filters(question, filters)
+    }
+
+
+def _validate_question_selection(
+    question_ids: list[str], question_limit, raw_filters, *, previous_ids: set[str] | None = None,
+    require_exact: bool = False,
+) -> tuple[int | None, dict, list[str]]:
+    filters = _normalize_question_filters(raw_filters)
+    if question_limit is not None and (
+        isinstance(question_limit, bool) or not isinstance(question_limit, int) or question_limit < 1
+    ):
+        raise PaperError("question_limit must be an integer of at least 1", 422, "INVALID_QUESTION_LIMIT")
+    if require_exact and (question_limit is None or question_limit != len(question_ids)):
+        raise PaperError("question_limit must equal the number of selected questions", 422, "QUESTION_LIMIT_MISMATCH")
+    if question_limit is not None and question_limit < len(question_ids):
+        raise PaperError("question_limit cannot be less than the number of selected questions", 422, "QUESTION_LIMIT_MISMATCH")
+
+    pool = _filtered_eligible_questions(filters)
+    previous_ids = previous_ids or set()
+    newly_added = [question_id for question_id in question_ids if question_id not in previous_ids]
+    grandfathered = [question_id for question_id in question_ids if question_id in previous_ids and question_id not in pool]
+    if question_limit is not None and question_limit > len(pool) + len(grandfathered):
+        raise PaperError("question_limit exceeds the eligible filtered question pool", 422, "QUESTION_LIMIT_EXCEEDS_POOL")
+    if newly_added:
+        _validate_new_questions(newly_added)
+        if any(question_id not in pool for question_id in newly_added):
+            raise PaperError("New questions must match the selected filters", 422, "QUESTION_FILTER_MISMATCH")
+    return question_limit, filters, newly_added
 
 
 def _source_status(question_id: str, snapshot: Mapping | None = None) -> dict:
@@ -206,7 +319,11 @@ def create_paper(payload: Mapping, actor: str, ip: str) -> dict:
         raise PaperError("Paper must be a JSON object", 422)
     title = _validate_title(payload.get("title"))
     metadata = _validate_metadata(payload.get("metadata", {}))
-    question_ids = _validate_ids(payload.get("question_ids"))
+    question_ids = _validate_ids(payload.get("question_ids"), allow_empty=True)
+    quantity_default = len(question_ids) if question_ids else None
+    question_limit, question_filters, _ = _validate_question_selection(
+        question_ids, payload.get("question_limit", quantity_default), payload.get("question_filters", {})
+    )
     now = utc_now()
     paper_id = uuid.uuid4().hex
     paper = {
@@ -216,7 +333,13 @@ def create_paper(payload: Mapping, actor: str, ip: str) -> dict:
         "metadata": metadata,
         "status": "draft",
         "revision": 1,
-        "draft": {"title": title, "metadata": metadata, "question_ids": question_ids},
+        "draft": {
+            "title": title,
+            "metadata": metadata,
+            "question_ids": question_ids,
+            "question_limit": question_limit,
+            "question_filters": question_filters,
+        },
         "current_version_id": None,
         "versions": {},
         "created_by": actor,
@@ -228,7 +351,8 @@ def create_paper(payload: Mapping, actor: str, ip: str) -> dict:
         papers[paper_id] = paper
 
     with transaction():
-        _validate_new_questions(question_ids)
+        if question_ids:
+            _validate_new_questions(question_ids)
         update_json("papers.json", insert)
     audit("paper.created", actor, ip, {"paper_id": paper_id, "question_count": len(question_ids)})
     return get_paper(paper_id)
@@ -260,11 +384,15 @@ def update_paper(paper_id: str, payload: Mapping, actor: str, ip: str) -> dict:
         }
         title = _validate_title(payload.get("title", draft.get("title")))
         metadata = _validate_metadata(payload.get("metadata", draft.get("metadata", {})))
-        question_ids = _validate_ids(payload.get("question_ids", draft.get("question_ids")))
+        question_ids = _validate_ids(payload.get("question_ids", draft.get("question_ids", [])), allow_empty=True)
         previous_ids = set(draft.get("question_ids", []))
-        new_ids = [qid for qid in question_ids if qid not in previous_ids]
-        if new_ids:
-            _validate_new_questions(new_ids)
+        quantity_default = draft.get("question_limit", len(question_ids) if question_ids else None)
+        question_limit, question_filters, _ = _validate_question_selection(
+            question_ids,
+            payload.get("question_limit", quantity_default),
+            payload.get("question_filters", draft.get("question_filters", {})),
+            previous_ids=previous_ids,
+        )
 
         now = utc_now()
         updated = {
@@ -273,7 +401,13 @@ def update_paper(paper_id: str, payload: Mapping, actor: str, ip: str) -> dict:
             "metadata": metadata,
             "status": "draft",
             "revision": paper.get("revision", 1) + 1,
-            "draft": {"title": title, "metadata": metadata, "question_ids": question_ids},
+            "draft": {
+                "title": title,
+                "metadata": metadata,
+                "question_ids": question_ids,
+                "question_limit": question_limit,
+                "question_filters": question_filters,
+            },
             "updated_at": now,
         }
         papers = read_json("papers.json")
@@ -285,6 +419,11 @@ def update_paper(paper_id: str, payload: Mapping, actor: str, ip: str) -> dict:
 
 def _make_version(paper: Mapping, draft: Mapping) -> dict:
     question_ids = _validate_ids(draft.get("question_ids"))
+    question_limit = draft.get("question_limit", len(question_ids))
+    _validate_question_selection(
+        question_ids, question_limit, draft.get("question_filters", {}),
+        previous_ids=set(question_ids), require_exact=True,
+    )
     previous = paper.get("versions", {}).get(paper.get("current_version_id"), {})
     previous_by_id = {item["question_id"]: item for item in previous.get("questions", [])}
     bank = read_json("questions.json")
@@ -369,12 +508,14 @@ def publish_paper(paper_id: str, payload: Mapping, actor: str, ip: str) -> dict:
     return _serialize_paper(updated)
 
 
-def preview_paper(paper_id: str, version_id: str | None = None) -> dict:
+def preview_paper(paper_id: str, version_id: str | None = None, *, draft_only: bool = False) -> dict:
     paper = _get_paper(paper_id)
     if not paper:
         raise PaperError("Paper was not found", 404, "PAPER_NOT_FOUND")
+    if draft_only and version_id is not None:
+        raise PaperError("Draft preview cannot request a published version", 422, "INVALID_PREVIEW_TARGET")
     selected_id = version_id
-    if selected_id is None and paper.get("status") == "published":
+    if selected_id is None and paper.get("status") == "published" and not draft_only:
         selected_id = paper.get("current_version_id")
     if selected_id:
         version = paper.get("versions", {}).get(selected_id)

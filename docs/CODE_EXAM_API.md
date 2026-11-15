@@ -10,10 +10,10 @@ routes require an admin session; student routes require a student session.
 | Method | Route | Result |
 |---|---|---|
 | `GET` | `/api/admin/papers` | `{"papers":[...]}` summaries, including metadata, status, current version, source status and warnings. |
-| `POST` | `/api/admin/papers` | Create draft; request includes `title`, optional `metadata`, and ordered non-empty `question_ids`. Returns `201` and `{"ok":true,"paper":...}`. |
+| `POST` | `/api/admin/papers` | Create a draft; accepts `title`, optional `metadata`, ordered `question_ids` (including an empty list for an incomplete draft), and optional `question_limit` / `question_filters`. Returns `201` and `{"ok":true,"paper":...}`. |
 | `GET` | `/api/admin/papers/{paper_id}` | Paper draft, versions and teacher-side source warnings. |
-| `PUT` | `/api/admin/papers/{paper_id}` | Update draft fields `title`, `metadata`, `question_ids`, and required `expected_revision`; returns the updated Paper. `/update` POST is also accepted. |
-| `GET` | `/api/admin/papers/{paper_id}/preview[?version_id=...]` | `{"preview":...}` for the draft/current version or the requested stored version. |
+| `PUT` | `/api/admin/papers/{paper_id}` | Update draft fields `title`, `metadata`, ordered `question_ids`, optional `question_limit` / `question_filters`, and required `expected_revision`; returns the updated Paper. `/update` POST is also accepted. |
+| `GET` | `/api/admin/papers/{paper_id}/preview[?version_id=...][&draft=1]` | `{"preview":...}` for the saved draft (`draft=1`), the default current/published target, or the requested stored version. |
 | `POST` | `/api/admin/papers/{paper_id}/publish` | Capture and append an immutable version; body requires `expected_revision`. |
 | `POST` | `/api/admin/papers/{paper_id}/archive` / `restore` | Archive or restore Paper; body requires `expected_revision`. |
 | `POST` | `/api/admin/papers/{paper_id}/delete` | Delete only when no exam/release/assignment/code-exam record references the Paper; body requires `expected_revision`. |
@@ -24,6 +24,37 @@ source is inactive or gone; this preserves history and the admin response
 includes `source_status` and `warnings`. Paper versions store ordered
 question snapshots and `source_ref` metadata. Student payloads do not use the
 admin Paper detail/preview serializer.
+
+The eligible new-question pool is based on published Questions with supported
+language/grading pairs: `java/reflection`, `java/stdio`, and `python/stdio`.
+The Question list is currently unpaginated and the builder filters its single
+loaded result by keyword (title, ID, tags), category, language, grading mode,
+difficulty and tags. Dimensions combine with AND; selected tags combine with
+OR. Optional category/difficulty/tags are matched only when present in the
+Question record. Filter changes retain selected IDs, including selections
+outside the active filter.
+
+`question_limit`, when set, is an integer >= 1. It may exceed the selected
+count while the draft is incomplete, but publication requires a nonempty
+selection whose count exactly equals the limit. The server validates unique
+IDs, new-question eligibility, filter membership and quantity; it does not
+trust the client maximum. Existing unchanged IDs are compatible with source
+status/filter changes and are not silently removed.
+
+Random and Select All are client actions over the full loaded eligible pool.
+Random explicitly samples exactly N without replacement and Select All means
+all current filtered results. Both replace the selected list after
+confirmation. The group checkbox adds/removes matching IDs while retaining
+nonmatching selections. The ordered explicit IDs are saved in the draft, so
+reload, preview and publish do not randomize again.
+
+Each Paper has one current mutable draft and a revision precondition; Model A
+does not provide prior-draft history or draft restore. Save may persist an
+incomplete draft. Preview is read-only; `?draft=1` explicitly selects the
+saved draft, and Preview is not required before Publish. The UI saves dirty
+content before publishing. Publish appends an immutable Paper version; a
+later edit changes the current draft only. Existing records without
+`question_limit` / `question_filters` remain readable and require no migration.
 
 ## Exam configuration and release (admin)
 

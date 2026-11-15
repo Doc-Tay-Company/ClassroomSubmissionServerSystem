@@ -332,6 +332,54 @@ class CodeApiTests(unittest.TestCase):
         self.assertEqual(status, 400, result)
         self.assertIn("items", result["fields"])
 
+    def test_exam_record_edit_and_reload_preserve_selected_item_type(self):
+        item_cases = (
+            {
+                "type": "code",
+                "item_id": "code-item",
+                "distribution": {"mode": "common", "paper_versions": [{"paper_id": "paper-1", "paper_version_id": "paper-1:v1"}]},
+            },
+            {
+                "type": "zip",
+                "item_id": "zip-item",
+                "distribution_mode": "selected",
+                "distribution_config": {"exam_files": ["exam.zip"]},
+            },
+        )
+        for item in item_cases:
+            with self.subTest(item_type=item["type"]):
+                payload = {
+                    "title": f"{item['type']} exam",
+                    "config": {"duration_minutes": 75, "participants": ["student1"]},
+                    "items": [item],
+                }
+                status, created = self.request(
+                    "POST", "/api/admin/exam-records", cookie=self.admin_cookie, payload=payload
+                )
+                self.assertEqual(status, 201, created)
+                exam_id = created["exam"]["id"]
+
+                status, loaded = self.request(
+                    "GET", f"/api/admin/exam-records/{exam_id}", cookie=self.admin_cookie
+                )
+                self.assertEqual(status, 200, loaded)
+                self.assertEqual([entry["type"] for entry in loaded["exam"]["items"]], [item["type"]])
+
+                payload["title"] = f"edited {item['type']} exam"
+                status, updated = self.request(
+                    "POST", f"/api/admin/exam-records/{exam_id}/update", cookie=self.admin_cookie, payload=payload
+                )
+                self.assertEqual(status, 200, updated)
+                self.assertEqual(updated["exam"]["config"]["duration_minutes"], 75)
+                self.assertEqual(updated["exam"]["config"]["participants"], ["student1"])
+
+                status, reloaded = self.request(
+                    "GET", f"/api/admin/exam-records/{exam_id}", cookie=self.admin_cookie
+                )
+                self.assertEqual(status, 200, reloaded)
+                self.assertEqual([entry["type"] for entry in reloaded["exam"]["items"]], [item["type"]])
+                self.assertEqual(reloaded["exam"]["title"], f"edited {item['type']} exam")
+
     def test_exam_records_get_migrates_wrapped_code_exam_store(self):
         legacy_exam = {
             "id": "legacy-code-exam",

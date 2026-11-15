@@ -179,7 +179,7 @@
     const statusPill = (status) => { const [label, cls] = QSTATUS[status] || [status, "status-gray"]; return h("span", { class: `status-pill ${cls}` }, label); };
     const blank = () => ({
       title: "", tag: "", duration: 90, policy: "configurable", maxSub: 1, overwrite: true, ext: ".zip", pwEnabled: false, pw: "", hasPw: false,
-      participants: new Set(), code: null, zip: null, accountQuery: "", questionQuery: "",
+      participants: new Set(), itemType: null, code: null, zip: null, legacyConflict: null, accountQuery: "", questionQuery: "",
       pick: { search: "", language: "", mode: "", status: "published", category: "", usage: "" },
     });
 
@@ -191,8 +191,10 @@
         overwrite: c.overwrite_previous, ext: c.accepted_submission_extensions.join(" "), pwEnabled: c.password_enabled, hasPw: c.has_password,
         participants: new Set(c.participants),
       });
-      for (const item of source.items) {
-        if (item.type === "code") {
+      const items = Array.isArray(source.items) ? source.items : [];
+      let unsupportedItems = [];
+      for (const item of items) {
+        if (item && item.type === "code") {
           f.code = {
             item_id: item.item_id,
             legacy: !item.distribution,
@@ -204,13 +206,24 @@
             maxRuns: item.max_pretest_runs,
             cooldown: item.pretest_cooldown_seconds,
           };
-        } else {
+        } else if (item && item.type === "zip") {
           const cfg = item.distribution_config || {};
           const modulus = (cfg.exam_files || []).length;
           const map = {};
           for (const [digit, file] of Object.entries(cfg.last_digit_map || {})) if (modulus) map[Number(digit) % modulus] = file;
           f.zip = { item_id: item.item_id, mode: item.distribution_mode, files: new Set(cfg.exam_files || []), even: cfg.even_exam || "", odd: cfg.odd_exam || "", map };
+        } else {
+          unsupportedItems.push(item);
         }
+      }
+      if (items.length > 1 || unsupportedItems.length) {
+        f.legacyConflict = { code: f.code, zip: f.zip, unsupported: unsupportedItems };
+        f.code = null;
+        f.zip = null;
+      } else if (f.code) {
+        f.itemType = "code";
+      } else if (f.zip) {
+        f.itemType = "zip";
       }
       return f;
     }
@@ -222,7 +235,7 @@
 
     function toPayload() {
       const items = [];
-      if (form.code) {
+      if (form.itemType === "code" && form.code) {
         items.push({
           item_id: form.code.item_id, type: "code",
           ...(form.code.legacy
@@ -232,7 +245,7 @@
           allow_pretest: form.code.pretest, max_pretest_runs: Math.round(clampPretest(form.code.maxRuns)), pretest_cooldown_seconds: clampPretest(form.code.cooldown),
         });
       }
-      if (form.zip) {
+      else if (form.itemType === "zip" && form.zip) {
         const files = [...form.zip.files];
         let distribution = { exam_files: files };
         if (form.zip.mode === "parity") distribution = { even_exam: form.zip.even, odd_exam: form.zip.odd };
@@ -306,6 +319,7 @@
 
     async function persist(quiet) {
       if (saving) return exam;
+      if (form.legacyConflict) throw new Error("Bản nháp có nhiều hoặc có loại bài không được hỗ trợ. Hãy chọn rõ Bài code hoặc Bài nộp file để sửa trước khi lưu.");
       saving = true;
       clearTimeout(saveTimer);
       try {
@@ -330,6 +344,10 @@
       if (showErrors) applyErrors(publishProblems());
       if (!exam || exam.status !== "draft") return;
       clearTimeout(saveTimer);
+      if (form.legacyConflict) {
+        autosave.textContent = "Hãy chọn rõ loại bài để sửa bản nháp cũ trước khi lưu.";
+        return;
+      }
       autosave.textContent = "Đang chờ lưu…";
       saveTimer = setTimeout(async () => {
         try { await persist(true); } catch (error) { autosave.textContent = `Không thể tự lưu: ${errorText(error)}`; }
@@ -346,8 +364,9 @@
       if (!form.ext.replace(/[,\s]/g, "")) problems.push(["ext", "loại file được chấp nhận"]);
       if (form.pwEnabled && !form.pw && !form.hasPw) problems.push(["password", "mật khẩu đề thi (đang bật yêu cầu mật khẩu)"]);
       if (!form.participants.size) problems.push(["participants", "danh sách sinh viên dự thi"]);
-      if (!form.code && !form.zip) problems.push(["items", "bài code hoặc bài nộp file (cần ít nhất một)"]);
-      else if (form.code && !form.code.legacy) {
+      if (form.legacyConflict) problems.push(["items", "chọn rõ một loại bài để sửa bản nháp cũ có cấu hình không hợp lệ"]);
+      else if (!form.itemType) problems.push(["items", "chọn Bài code hoặc Bài nộp file"]);
+      else if (form.itemType === "code" && form.code && !form.code.legacy) {
         const count = form.code.paperVersions.length;
         if (!count) problems.push(["code", "Paper cho bài code"]);
         if (form.code.mode === "common" && count !== 1) problems.push(["code", "chính xác một Paper cho chế độ COMMON"]);
@@ -374,6 +393,49 @@
     const field = (label, control, hint) => h("div", {}, h("label", {}, label), control, hint ? h("p", { class: "fine-print" }, hint) : null);
     const rowField = (label, control) => h("div", { class: "exam-row" }, h("label", {}, label), control);
     const stackField = (label, control) => h("div", { class: "exam-row exam-row-stack" }, h("label", {}, label), control);
+
+    function selectItemType(type) {
+      if (form.itemType === type && !form.legacyConflict) return;
+      const legacy = form.legacyConflict;
+      form.itemType = type || null;
+      form.code = type === "code"
+        ? (legacy?.code || { item_id: undefined, legacy: false, mode: "common", paperVersions: [], final: false, pretest: true, maxRuns: 20, cooldown: 2 })
+        : null;
+      form.zip = type === "zip"
+        ? (legacy?.zip || { item_id: undefined, mode: "random", files: new Set(), even: "", odd: "", map: {} })
+        : null;
+      form.legacyConflict = null;
+      scheduleAutosave();
+      render();
+    }
+
+    function itemTypeSelector() {
+      const options = [
+        ["", "Chưa chọn loại bài"],
+        ["code", "Bài code (chấm tự động)"],
+        ["zip", "Bài nộp file (đề ZIP/PDF)"],
+      ];
+      const legacyNotice = form.legacyConflict
+        ? h("div", { class: "alert alert-warning", role: "alert" },
+          h("strong", {}, "Bản nháp cũ có lựa chọn loại bài không hợp lệ."),
+          h("p", {}, "Chọn rõ một loại bên dưới để tiếp tục. Cấu hình được chọn sẽ được giữ; cấu hình còn lại sẽ bị loại khỏi bản nháp khi lưu."),
+          h("p", { class: "fine-print" }, `Dữ liệu cũ: ${[
+            form.legacyConflict.code ? "Bài code" : "",
+            form.legacyConflict.zip ? "Bài nộp file" : "",
+            form.legacyConflict.unsupported.length ? `${form.legacyConflict.unsupported.length} loại bài không hỗ trợ` : "",
+          ].filter(Boolean).join(", ") || "không xác định"}.`))
+        : null;
+      return mark("items", h("section", { class: "exam-form-section", "aria-label": "Loại bài thi" },
+        h("h3", {}, "Loại bài thi"),
+        h("div", { role: "radiogroup", "aria-label": "Chọn một loại bài thi" },
+          ...options.map(([value, label]) => h("label", { class: "checkbox-row" },
+            h("input", {
+              type: "radio", name: "exam-item-type", value, checked: (form.itemType || "") === value,
+              disabled: Boolean(form.legacyConflict && !value),
+              on: { change: (event) => { if (event.target.checked) selectItemType(value); } },
+            }), ` ${label}`))),
+        legacyNotice));
+    }
     const bind = (key, type) => (event) => {
       const t = event.target;
       form[key] = type === "bool" ? t.checked : type === "yesno" ? t.value === "true" : t.value;
@@ -456,12 +518,7 @@
     }
 
     function codeSection() {
-      const toggle = h("label", { class: "checkbox-row" }, h("input", {
-        type: "checkbox", checked: Boolean(form.code),
-        on: { change: (e) => { form.code = e.target.checked ? { item_id: undefined, legacy: false, mode: "common", paperVersions: [], final: false, pretest: true, maxRuns: 20, cooldown: 2 } : null; scheduleAutosave(); render(); } },
-      }), " Có bài code (chấm tự động)");
-      if (form.zip) return null;
-      if (!form.code) return mark("items", h("section", { class: "exam-form-section" }, h("h3", {}, h("i", { class: "fa fa-code" }), " Bài code"), toggle));
+      if (form.itemType !== "code" || !form.code) return null;
       const code = form.code;
       const canEdit = !exam || exam.status === "draft";
       const currentPool = ref.papers.filter((paper) => paper.status === "published" && paper.current_version_id);
@@ -531,8 +588,12 @@
       runsInput.addEventListener("change", () => settle(runsInput, setRuns, true));
       cooldownInput.addEventListener("input", () => clampInput(cooldownInput, setCooldown, false));
       cooldownInput.addEventListener("change", () => settle(cooldownInput, setCooldown, false));
+      const previewButton = h("button", {
+        type: "button", class: "btn btn-small btn-secondary",
+        on: { click: () => openPreview() },
+      }, h("i", { class: "fa fa-eye" }), " Xem trước kỳ thi");
       return h("section", { class: "exam-form-section" },
-        h("h3", {}, h("i", { class: "fa fa-code" }), " Bài code"), toggle,
+        h("h3", {}, h("i", { class: "fa fa-code" }), " Bài code"),
         legacyPanel,
         distributionControls,
         h("div", { class: "qb-preview-bar" }, previewButton),
@@ -545,13 +606,8 @@
     }
 
     function zipSection() {
-      const toggle = h("label", { class: "checkbox-row" }, h("input", {
-        type: "checkbox", checked: Boolean(form.zip),
-        on: { change: (e) => { form.zip = e.target.checked ? { item_id: undefined, mode: "random", files: new Set(), even: "", odd: "", map: {} } : null; scheduleAutosave(); render(); } },
-      }), " Có bài nộp file (đề ZIP/PDF)");
       const heading = h("h3", {}, h("i", { class: "fa fa-file-archive-o" }), " Bài nộp file");
-      if (form.code) return null;
-      if (!form.zip) return mark("items", h("section", { class: "exam-form-section" }, heading, toggle));
+      if (form.itemType !== "zip" || !form.zip) return null;
       const zip = form.zip;
       const names = ref.files.map((file) => file.name);
       const fileOptions = (selected, onChange) => h("select", { on: { change: onChange } }, h("option", { value: "" }, "— Chọn đề —"), ...names.map((name) => h("option", { value: name, selected: name === selected }, name)));
@@ -575,7 +631,7 @@
             h("select", { on: { change: (e) => { zip.map[remainder] = e.target.value; scheduleAutosave(); } } },
               h("option", { value: "" }, "— Chọn đề —"), ...selected.map((name) => h("option", { value: name, selected: zip.map[remainder] === name }, name))))) : [])));
       }
-      return mark("items", h("section", { class: "exam-form-section" }, heading, toggle,
+      return mark("items", h("section", { class: "exam-form-section" }, heading,
         rowField("Chế độ phân phối", h("select", { class: "exam-select-wide", on: { change: (e) => { zip.mode = e.target.value; scheduleAutosave(); render(); } } },
           h("option", { value: "random", selected: zip.mode === "random" }, "Ngẫu nhiên (xa nhau theo IP) trong các đề được chọn"),
           h("option", { value: "selected", selected: zip.mode === "selected" }, "Luân phiên trong các đề được chọn"),
@@ -687,7 +743,7 @@
           h("div", { class: "exam-detail-status" }, pill(exam ? exam.status : "draft"), actionBar()),
           link("/admin?section=exams", "fa-arrow-left", "Danh sách kỳ thi", "btn-ghost")),
         warningText.trim() ? h("div", { class: "alert alert-warning" }, warningText) : null,
-        h("fieldset", { class: "exam-form", disabled: readOnly }, configSection(), participantsSection(), codeSection(), zipSection()),
+        h("fieldset", { class: "exam-form", disabled: readOnly }, configSection(), participantsSection(), itemTypeSelector(), codeSection(), zipSection()),
         mode() === "edit" && (!exam || exam.status === "draft") ? autosave : null,
         bottomBar(), notice);
       if (showErrors && mode() === "edit") applyErrors(publishProblems());

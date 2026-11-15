@@ -353,7 +353,11 @@ class Handler(BaseHTTPRequestHandler):
                 if paper_path.endswith("/preview") and paper_path.count("/")==1:
                     paper_id=paper_path[:-len("/preview")]
                     version_ids=req.query.get("version_id",[])
-                    return self._json({"preview":preview_paper(paper_id,version_ids[0] if version_ids else None)})
+                    draft_preview=req.query.get("draft",[])
+                    return self._json({"preview":preview_paper(
+                        paper_id, version_ids[0] if version_ids else None,
+                        draft_only=bool(draft_preview and draft_preview[0] in {"1","true"}),
+                    )})
                 if not paper_path or "/" in paper_path: raise ClientError(404,"Paper was not found.")
                 return self._json({"paper":get_paper(paper_path)})
             if path.startswith("/api/admin/questions/"):

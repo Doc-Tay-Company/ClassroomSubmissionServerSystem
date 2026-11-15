@@ -148,6 +148,12 @@ Các chế độ trong mục này áp dụng cho file đề của ZIP Exam. Chú
 
 ### 4.6 Code Exam và phân phối Paper
 
+Chi tiết implementation hiện tại của Paper Builder (quantity, filters, random,
+Select All), vòng đời draft/preview/publish, API và giới hạn ZIP snapshot được
+duy trì trong [`docs/EXAM_PAPER_GUIDE.md`](docs/EXAM_PAPER_GUIDE.md). Nội dung
+bên dưới là đặc tả nền; khi cần acceptance evidence hãy xem
+[`docs/ai/ACCEPTANCE_REPORT.md`](docs/ai/ACCEPTANCE_REPORT.md).
+
 - Ngân hàng câu hỏi lưu trong `questions.json`; bài nộp và lịch sử pretest lưu riêng trong `code_submissions.json` và `code_runs.json`.
 - Chỉ tổ hợp Java + Reflection, Java + STDIO, và Python + STDIO được chấp nhận. Câu hỏi phải được publish sau khi đáp án mẫu vượt qua toàn bộ test/check.
 - Admin tạo Paper từ câu hỏi đang Published, sắp xếp thứ tự, xem trước và xuất bản version bất biến. Có thể lưu Paper ở trạng thái nháp, archive/restore; không xóa Paper còn được release, assignment hoặc Code Exam tham chiếu.
@@ -193,9 +199,9 @@ Các chế độ trong mục này áp dụng cho file đề của ZIP Exam. Chú
 | POST | `/api/admin/questions/{id}/archive` | Admin | Lưu trữ câu hỏi đã dùng |
 | POST | `/api/admin/questions/{id}/delete` | Admin | Xóa câu hỏi chưa sử dụng |
 | POST | `/api/admin/questions/{id}/publish` | Admin | Xác thực đáp án mẫu và publish |
-| GET/POST | `/api/admin/papers` | Admin | Liệt kê/tạo Paper (`title`, `metadata`, ordered `question_ids`) |
-| GET/PUT | `/api/admin/papers/{id}` | Admin | Lấy/cập nhật Paper; update gửi `expected_revision` |
-| GET | `/api/admin/papers/{id}/preview?version_id=...` | Admin | Xem trước draft/current hoặc version cụ thể |
+| GET/POST | `/api/admin/papers` | Admin | Liệt kê/tạo Paper; draft nhận `title`, `metadata`, ordered `question_ids`, `question_limit`, `question_filters`; có thể lưu selection chưa hoàn tất |
+| GET/PUT | `/api/admin/papers/{id}` | Admin | Lấy/cập nhật Paper; update gửi `expected_revision`; mỗi Paper có một current draft và revision concurrency |
+| GET | `/api/admin/papers/{id}/preview[?version_id=...][&draft=1]` | Admin | Xem draft/current hoặc version cụ thể; `draft=1` chọn saved draft rõ ràng |
 | POST | `/api/admin/papers/{id}/{publish\|archive\|restore\|delete}` | Admin | Chuyển trạng thái Paper; body cần `expected_revision` |
 | GET/POST | `/api/admin/exam-records` | Admin | Liệt kê/tạo exam record; code item dùng `distribution` Paper hoặc legacy `question_ids` |
 | GET | `/api/admin/exam-records/{id}` | Admin | Chi tiết exam record |
