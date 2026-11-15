@@ -340,6 +340,14 @@ class CodeApiTests(unittest.TestCase):
                 "distribution": {"mode": "common", "paper_versions": [{"paper_id": "paper-1", "paper_version_id": "paper-1:v1"}]},
             },
             {
+                "type": "code",
+                "item_id": "random-code-item",
+                "distribution": {"mode": "random", "paper_versions": [
+                    {"paper_id": "paper-1", "paper_version_id": "paper-1:v1"},
+                    {"paper_id": "paper-2", "paper_version_id": "paper-2:v2"},
+                ]},
+            },
+            {
                 "type": "zip",
                 "item_id": "zip-item",
                 "distribution_mode": "selected",
@@ -364,6 +372,8 @@ class CodeApiTests(unittest.TestCase):
                 )
                 self.assertEqual(status, 200, loaded)
                 self.assertEqual([entry["type"] for entry in loaded["exam"]["items"]], [item["type"]])
+                if item["type"] == "code":
+                    self.assertEqual(loaded["exam"]["items"][0]["distribution"], item["distribution"])
 
                 payload["title"] = f"edited {item['type']} exam"
                 status, updated = self.request(
@@ -379,6 +389,8 @@ class CodeApiTests(unittest.TestCase):
                 self.assertEqual(status, 200, reloaded)
                 self.assertEqual([entry["type"] for entry in reloaded["exam"]["items"]], [item["type"]])
                 self.assertEqual(reloaded["exam"]["title"], f"edited {item['type']} exam")
+                if item["type"] == "code":
+                    self.assertEqual(reloaded["exam"]["items"][0]["distribution"], item["distribution"])
 
     def test_exam_records_get_migrates_wrapped_code_exam_store(self):
         legacy_exam = {

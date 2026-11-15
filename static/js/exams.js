@@ -538,10 +538,15 @@
         h("button", { type: "button", class: "btn btn-small btn-secondary", disabled: !canEdit, on: { click: () => { code.legacy = false; code.legacyQuestionIds = []; code.mode = "common"; code.paperVersions = []; scheduleAutosave(); render(); } },
         }, "Bỏ cấu hình cũ và chọn Paper"),
         h("p", { class: "fine-print" }, `Câu hỏi cũ: ${code.legacyQuestionIds.join(", ") || "không có"}`)) : null;
+      const distributionMode = h("select", { class: "exam-select-wide", disabled: !canEdit,
+        on: { change: (e) => { code.mode = e.target.value; if (code.mode === "common") code.paperVersions = code.paperVersions.slice(0, 1); scheduleAutosave(); render(); } } },
+      h("option", { value: "common" }, "COMMON — cùng một Paper cho mọi sinh viên"),
+      h("option", { value: "random" }, "RANDOM — máy chủ chọn một Paper trong pool cho từng sinh viên"));
+      // The shared h() helper sets select.value before appending options. Set it
+      // after construction so a re-render cannot default RANDOM to COMMON.
+      distributionMode.value = code.mode;
       const distributionControls = !code.legacy ? h("div", { class: "exam-rows" },
-        rowField("Chế độ phân phối Paper", h("select", { class: "exam-select-wide", disabled: !canEdit, value: code.mode, on: { change: (e) => { code.mode = e.target.value; if (code.mode === "common") code.paperVersions = code.paperVersions.slice(0, 1); scheduleAutosave(); render(); } } },
-          h("option", { value: "common" }, "COMMON — cùng một Paper cho mọi sinh viên"),
-          h("option", { value: "random" }, "RANDOM — máy chủ chọn một Paper trong pool cho từng sinh viên"))),
+        rowField("Chế độ phân phối Paper", distributionMode),
         h("p", { class: "fine-print" }, code.mode === "common"
           ? "Chọn chính xác một Paper version."
           : "Chọn pool Paper versions; máy chủ gán một Paper hoàn chỉnh cho mỗi sinh viên. Câu hỏi bên trong Paper không bị xáo trộn."),
