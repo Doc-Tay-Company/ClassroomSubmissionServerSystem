@@ -12,6 +12,7 @@
   </div>
 </header>
 <main class="page-wrap ui-page mx-auto max-w-6xl px-6 py-6" id="practice-root" data-student-id="{{ session.user_id }}">
+  <div id="practice-notice" class="hidden" role="status" aria-live="polite"></div>
   <!-- VIEW 1: Library View -->
   <section id="practice-library-view">
     <div class="welcome-panel">
@@ -40,7 +41,6 @@
         <button type="button" id="practice-refresh-btn" class="btn btn-secondary"><i class="fa fa-refresh"></i> Làm mới</button>
       </div>
 
-      <div id="practice-notice" class="hidden"></div>
       <div id="practice-catalog-list">
         <p class="muted pad"><i class="fa fa-spinner fa-spin"></i> Đang tải danh sách câu hỏi...</p>
       </div>

@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import re
 import threading
 from copy import deepcopy
 from decimal import Decimal
@@ -219,6 +220,7 @@ def _empty_progress_record(attempt_id: str, practice_revision: str) -> dict:
         "practice_percentage": None,
         "score_available": False,
         "result_summary": [],
+        "run_diagnostic": None,
         "updated_at": utc_now(),
     }
 
@@ -249,15 +251,71 @@ def classify_practice_percentage(percentage: float | None) -> str | None:
     return "red"
 
 
-def _safe_progress_summary(record: dict) -> dict:
+_FEEDBACK_PATH = re.compile(r'(?:[A-Za-z]:[\\/]|/|\\\\)[^\s:<>"|]+')
+_RELATIVE_FILE_PATH = re.compile(
+    r'(?<![\w])(?:[\w.-]+[\\/])+[\w.-]+\.(?:py|java|class)(?::\d+)?',
+    re.IGNORECASE,
+)
+_TRACEBACK_HEADER = re.compile(r"(?m)^\s*Traceback \(most recent call last\):\s*$")
+_PYTHON_FRAME = re.compile(r'(?m)^\s*File "[^"]+", line \d+.*$')
+_JAVA_FRAME = re.compile(r"(?m)^\s*at [\w.$<>]+\([^\r\n)]*\)\s*$")
+_FEEDBACK_OUTPUT_MAX_BYTES = 8192
+_FEEDBACK_DIAGNOSTIC_MAX_BYTES = 2048
+
+
+def _safe_feedback_text(value: Any, max_bytes: int, *, diagnostic: bool = False) -> str | None:
+    """Bound student feedback and redact host paths/stack frames before exposure."""
+    if not isinstance(value, str):
+        return None
+    text = _FEEDBACK_PATH.sub("[path]", value)
+    text = _RELATIVE_FILE_PATH.sub("[path]", text)
+    if diagnostic:
+        text = _TRACEBACK_HEADER.sub("", text)
+        text = _PYTHON_FRAME.sub("", text)
+        text = _JAVA_FRAME.sub("", text)
+        text = "\n".join(line for line in text.splitlines() if line.strip())
+    encoded = text.encode("utf-8", errors="replace")
+    if len(encoded) > max_bytes:
+        text = encoded[:max_bytes].decode("utf-8", errors="ignore") + "…"
+    return text
+
+
+def _feedback_value(value: Any) -> str | None:
+    """Render safe JSON-shaped Reflection values as bounded display text."""
+    if isinstance(value, str):
+        text = value
+    elif value is None or isinstance(value, (bool, int, float, list, dict)):
+        try:
+            text = json.dumps(value, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
+        except (TypeError, ValueError):
+            return None
+    else:
+        return None
+    return _safe_feedback_text(text, _FEEDBACK_OUTPUT_MAX_BYTES)
+
+
+def _visible_result_ids(question: Mapping | None) -> set[str]:
+    if not isinstance(question, Mapping):
+        return set()
+    field = "checks" if question.get("grading_mode") == "reflection" else "tests"
+    items = question.get(field)
+    if not isinstance(items, list):
+        return set()
+    return {
+        item["id"] for item in items
+        if isinstance(item, Mapping)
+        and item.get("is_visible") is True
+        and isinstance(item.get("id"), str)
+    }
+
+
+def _safe_progress_summary(record: dict, visible_result_ids: set[str]) -> dict:
     """Strip internal fields for the client-facing progress projection."""
     raw_results = record.get("result_summary")
     safe_results = []
     if isinstance(raw_results, list):
         for raw in raw_results:
             if not isinstance(raw, Mapping):
-                continue
-            if "is_visible" in raw and raw.get("is_visible") is not True:
                 continue
             result_id = raw.get("id")
             verdict = raw.get("verdict")
@@ -269,9 +327,15 @@ def _safe_progress_summary(record: dict) -> dict:
                 or not isinstance(verdict, str)
                 or verdict not in {"AC", "WA", "CE", "TLE", "MLE", "RE", "OLE"}
                 or not isinstance(passed, bool)
+                or result_id not in visible_result_ids
             ):
                 continue
             safe_row = {"id": result_id, "verdict": verdict, "passed": passed}
+            points_max = raw.get("points")
+            if points_max is not None:
+                if isinstance(points_max, bool) or not isinstance(points_max, (int, float)) or not math.isfinite(points_max) or points_max < 0:
+                    continue
+                safe_row["points"] = points_max
             points = raw.get("points_earned")
             if points is not None:
                 if (
@@ -282,7 +346,19 @@ def _safe_progress_summary(record: dict) -> dict:
                 ):
                     continue
                 safe_row["points_earned"] = points
+            for field in ("expected_output", "actual_output", "expected", "actual"):
+                text = _safe_feedback_text(raw.get(field), _FEEDBACK_OUTPUT_MAX_BYTES)
+                if text is not None:
+                    safe_row[field] = text
+            diagnostic = _safe_feedback_text(
+                raw.get("diagnostic"), _FEEDBACK_DIAGNOSTIC_MAX_BYTES, diagnostic=True
+            )
+            if diagnostic:
+                safe_row["diagnostic"] = diagnostic
             safe_results.append(safe_row)
+    run_diagnostic = _safe_feedback_text(
+        record.get("run_diagnostic"), _FEEDBACK_DIAGNOSTIC_MAX_BYTES, diagnostic=True
+    )
     return {
         "practice_revision": record.get("practice_revision"),
         "attempt_id": record.get("attempt_id"),
@@ -292,6 +368,7 @@ def _safe_progress_summary(record: dict) -> dict:
         "practice_percentage": record.get("practice_percentage"),
         "score_available": bool(record.get("score_available")),
         "result_summary": safe_results,
+        "run_diagnostic": run_diagnostic,
         "updated_at": record.get("updated_at"),
     }
 
@@ -348,7 +425,7 @@ def get_progress_with_availability(
             "version": int(q.get("version", 1)),
             "practice_revision": str(q.get("practice_revision")),
             "available": True,
-            "progress": _safe_progress_summary(progress_record) if progress_record else None,
+            "progress": _safe_progress_summary(progress_record, _visible_result_ids(q)) if progress_record else None,
         })
 
     # 2. Progress entries whose question is now unavailable (available=False)
@@ -368,7 +445,7 @@ def get_progress_with_availability(
             "version": int(bank_q.get("version", 1)) if isinstance(bank_q, Mapping) else 0,
             "practice_revision": str(progress_record.get("practice_revision", "")),
             "available": False,
-            "progress": _safe_progress_summary(progress_record),
+            "progress": _safe_progress_summary(progress_record, _visible_result_ids(bank_q)),
         })
 
     result.sort(key=lambda item: (item["title"].lower(), item["question_id"]))
@@ -571,11 +648,56 @@ def run_practice(student_id: str, payload: Mapping) -> dict:
 
         percentage = compute_practice_percentage(score.score, score.total_points)
         score_available = percentage is not None
+        raw_rows_by_id = {
+            row.get("id"): row for row in visible_rows
+            if isinstance(row, Mapping) and isinstance(row.get("id"), str)
+        }
+        specs_by_id = {
+            item.get("id"): item for item in public_items
+            if isinstance(item.get("id"), str)
+        }
+        compile_result = execution.get("compile_result")
+        diagnostic_candidates = []
+        if verdict == "CE" and isinstance(compile_result, Mapping):
+            diagnostic_candidates.extend((compile_result.get("stderr"), compile_result.get("stdout"), compile_result.get("error")))
+        diagnostic_candidates.append(execution.get("error"))
+        run_diagnostic = next((
+            safe for candidate in diagnostic_candidates
+            if (safe := _safe_feedback_text(candidate, _FEEDBACK_DIAGNOSTIC_MAX_BYTES, diagnostic=True))
+        ), None)
         results = []
         for row in score.results:
             passed = row.get("passed") is True
             row_verdict = verdict if verdict in {"CE", "TLE", "MLE", "RE", "OLE"} else ("AC" if passed else "WA")
-            results.append({"id": row["id"], "verdict": row_verdict, "passed": passed, "points_earned": row["points_earned"]})
+            spec = specs_by_id[row["id"]]
+            raw = raw_rows_by_id.get(row["id"], {})
+            safe_row = {
+                "id": row["id"],
+                "verdict": row_verdict,
+                "passed": passed,
+                "points": spec.get("points"),
+                "points_earned": row["points_earned"],
+            }
+            if reflection:
+                for field in ("expected", "actual"):
+                    text = _feedback_value(row.get(field))
+                    if text is not None:
+                        safe_row[field] = text
+                diagnostic_source = row.get("error")
+            else:
+                expected = spec.get("expected_stdout", spec.get("expected_output"))
+                actual = raw.get("actual_stdout")
+                if isinstance(expected, str):
+                    safe_row["expected_output"] = _safe_feedback_text(expected, _FEEDBACK_OUTPUT_MAX_BYTES)
+                if isinstance(actual, str):
+                    safe_row["actual_output"] = _safe_feedback_text(actual, _FEEDBACK_OUTPUT_MAX_BYTES)
+                diagnostic_source = raw.get("error") or raw.get("stderr")
+            diagnostic = _safe_feedback_text(
+                diagnostic_source, _FEEDBACK_DIAGNOSTIC_MAX_BYTES, diagnostic=True
+            ) or run_diagnostic
+            if diagnostic:
+                safe_row["diagnostic"] = diagnostic
+            results.append(safe_row)
 
         def commit(all_progress: dict) -> None:
             if not isinstance(all_progress, dict):
@@ -600,6 +722,7 @@ def run_practice(student_id: str, payload: Mapping) -> dict:
                 "practice_percentage": percentage,
                 "score_available": score_available,
                 "result_summary": results,
+                "run_diagnostic": run_diagnostic,
                 "updated_at": utc_now(),
             })
 
@@ -619,6 +742,7 @@ def run_practice(student_id: str, payload: Mapping) -> dict:
             "practice_percentage": percentage,
             "score_available": score_available,
             "results": results,
+            "run_diagnostic": run_diagnostic,
         }
     finally:
         if reserved:

@@ -304,3 +304,33 @@
   gap: 0.5rem;
   align-items: center;
 }
+.practice-feedback-list {
+  display: grid;
+  gap: 0.75rem;
+  padding-left: 1.25rem;
+}
+.practice-feedback-row {
+  padding: 0.75rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.5rem;
+}
+.practice-feedback-heading {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+}
+.practice-feedback-detail,
+.practice-feedback-diagnostic {
+  margin-top: 0.5rem;
+}
+.practice-feedback-output {
+  max-width: 100%;
+  margin: 0.25rem 0 0;
+  padding: 0.5rem;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: #f8fafc;
+  border-radius: 0.25rem;
+}
