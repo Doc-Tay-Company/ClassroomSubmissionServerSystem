@@ -333,6 +333,13 @@ class CodeApiTests(unittest.TestCase):
         self.assertIn("items", result["fields"])
 
     def test_exam_record_edit_and_reload_preserve_selected_item_type(self):
+        storage.write_json("papers.json", {
+            "paper-1": {
+                "id": "paper-1", "schema_version": 1, "status": "published",
+                "versions": {"paper-1:v1": {"id": "paper-1:v1", "title": "Legacy Paper",
+                    "questions": [{"question_id": "q-1", "order": 0, "total_points": 10}]}},
+            }
+        })
         item_cases = (
             {
                 "type": "code",
@@ -376,6 +383,7 @@ class CodeApiTests(unittest.TestCase):
                     self.assertEqual(loaded["exam"]["items"][0]["distribution"], item["distribution"])
 
                 payload["title"] = f"edited {item['type']} exam"
+                payload["expected_revision"] = created["exam"]["revision"]
                 status, updated = self.request(
                     "POST", f"/api/admin/exam-records/{exam_id}/update", cookie=self.admin_cookie, payload=payload
                 )

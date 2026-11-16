@@ -124,6 +124,170 @@ class ExamPaperApiTests(unittest.TestCase):
         self.assertEqual(status, 201, body)
         return body["paper"]
 
+    def create_independent_paper(self, question_ids=("q-1",), question_limit=None):
+        status, body = self.request(
+            "POST", "/api/admin/papers/independent", cookie=self.admin_cookie,
+            payload={"title": "Independent", "metadata": {}, "question_ids": list(question_ids),
+                "question_limit": len(question_ids) if question_limit is None else question_limit, "question_filters": {}},
+        )
+        self.assertEqual(status, 201, body)
+        return body["paper"]
+
+    def test_independent_paper_lifecycle_and_draft_copy(self):
+        paper = self.create_independent_paper()
+        self.assertEqual(paper["schema_version"], 2)
+        self.assertEqual(paper["status"], "draft")
+        self.assertNotIn("versions", paper)
+        self.assertNotIn("current_version_id", paper)
+        status, published = self.publish(paper)
+        self.assertEqual(status, 200, published)
+        paper = published["paper"]
+        self.assertEqual(paper["status"], "published")
+        old_id, old_revision = paper["id"], paper["revision"]
+        status, updated = self.request("PUT", f"/api/admin/papers/{old_id}", cookie=self.admin_cookie,
+            payload={"expected_revision": old_revision, "title": "Independent edited", "metadata": {},
+                "question_ids": ["q-2"], "question_limit": 1, "question_filters": {}})
+        self.assertEqual(status, 200, updated)
+        self.assertEqual(updated["paper"]["id"], old_id)
+        self.assertEqual(updated["paper"]["status"], "published")
+        self.assertNotIn("versions", updated["paper"])
+        stale_status, _ = self.request("PUT", f"/api/admin/papers/{old_id}", cookie=self.admin_cookie,
+            payload={"expected_revision": old_revision, "title": "stale", "question_ids": ["q-2"]})
+        self.assertEqual(stale_status, 409)
+        status, copied = self.request("POST", f"/api/admin/papers/{old_id}/draft-copy", cookie=self.admin_cookie,
+            payload={"expected_revision": updated["paper"]["revision"], "title": "Copy", "metadata": {},
+                "question_ids": ["q-2"], "question_limit": 1, "question_filters": {}})
+        self.assertEqual(status, 201, copied)
+        self.assertNotEqual(copied["paper"]["id"], old_id)
+        self.assertEqual(copied["paper"]["status"], "draft")
+        self.assertEqual(copied["paper"]["question_ids"], ["q-2"])
+        self.assertEqual(storage.read_json("papers.json")[old_id]["status"], "published")
+
+    def test_exact_question_limit_is_required_for_publish_and_published_save(self):
+        bank = {f"q-{index}": _question(f"q-{index}") for index in range(1, 12)}
+        storage.write_json("questions.json", bank)
+        ten_ids = list(bank)[:10]
+
+        nine = self.create_independent_paper(ten_ids[:9], question_limit=10)
+        status, mismatch = self.publish(nine)
+        self.assertEqual(status, 422)
+        self.assertEqual(mismatch["code"], "QUESTION_LIMIT_MISMATCH")
+        self.assertEqual((mismatch["expected_count"], mismatch["actual_count"]), (10, 9))
+        self.assertEqual(storage.read_json("papers.json")[nine["id"]]["status"], "draft")
+
+        exact = self.create_independent_paper(ten_ids)
+        status, published = self.publish(exact)
+        self.assertEqual(status, 200, published)
+        published = published["paper"]
+        before = storage.read_json("papers.json")[published["id"]]
+        for ids, actual in ((ten_ids[:9], 9), (list(bank), 11)):
+            status, mismatch = self.request(
+                "PUT", f"/api/admin/papers/{published['id']}", cookie=self.admin_cookie,
+                payload={"expected_revision": published["revision"], "title": "Attempted edit",
+                    "question_ids": ids, "question_limit": 10, "question_filters": {}},
+            )
+            self.assertEqual(status, 422)
+            self.assertEqual(mismatch["code"], "QUESTION_LIMIT_MISMATCH")
+            self.assertEqual((mismatch["expected_count"], mismatch["actual_count"]), (10, actual))
+            self.assertEqual(storage.read_json("papers.json")[published["id"]], before)
+
+        too_many = self.create_independent_paper(list(bank), question_limit=10)
+        too_many_before = storage.read_json("papers.json")[too_many["id"]]
+        status, mismatch = self.publish(too_many)
+        self.assertEqual(status, 422)
+        self.assertEqual((mismatch["expected_count"], mismatch["actual_count"]), (10, 11))
+        self.assertEqual(storage.read_json("papers.json")[too_many["id"]], too_many_before)
+
+        eleven = self.create_independent_paper(list(bank))
+        status, accepted = self.publish(eleven)
+        self.assertEqual(status, 200, accepted)
+        self.assertEqual(len(accepted["paper"]["question_ids"]), 11)
+
+    def test_draft_can_be_saved_with_incomplete_question_selection(self):
+        paper = self.create_independent_paper(["q-1"])
+        status, result = self.request(
+            "PUT", f"/api/admin/papers/{paper['id']}", cookie=self.admin_cookie,
+            payload={"expected_revision": paper["revision"], "question_ids": [], "question_limit": 2},
+        )
+        self.assertEqual(status, 200, result)
+        self.assertEqual(result["paper"]["question_ids"], [])
+        self.assertEqual(result["paper"]["question_limit"], 2)
+
+    def test_draft_zero_questions_can_be_created_updated_and_not_published(self):
+        status, created = self.request(
+            "POST", "/api/admin/papers/independent", cookie=self.admin_cookie,
+            payload={"title": "Work in progress", "question_ids": [], "question_limit": 2,
+                "question_filters": {}},
+        )
+        self.assertEqual(status, 201, created)
+        paper = created["paper"]
+        self.assertEqual(paper["question_ids"], [])
+
+        # An incomplete Draft can also be saved with fewer questions than its limit.
+        status, saved = self.request(
+            "PUT", f"/api/admin/papers/{paper['id']}", cookie=self.admin_cookie,
+            payload={"expected_revision": paper["revision"], "question_ids": ["q-1"],
+                "question_limit": 2},
+        )
+        self.assertEqual(status, 200, saved)
+        paper = saved["paper"]
+
+        # Clearing the current selection is valid Draft work in progress.
+        status, saved = self.request(
+            "PUT", f"/api/admin/papers/{paper['id']}", cookie=self.admin_cookie,
+            payload={"expected_revision": paper["revision"], "question_ids": [],
+                "question_limit": 2},
+        )
+        self.assertEqual(status, 200, saved)
+        paper = saved["paper"]
+        before_publish = storage.read_json("papers.json")[paper["id"]]
+
+        status, error = self.publish(paper)
+        self.assertEqual(status, 422, error)
+        self.assertEqual(error["code"], "QUESTION_LIMIT_MISMATCH")
+        self.assertEqual((error["expected_count"], error["actual_count"]), (2, 0))
+        self.assertEqual(storage.read_json("papers.json")[paper["id"]], before_publish)
+
+    def test_question_limit_cannot_exceed_total_question_bank(self):
+        for invalid in (0, -1, 4, 1.5, True, "2"):
+            with self.subTest(invalid=invalid):
+                status, _ = self.request(
+                    "POST", "/api/admin/papers/independent", cookie=self.admin_cookie,
+                    payload={"title": "Range", "question_ids": [], "question_limit": invalid},
+                )
+                self.assertEqual(status, 422)
+        self.assertEqual(storage.read_json("papers.json"), {})
+
+    def test_zero_question_bank_rejects_positive_limits_but_allows_incomplete_draft(self):
+        storage.write_json("questions.json", {})
+        status, invalid = self.request(
+            "POST", "/api/admin/papers/independent", cookie=self.admin_cookie,
+            payload={"title": "No bank", "question_ids": [], "question_limit": 1},
+        )
+        self.assertEqual(status, 422, invalid)
+        status, draft = self.request(
+            "POST", "/api/admin/papers/independent", cookie=self.admin_cookie,
+            payload={"title": "Incomplete", "question_ids": [], "question_limit": None},
+        )
+        self.assertEqual(status, 201, draft)
+        self.assertIsNone(draft["paper"]["question_limit"])
+
+    def test_independent_paper_cards_report_unavailable_question_references(self):
+        paper = self.create_independent_paper(["q-1", "q-2"])
+        self.assertEqual(self.request("GET", "/api/admin/papers", cookie=self.admin_cookie)[1]["papers"][0]["warnings"], [])
+        bank = storage.read_json("questions.json")
+        bank["q-2"]["status"] = "revoked"
+        storage.write_json("questions.json", bank)
+        records = storage.read_json("papers.json")
+        records[paper["id"]]["question_ids"].append("q-deleted")
+        storage.write_json("papers.json", records)
+        status, listing = self.request("GET", "/api/admin/papers", cookie=self.admin_cookie)
+        self.assertEqual(status, 200, listing)
+        card = next(item for item in listing["papers"] if item["id"] == paper["id"])
+        self.assertEqual(len(card["warnings"]), 2)
+        self.assertEqual({item["status"] for item in card["warnings"]}, {"revoked", "deleted"})
+        self.assertIn("q-deleted", storage.read_json("papers.json")[paper["id"]]["question_ids"])
+
     def publish(self, paper):
         return self.request(
             "POST", f"/api/admin/papers/{paper['id']}/publish", cookie=self.admin_cookie,
@@ -438,7 +602,6 @@ class ExamPaperApiTests(unittest.TestCase):
             {"question_ids": ["q-1"], "question_limit": 0},
             {"question_ids": ["q-1"], "question_limit": True},
             {"question_ids": ["q-1"], "question_limit": "1"},
-            {"question_ids": ["q-1", "q-2"], "question_limit": 1},
             {"question_ids": ["q-1"], "question_limit": 1, "question_filters": {"category": "no-matching-category"}},
             {"question_ids": ["q-1", "q-2"], "question_limit": 2, "question_filters": {"category": "math", "difficulty": "easy"}},
             {"question_ids": ["q-1"], "question_limit": 1, "question_filters": {"language": "ruby"}},

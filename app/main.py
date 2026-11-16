@@ -56,6 +56,8 @@ from .papers import (
     PaperError,
     archive_paper,
     create_paper,
+    create_independent_paper,
+    create_draft_copy,
     delete_paper,
     get_paper,
     list_papers,
@@ -518,6 +520,10 @@ class Handler(BaseHTTPRequestHandler):
                 sess=self._auth(req,"admin")
                 paper=create_paper(self._json_body(req),sess["user_id"],client_ip(req))
                 return self._json({"ok":True,"paper":paper},201)
+            if path=="/api/admin/papers/independent":
+                sess=self._auth(req,"admin")
+                paper=create_independent_paper(self._json_body(req),sess["user_id"],client_ip(req))
+                return self._json({"ok":True,"paper":paper},201)
             if path.startswith("/api/admin/papers/"):
                 sess=self._auth(req,"admin")
                 paper_path=urllib.parse.unquote(path[len("/api/admin/papers/"):]).strip("/")
@@ -532,6 +538,8 @@ class Handler(BaseHTTPRequestHandler):
                     return self._json({"ok":True,"paper":update_paper(paper_id,payload,sess["user_id"],client_ip(req))})
                 if action=="publish":
                     return self._json({"ok":True,"paper":publish_paper(paper_id,payload,sess["user_id"],client_ip(req))})
+                if action=="draft-copy":
+                    return self._json({"ok":True,"paper":create_draft_copy(paper_id,payload,sess["user_id"],client_ip(req))},201)
                 if action=="archive":
                     return self._json({"ok":True,"paper":archive_paper(paper_id,payload,sess["user_id"],client_ip(req))})
                 if action=="restore":

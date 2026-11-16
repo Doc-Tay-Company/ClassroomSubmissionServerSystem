@@ -113,24 +113,32 @@ const examRecord = (items, extra = {}) => ({
   id: 'exam-1', title: 'Existing Exam', tag: '', status: 'draft', config: config(), ...extra, items,
 });
 
+<<<<<<< HEAD
 async function openEditor(existing = null, paperList = []) {
+=======
+async function openEditor(existing = null, options = {}) {
+>>>>>>> 80f4165c717a3f4d6f3745dd80458a1f0495569c
   const root = new Element('main');
   root.dataset.examId = existing ? existing.id : '';
   const calls = [];
   const toasts = [];
   let created = existing;
-  const request = async (url, options = {}) => {
-    calls.push({ url, options });
-    if (!options.method) {
+  const request = async (url, requestOptions = {}) => {
+    calls.push({ url, options: requestOptions });
+    if (!requestOptions.method) {
       if (url === '/api/admin/accounts') return { students: [{ student_id: 'student1', full_name: 'Student One' }] };
       if (url === '/api/admin/exams') return { exams: [] };
       if (url === '/api/admin/questions') return { questions: [] };
+<<<<<<< HEAD
       if (url === '/api/admin/papers') return { papers: paperList };
+=======
+      if (url === '/api/admin/papers') return { papers: options.papers || [] };
+>>>>>>> 80f4165c717a3f4d6f3745dd80458a1f0495569c
       if (url === '/api/admin/exam-records') return { exams: [] };
       if (url === `/api/admin/exam-records/${existing.id}`) return { exam: existing };
       throw new Error(`Unexpected GET ${url}`);
     }
-    const payload = JSON.parse(options.body || '{}');
+    const payload = JSON.parse(requestOptions.body || '{}');
     const savedConfig = { ...config(), ...payload.config };
     if (typeof savedConfig.accepted_submission_extensions === 'string') {
       savedConfig.accepted_submission_extensions = savedConfig.accepted_submission_extensions.split(/[,\s]+/).filter(Boolean);
@@ -138,7 +146,8 @@ async function openEditor(existing = null, paperList = []) {
     if (url === '/api/admin/exam-records') {
       created = examRecord(payload.items, { ...created, title: payload.title, config: savedConfig });
     } else if (url.endsWith('/update')) {
-      created = examRecord(payload.items, { ...created, title: payload.title, config: savedConfig });
+      if (options.rejectUpdate) throw new Error('stale revision');
+      created = examRecord(payload.items, { ...created, title: payload.title, config: savedConfig, revision: (created.revision || 1) + 1 });
     }
     return { exam: created };
   };
@@ -147,7 +156,7 @@ async function openEditor(existing = null, paperList = []) {
     cssUi: { h, errorBox: (error) => h('div', {}, error.message), errorText: (error) => error.message, setNotice() {} },
     cssRequest: request, cssToast: (message) => toasts.push(message), addEventListener() {},
   };
-  const location = { search: existing ? `?section=exam&id=${existing.id}` : '?section=exam', href: '' };
+  const location = { search: existing ? `?section=exam&id=${existing.id}${options.editMode ? '&mode=edit' : ''}` : '?section=exam', href: '' };
   const context = {
     window, document, location, URLSearchParams, history: { replaceState() {} },
     setTimeout: () => 1, clearTimeout() {}, console, Set, Map, Date, Number, String, Boolean, Math, Promise,
@@ -170,6 +179,8 @@ async function openEditor(existing = null, paperList = []) {
       assert(participant, 'missing participant checkbox'); participant.checked = true; await participant.dispatch('change');
     },
     async save() { const button = root.querySelectorAll('button').find((item) => item.textContent.includes('Lưu nháp')); assert(button, 'missing Save Draft button'); await button.dispatch('click'); },
+    paperChoice(id) { return root.findAll((node) => node.tagName === 'LABEL' && node.className.includes('paper-choice')).find((label) => label.children[0]?.attrs.type === 'checkbox' && label.textContent.includes(id))?.children[0]; },
+    async saveChanges() { const button = root.querySelectorAll('button').find((item) => item.textContent.includes('Lưu thay đổi')); assert(button, 'missing Save Changes button'); await button.dispatch('click'); },
     panelText() { return root.textContent; },
   };
 }
@@ -234,6 +245,7 @@ async function main() {
     assert.strictEqual(reloaded.radio(item.type).checked, true, `${item.type} remains selected after reload`);
   }
 
+<<<<<<< HEAD
   const publishedPapers = [
     { id: 'paper-a', title: 'Paper A', status: 'published', current_version_id: 'paper-a:v1', question_count: 2, version_count: 1 },
     { id: 'paper-b', title: 'Paper B', status: 'published', current_version_id: 'paper-b:v2', question_count: 3, version_count: 2 },
@@ -278,6 +290,46 @@ async function main() {
   assert.strictEqual(savedPayload.items[0].distribution.mode, 'common');
   assert.strictEqual(savedPayload.items[0].distribution.paper_versions.length, 1);
 
+=======
+  const papers = [
+    { id: 'paper-a', title: 'Paper A', schema_version: 2, status: 'published', question_count: 1 },
+    { id: 'paper-b', title: 'Paper B', schema_version: 2, status: 'published', question_count: 1 },
+  ];
+  const independentCode = {
+    item_id: 'independent-code', type: 'code',
+    distribution: { mode: 'common', paper_versions: [{ paper_id: 'paper-a' }] },
+    question_ids: [], show_final_score_immediately: false, allow_pretest: true,
+    max_pretest_runs: 20, pretest_cooldown_seconds: 2,
+  };
+  const draftSelection = await openEditor(null, { papers });
+  await draftSelection.select('code');
+  const draftPaper = draftSelection.paperChoice('Paper B');
+  assert(draftPaper && !draftPaper.disabled, `Draft permits selecting an independent Published Paper; ${draftSelection.panelText()}`);
+  draftPaper.checked = true;
+  await draftPaper.dispatch('change');
+  await draftSelection.fillBasics();
+  await draftSelection.save();
+  const draftPayload = JSON.parse(draftSelection.calls.filter((call) => call.options.method).at(-1).options.body);
+  assert.deepStrictEqual(draftPayload.items[0].distribution.paper_versions, [{ paper_id: 'paper-b' }]);
+
+  const published = examRecord([independentCode], { status: 'distributed', revision: 7, release: { release_id: 'release-1', applied: true } });
+  const publishedEdit = await openEditor(published, { papers, editMode: true });
+  const publishedPaper = publishedEdit.paperChoice('Paper B');
+  assert(publishedPaper && !publishedPaper.disabled, 'Published but not Started permits selection changes even when preparatory state is applied');
+  publishedPaper.checked = true;
+  await publishedPaper.dispatch('change');
+  await publishedEdit.saveChanges();
+  const publishedPayload = JSON.parse(publishedEdit.calls.filter((call) => call.options.method).at(-1).options.body);
+  assert.deepStrictEqual(publishedPayload.items[0].distribution.paper_versions, [{ paper_id: 'paper-b' }]);
+  assert.strictEqual(publishedPayload.expected_revision, 7, 'selection save retains optimistic concurrency');
+
+  const started = await openEditor(examRecord([independentCode], { status: 'started', revision: 8 }), { papers, editMode: true });
+  const startedPaper = started.paperChoice('Paper B');
+  assert(startedPaper && startedPaper.disabled, 'Started Exam keeps Paper controls locked');
+  assert(!started.root.querySelectorAll('button').some((item) => item.textContent.includes('Lưu thay đổi')), 'Started Exam has no Save Changes action');
+
+  console.log('PASS Draft and Published Paper selection editing; Started Exam remains locked');
+>>>>>>> 80f4165c717a3f4d6f3745dd80458a1f0495569c
   console.log('PASS Exam Code/ZIP selector UI state regressions');
 }
 

@@ -75,7 +75,9 @@ async function main() {
   const list = new Element('div');
   const editor = new Element('div');
   const notice = new Element('div');
-  const document = { getElementById: (id) => ({ 'code-papers-view': list, 'cp-list': list, 'cp-editor': editor, 'cp-notice': notice })[id] || null };
+  let onVisibilityChange = null;
+  const document = { getElementById: (id) => ({ 'code-papers-view': list, 'cp-list': list, 'cp-editor': editor, 'cp-notice': notice })[id] || null,
+    addEventListener: (type, callback) => { if (type === 'visibilitychange') onVisibilityChange = callback; }, hidden: false };
   let confirmNext = true;
   const confirmations = [];
   const requests = [];
@@ -83,6 +85,7 @@ async function main() {
   let failNextPublish = false;
   let failNextUpdate = false;
   let staleNextUpdate = false;
+  let mismatchNextUpdate = false;
   const clone = (value) => JSON.parse(JSON.stringify(value));
   const apiRequest = async (url, options = {}) => {
     requests.push({ url, method: options.method || 'GET' });
@@ -101,31 +104,47 @@ async function main() {
         const error = new Error('temporary network failure'); error.status = 503; throw error;
       }
       const payload = JSON.parse(options.body);
+<<<<<<< HEAD
       storedPaper = { ...storedPaper, title: payload.title, metadata: payload.metadata, revision: storedPaper.revision + 1,
         status: Object.keys(storedPaper.versions || {}).length ? 'published' : 'draft', draft: { title: payload.title, metadata: payload.metadata, question_ids: payload.question_ids,
           question_limit: payload.question_limit, question_filters: payload.question_filters } };
+=======
+      if (mismatchNextUpdate) {
+        mismatchNextUpdate = false;
+        const error = new Error('The number of selected questions must exactly match question_limit');
+        error.status = 422; error.code = 'QUESTION_LIMIT_MISMATCH';
+        error.body = { expected_count: payload.question_limit, actual_count: payload.question_ids.length };
+        throw error;
+      }
+      storedPaper = { ...storedPaper, title: payload.title, metadata: payload.metadata, question_ids: payload.question_ids,
+        question_limit: payload.question_limit, question_filters: payload.question_filters, revision: storedPaper.revision + 1,
+        questions: storedPaper.status === 'published' ? payload.question_ids.map((question_id, order) => ({ question_id, order })) : [] };
+>>>>>>> 80f4165c717a3f4d6f3745dd80458a1f0495569c
       return { paper: clone(storedPaper) };
     }
-    if (url === '/api/admin/papers' && options.method === 'POST') {
+    if (url === '/api/admin/papers/independent' && options.method === 'POST') {
       const payload = JSON.parse(options.body);
-      storedPaper = { id: 'paper-lifecycle', title: payload.title, metadata: payload.metadata, status: 'draft', revision: 1,
-        current_version_id: null, versions: {}, draft: { title: payload.title, metadata: payload.metadata,
-          question_ids: payload.question_ids, question_limit: payload.question_limit, question_filters: payload.question_filters } };
+      storedPaper = { id: 'paper-lifecycle', schema_version: 2, title: payload.title, metadata: payload.metadata, status: 'draft', revision: 1,
+        question_ids: payload.question_ids, question_limit: payload.question_limit, question_filters: payload.question_filters, questions: [] };
       return { paper: clone(storedPaper) };
     }
     const preview = url.match(/^\/api\/admin\/papers\/([^/?]+)\/preview(?:\?.*)?$/);
     if (preview) return { preview: { paper_id: preview[1], status: storedPaper.status,
+<<<<<<< HEAD
       ...(storedPaper.status === 'published' ? { version: storedPaper.versions[storedPaper.current_version_id] }
         : { draft: { title: storedPaper.draft.title, questions: storedPaper.draft.question_ids.map((id) => ({ ...bank.find((q) => q.id === id), question_id: id })) } }) } };
+=======
+      paper: { ...storedPaper, questions: (storedPaper.question_ids || []).map((id) => ({ ...bank.find((q) => q.id === id), question_id: id })) } } };
+>>>>>>> 80f4165c717a3f4d6f3745dd80458a1f0495569c
     const publish = url.match(/^\/api\/admin\/papers\/([^/?]+)\/publish$/);
     if (publish) {
       if (failNextPublish) { failNextPublish = false; const error = new Error('publish service unavailable'); error.status = 503; throw error; }
-      const number = Object.keys(storedPaper.versions).length + 1;
-      const id = `${storedPaper.id}:v${number}`;
-      const version = { id, version: number, title: storedPaper.draft.title,
-        questions: storedPaper.draft.question_ids.map((question_id, order) => ({ question_id, order })) };
       storedPaper = { ...storedPaper, status: 'published', revision: storedPaper.revision + 1,
+<<<<<<< HEAD
         draft: null, current_version_id: id, versions: { ...storedPaper.versions, [id]: version } };
+=======
+        questions: storedPaper.question_ids.map((question_id, order) => ({ question_id, order })) };
+>>>>>>> 80f4165c717a3f4d6f3745dd80458a1f0495569c
       return { paper: clone(storedPaper) };
     }
     throw new Error(`Unexpected request: ${options.method || 'GET'} ${url}`);
@@ -164,6 +183,21 @@ async function main() {
   assert(available().includes('Loops Intro') && !available().includes('Loops Advanced'), 'filters combine with AND');
 
   const quantity = editor.querySelector('[data-field="question-limit"]');
+  quantity.value = '-5'; await quantity.dispatch('blur');
+  assert.strictEqual(quantity.value, '1', 'negative Question Limit clamps to one on blur');
+  quantity.value = '0'; await quantity.dispatch('blur');
+  assert.strictEqual(quantity.value, '1', 'zero Question Limit clamps to one on blur');
+  quantity.value = '2'; await quantity.dispatch('blur');
+  assert.strictEqual(quantity.value, '2', 'valid Question Limit stays unchanged on blur');
+  quantity.value = '25'; await quantity.dispatch('blur');
+  assert.strictEqual(quantity.value, '3', 'above-bank Question Limit clamps to total bank count');
+  quantity.value = '1.5'; await quantity.dispatch('blur');
+  assert.strictEqual(quantity.value, '3', 'decimal Question Limit restores the last valid value');
+  quantity.value = 'not-a-number'; await quantity.dispatch('blur');
+  assert.strictEqual(quantity.value, '3', 'non-numeric Question Limit restores the last valid value');
+  quantity.value = ''; await quantity.dispatch('blur');
+  assert.strictEqual(quantity.value, '', 'empty Question Limit remains empty for incomplete Draft editing');
+  quantity.value = '2'; await quantity.dispatch('blur');
   const tag = editor.querySelector('[data-filter-tag="loops"]');
   tag.checked = true; await tag.dispatch('change');
   assert(available().includes('Loops Intro'), 'tag filter matches selected tag');
@@ -179,8 +213,8 @@ async function main() {
 
   const search = editor.querySelector('[data-filter="search"]');
   search.value = 'no-such-question'; await search.dispatch('input');
-  assert.strictEqual(quantity.max, '0', 'empty filtered pool has a zero maximum');
-  assert.strictEqual(quantity.disabled, true, 'quantity control is disabled for an empty pool');
+  assert.strictEqual(quantity.max, '3', 'Question Limit maximum uses the full Question Bank, not the filtered pool');
+  assert.strictEqual(quantity.disabled, false, 'a filter with no matches does not disable Question Limit');
   await reset.dispatch('click');
 
   quantity.value = '2'; await quantity.dispatch('input');
@@ -194,8 +228,7 @@ async function main() {
   control('category').value = 'science'; await control('category').dispatch('change');
   assert(selected().includes('Loops Intro') && selected().includes('Loops Advanced'), 'filter changes retain selected questions');
   assert(selected().includes('Ngoài bộ lọc hiện tại'), 'selected questions outside filters are marked');
-  assert.strictEqual(quantity.value, '1', 'quantity clamps to the smaller filtered pool');
-  assert(editor.querySelector('[data-role="question-limit-status"]').textContent.includes('vượt số lượng'), 'excess selection is reported without removal');
+  assert.strictEqual(quantity.value, '2', 'filter changes do not alter the configured Question Limit');
   assert.strictEqual(editor.querySelectorAll('.qb-selected').length, 2, 'selected rows remain in their original order and are not dropped');
 
   control('category').value = ''; await control('category').dispatch('change');
@@ -216,7 +249,7 @@ async function main() {
   const selectAll = () => editor.querySelectorAll('button').find((button) => button.textContent.includes('Chọn tất cả câu phù hợp'));
   control('category').value = 'math'; await control('category').dispatch('change');
   await selectAll().dispatch('click');
-  assert.strictEqual(quantity.value, '2', 'select all sets quantity to the complete filtered pool size');
+  assert.strictEqual(quantity.value, '2', 'select all leaves the configured Question Limit unchanged');
   assert.strictEqual(editor.querySelectorAll('.qb-selected').length, 2, 'select all covers all filtered matching questions');
   assert(editor.querySelector('[data-role="filtered-selection"]').checked, 'filtered group checkbox is checked when all matching IDs are selected');
 
@@ -242,11 +275,16 @@ async function main() {
   const title = editor.querySelector('#cp-title');
   title.value = 'Lifecycle Paper'; await title.dispatch('input');
   assert(editor.querySelector('[data-role="paper-lifecycle"]').textContent.includes('Unsaved Changes'), 'editor shows unsaved changes');
+<<<<<<< HEAD
   const saveCallsBefore = requests.filter((request) => request.url === '/api/admin/papers' && request.method === 'POST').length;
+=======
+  const saveButton = () => editor.querySelectorAll('button').find((button) => button.textContent.includes('Save Draft'));
+  const saveCallsBefore = requests.filter((request) => request.url === '/api/admin/papers/independent' && request.method === 'POST').length;
+>>>>>>> 80f4165c717a3f4d6f3745dd80458a1f0495569c
   const firstSave = saveButton().dispatch('click');
   await saveButton().dispatch('click');
   await firstSave;
-  assert.strictEqual(requests.filter((request) => request.url === '/api/admin/papers' && request.method === 'POST').length - saveCallsBefore, 1, 'duplicate save clicks create only one Paper');
+  assert.strictEqual(requests.filter((request) => request.url === '/api/admin/papers/independent' && request.method === 'POST').length - saveCallsBefore, 1, 'duplicate save clicks create only one Paper');
   assert.strictEqual(storedPaper.id, 'paper-lifecycle', 'saving a new Paper retains its server ID');
   assert(editor.classList.contains('hidden'), 'successful new Paper creation closes the Editor');
   assert(!list.classList.contains('hidden'), 'successful new Paper creation returns to the refreshed list');
@@ -258,10 +296,11 @@ async function main() {
   assert(editor.querySelector('[data-role="paper-lifecycle"]').textContent.includes('draft revision 1'), 'saved state shows server revision');
   assert(saveButton().hidden, 'persisted Draft opened from the list hides manual Save as Draft');
 
-  const publishButton = () => editor.querySelectorAll('button').find((button) => button.textContent.includes('Xuất bản version'));
+  const publishButton = () => editor.querySelectorAll('button').find((button) => button.textContent.includes('Publish Paper'));
   const titleForPublish = editor.querySelector('#cp-title');
   titleForPublish.value = 'Published without preview'; await titleForPublish.dispatch('input');
   await publishButton().dispatch('click');
+<<<<<<< HEAD
   assert.strictEqual(storedPaper.status, 'published', 'dirty Paper saves and publishes without requiring preview');
   assert.strictEqual(requests.filter((request) => request.url.endsWith('/preview?draft=1')).length, 0, 'publish never opens Draft Preview');
   assert(editor.textContent.includes('paper-lifecycle:v1') && editor.textContent.includes('v1'), 'publish success shows the published version ID and number');
@@ -270,10 +309,19 @@ async function main() {
   await editor.querySelectorAll('button').find((button) => button.textContent.includes('Quay lại')).dispatch('click');
   await new Promise((resolve) => setImmediate(resolve));
   await list.querySelectorAll('button').find((button) => button.textContent.includes('Chỉnh sửa')).dispatch('click');
+=======
+  assert.strictEqual(storedPaper.status, 'published', 'Paper publish changes status without creating a nested version');
+  assert.strictEqual(requests.filter((request) => request.url.includes('/preview')).length, 0, 'publish path does not call preview');
+  assert.strictEqual(storedPaper.id, 'paper-lifecycle', 'publishing preserves the Paper ID');
+  assert(!('versions' in storedPaper) && !('current_version_id' in storedPaper), 'independent Paper has no nested version history');
+
+  await editor.querySelectorAll('button').find((button) => button.textContent.includes('Edit Paper')).dispatch('click');
+>>>>>>> 80f4165c717a3f4d6f3745dd80458a1f0495569c
   await new Promise((resolve) => setTimeout(resolve, 10));
   assert(editor.querySelector('#cp-title'), `editor did not reopen from the list: ${editor.textContent}`);
   assert(!saveButton().hidden, 'editing a published Paper without a Draft shows Save as Draft');
   const titleAfterEdit = editor.querySelector('#cp-title');
+<<<<<<< HEAD
   titleAfterEdit.value = 'Saved but publish fails'; await titleAfterEdit.dispatch('input');
   failNextPublish = true;
   await editor.querySelectorAll('button').find((button) => button.textContent.includes('Xuất bản version')).dispatch('click');
@@ -300,22 +348,63 @@ async function main() {
   assert(editor.querySelector('[data-role="retry-autosave"]'), 'failed autosave exposes an explicit retry');
   await editor.querySelector('[data-role="retry-autosave"]').dispatch('click');
   assert.strictEqual(storedPaper.draft.title, 'Keep after autosave failure', 'retry persists the retained local content');
+=======
+  titleAfterEdit.value = 'Saved in place'; await titleAfterEdit.dispatch('input');
+  const publishedLimit = editor.querySelector('[data-field="question-limit"]');
+  publishedLimit.value = '1'; await publishedLimit.dispatch('input');
+  mismatchNextUpdate = true;
+  await editor.querySelectorAll('button').find((button) => button.textContent.includes('Save Changes')).dispatch('click');
+  assert.strictEqual(editor.querySelector('#cp-title').value, 'Saved in place', 'rejected mismatch keeps unsaved title input');
+  assert.strictEqual(publishedLimit.value, '1', 'rejected mismatch keeps unsaved Question Limit');
+  assert(editor.querySelector('[data-role="paper-lifecycle"]').textContent.includes('1 expected, 2 selected'), 'count error reports expected and actual values');
+  publishedLimit.value = '2'; await publishedLimit.dispatch('input');
+  await editor.querySelectorAll('button').find((button) => button.textContent.includes('Save Changes')).dispatch('click');
+  assert.strictEqual(storedPaper.title, 'Saved in place', 'Save Changes updates the Published Paper in place');
+  assert.strictEqual(storedPaper.id, 'paper-lifecycle', 'Save Changes preserves the Paper ID');
+  assert.strictEqual(storedPaper.status, 'published', 'Save Changes preserves Published status');
+  assert(!('versions' in storedPaper), 'Save Changes does not create a version');
+>>>>>>> 80f4165c717a3f4d6f3745dd80458a1f0495569c
 
   const staleTitle = editor.querySelector('#cp-title');
   staleTitle.value = 'Local edits retained after conflict'; await staleTitle.dispatch('input');
   staleNextUpdate = true;
+<<<<<<< HEAD
   for (const callback of [...timers.values()]) await callback();
   timers.clear();
+=======
+  await editor.querySelectorAll('button').find((button) => button.textContent.includes('Save Changes')).dispatch('click');
+>>>>>>> 80f4165c717a3f4d6f3745dd80458a1f0495569c
   assert.strictEqual(editor.querySelector('#cp-title').value, 'Local edits retained after conflict', 'stale revision keeps the local edits');
-  assert(editor.querySelector('[data-role="paper-lifecycle"]').textContent.includes('đã thay đổi ở nơi khác'), 'stale revision explains the conflict');
   assert(editor.querySelector('[data-role="reload-stale-paper"]'), 'stale revision offers an explicit reload action');
-  const publishedCalls = requests.filter((request) => request.url.endsWith('/publish')).length;
   await editor.querySelector('[data-role="reload-stale-paper"]').dispatch('click');
   await new Promise((resolve) => setImmediate(resolve));
+<<<<<<< HEAD
   assert(!editor.textContent.includes('Preview Draft'), 'editor never renders a Draft Preview action');
   assert.strictEqual(requests.filter((request) => request.url.endsWith('/publish')).length, publishedCalls, 'editor preview removal does not publish a version');
 
   console.log('PASS Paper Builder filters, selection, Save as Draft, autosave, publish lifecycle, dirty state, stale conflict, and latest preview');
+=======
+  assert(editor.querySelector('#cp-title'), 'stale reload returns to the Paper editor');
+
+  storedPaper.warnings = [{ question_id: 'q1', warning: 'unavailable' }];
+  await editor.querySelectorAll('button')[0].dispatch('click');
+  await new Promise((resolve) => setImmediate(resolve));
+  assert(list.textContent.includes('1 question is unavailable'), 'Paper Card shows the unavailable-question count');
+  storedPaper.warnings = ['q1', 'q2', 'q3'].map((question_id) => ({ question_id, warning: 'unavailable' }));
+  onVisibilityChange();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert(list.textContent.includes('3 questions are unavailable'), 'Paper Card refreshes warning count when the page becomes visible');
+
+  bank.splice(0, bank.length);
+  await list.querySelectorAll('button')[0].dispatch('click');
+  await new Promise((resolve) => setImmediate(resolve));
+  const emptyBankQuantity = editor.querySelector('[data-field="question-limit"]');
+  assert.strictEqual(emptyBankQuantity.value, '', 'empty Question Bank does not fabricate a Question Limit');
+  assert.strictEqual(emptyBankQuantity.disabled, true, 'empty Question Bank prevents setting Question Limit');
+  assert(editor.querySelector('[data-role="question-limit-status"]').textContent.includes('Question Bank is empty'), 'empty Question Bank explains why publishing is blocked');
+
+  console.log('PASS independent Paper Draft/Published lifecycle, in-place edits, and stale conflict');
+>>>>>>> 80f4165c717a3f4d6f3745dd80458a1f0495569c
   await testCardSwitchRace();
   await testDraftListOpensEditor();
   await testPublishedPaperForkAndStatusRendering();
