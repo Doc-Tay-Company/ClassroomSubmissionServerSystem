@@ -120,7 +120,9 @@
       const code = exam.items.find((item) => item.type === "code");
       const zip = exam.items.find((item) => item.type === "zip");
       const parts = [];
-      if (code) parts.push(`${code.question_ids.length} câu code`);
+      if (code) parts.push(code.distribution
+        ? `${code.distribution.paper_versions.length} Paper · ${code.distribution.mode.toUpperCase()}`
+        : `${(code.question_ids || []).length} câu code (cũ)`);
       if (zip) parts.push("Nộp file");
       const refresh = () => load();
       const buttons = [];
@@ -165,7 +167,7 @@
     let exam = null;
     let examId = detailRoot.dataset.examId || "";
     let editing = false;
-    let ref = { accounts: [], files: [], questions: [] };
+    let ref = { accounts: [], files: [], questions: [], papers: [] };
     let form = null;
     let saveTimer = null;
     let saving = false;
@@ -177,7 +179,7 @@
     const statusPill = (status) => { const [label, cls] = QSTATUS[status] || [status, "status-gray"]; return h("span", { class: `status-pill ${cls}` }, label); };
     const blank = () => ({
       title: "", tag: "", duration: 90, policy: "configurable", maxSub: 1, overwrite: true, ext: ".zip", pwEnabled: false, pw: "", hasPw: false,
-      participants: new Set(), code: null, zip: null, accountQuery: "", questionQuery: "",
+      participants: new Set(), itemType: null, code: null, zip: null, legacyConflict: null, accountQuery: "", questionQuery: "",
       pick: { search: "", language: "", mode: "", status: "published", category: "", usage: "" },
     });
 
@@ -189,16 +191,39 @@
         overwrite: c.overwrite_previous, ext: c.accepted_submission_extensions.join(" "), pwEnabled: c.password_enabled, hasPw: c.has_password,
         participants: new Set(c.participants),
       });
-      for (const item of source.items) {
-        if (item.type === "code") {
-          f.code = { item_id: item.item_id, ids: new Set(item.question_ids), final: item.show_final_score_immediately, pretest: item.allow_pretest, maxRuns: item.max_pretest_runs, cooldown: item.pretest_cooldown_seconds };
-        } else {
+      const items = Array.isArray(source.items) ? source.items : [];
+      let unsupportedItems = [];
+      for (const item of items) {
+        if (item && item.type === "code") {
+          f.code = {
+            item_id: item.item_id,
+            legacy: !item.distribution,
+            legacyQuestionIds: item.distribution ? [] : [...(item.question_ids || [])],
+            mode: item.distribution?.mode || "common",
+            paperVersions: (item.distribution?.paper_versions || []).map((ref) => ({ ...ref })),
+            final: item.show_final_score_immediately,
+            pretest: item.allow_pretest,
+            maxRuns: item.max_pretest_runs,
+            cooldown: item.pretest_cooldown_seconds,
+          };
+        } else if (item && item.type === "zip") {
           const cfg = item.distribution_config || {};
           const modulus = (cfg.exam_files || []).length;
           const map = {};
           for (const [digit, file] of Object.entries(cfg.last_digit_map || {})) if (modulus) map[Number(digit) % modulus] = file;
           f.zip = { item_id: item.item_id, mode: item.distribution_mode, files: new Set(cfg.exam_files || []), even: cfg.even_exam || "", odd: cfg.odd_exam || "", map };
+        } else {
+          unsupportedItems.push(item);
         }
+      }
+      if (items.length > 1 || unsupportedItems.length) {
+        f.legacyConflict = { code: f.code, zip: f.zip, unsupported: unsupportedItems };
+        f.code = null;
+        f.zip = null;
+      } else if (f.code) {
+        f.itemType = "code";
+      } else if (f.zip) {
+        f.itemType = "zip";
       }
       return f;
     }
@@ -210,13 +235,17 @@
 
     function toPayload() {
       const items = [];
-      if (form.code) {
+      if (form.itemType === "code" && form.code) {
         items.push({
-          item_id: form.code.item_id, type: "code", question_ids: [...form.code.ids], show_final_score_immediately: form.code.final,
+          item_id: form.code.item_id, type: "code",
+          ...(form.code.legacy
+            ? { question_ids: [...form.code.legacyQuestionIds] }
+            : { distribution: { mode: form.code.mode, paper_versions: form.code.paperVersions.map((ref) => ({ ...ref })) } }),
+          show_final_score_immediately: form.code.final,
           allow_pretest: form.code.pretest, max_pretest_runs: Math.round(clampPretest(form.code.maxRuns)), pretest_cooldown_seconds: clampPretest(form.code.cooldown),
         });
       }
-      if (form.zip) {
+      else if (form.itemType === "zip" && form.zip) {
         const files = [...form.zip.files];
         let distribution = { exam_files: files };
         if (form.zip.mode === "parity") distribution = { even_exam: form.zip.even, odd_exam: form.zip.odd };
@@ -232,7 +261,7 @@
         accepted_submission_extensions: form.ext, password_enabled: form.pwEnabled, participants: [...form.participants],
       };
       if (form.pw) config.password = form.pw;
-      return { title: form.title, tag: form.tag, config, items };
+      return { title: form.title, tag: form.tag, config, items, ...(exam ? { expected_revision: exam.revision || 1 } : {}) };
     }
 
     async function openPreview() {
@@ -250,6 +279,18 @@
 
     function previewPanel() {
       if (previewState.loading) return h("p", { class: "muted" }, h("i", { class: "fa fa-spinner fa-spin" }), " Đang tải bản xem trước…");
+      if (Array.isArray(previewState.paper_versions)) {
+        return h("div", { class: "qb-preview", role: "region", "aria-label": "Xem trước các Paper đã chọn" },
+          h("div", { class: "qb-preview-head" }, h("h4", {}, `Xem trước Paper (${previewState.distribution_mode?.toUpperCase() || ""})`),
+            h("button", { type: "button", class: "btn btn-small btn-ghost", on: { click: () => { previewState = null; render(); } } }, h("i", { class: "fa fa-times" }), " Đóng")),
+          ...previewState.paper_versions.map((paper) => h("section", { class: "qb-preview-item" },
+            h("h5", {}, `${paper.title} · ${paper.paper_version_id || paper.paper_id}`),
+            ...(paper.questions || []).map((question, index) => h("article", {},
+              h("h5", {}, `Câu ${index + 1}: ${question.title}`),
+              h("p", { class: "fine-print" }, [question.category, question.language, `${Number(question.total_points) || 0} điểm`].filter(Boolean).join(" · ")),
+              h("div", { class: "qb-statement" }, question.statement || ""),
+              question.starter_code ? h("pre", { class: "qb-code" }, question.starter_code) : null)))));
+      }
       const checkLabel = (check) => `${check.kind}${check.name || check.method ? `: ${check.name || check.method}` : ""} (${Number(check.points) || 0} điểm)`;
       return h("div", { class: "qb-preview", role: "region", "aria-label": "Xem trước đề thi" },
         h("div", { class: "qb-preview-head" }, h("h4", {}, "Xem trước đề thi (chỉ đọc)"),
@@ -278,6 +319,7 @@
 
     async function persist(quiet) {
       if (saving) return exam;
+      if (form.legacyConflict) throw new Error("Bản nháp có nhiều hoặc có loại bài không được hỗ trợ. Hãy chọn rõ Bài code hoặc Bài nộp file để sửa trước khi lưu.");
       saving = true;
       clearTimeout(saveTimer);
       try {
@@ -302,6 +344,10 @@
       if (showErrors) applyErrors(publishProblems());
       if (!exam || exam.status !== "draft") return;
       clearTimeout(saveTimer);
+      if (form.legacyConflict) {
+        autosave.textContent = "Hãy chọn rõ loại bài để sửa bản nháp cũ trước khi lưu.";
+        return;
+      }
       autosave.textContent = "Đang chờ lưu…";
       saveTimer = setTimeout(async () => {
         try { await persist(true); } catch (error) { autosave.textContent = `Không thể tự lưu: ${errorText(error)}`; }
@@ -318,8 +364,13 @@
       if (!form.ext.replace(/[,\s]/g, "")) problems.push(["ext", "loại file được chấp nhận"]);
       if (form.pwEnabled && !form.pw && !form.hasPw) problems.push(["password", "mật khẩu đề thi (đang bật yêu cầu mật khẩu)"]);
       if (!form.participants.size) problems.push(["participants", "danh sách sinh viên dự thi"]);
-      if (!form.code && !form.zip) problems.push(["items", "bài code hoặc bài nộp file (cần ít nhất một)"]);
-      else if (form.code && !form.code.ids.size) problems.push(["code", "câu hỏi cho bài code"]);
+      if (form.legacyConflict) problems.push(["items", "chọn rõ một loại bài để sửa bản nháp cũ có cấu hình không hợp lệ"]);
+      else if (!form.itemType) problems.push(["items", "chọn Bài code hoặc Bài nộp file"]);
+      else if (form.itemType === "code" && form.code && !form.code.legacy) {
+        const count = form.code.paperVersions.length;
+        if (!count) problems.push(["code", "Paper cho bài code"]);
+        if (form.code.mode === "common" && count !== 1) problems.push(["code", "chính xác một Paper cho chế độ COMMON"]);
+      }
       return problems;
     }
 
@@ -342,6 +393,49 @@
     const field = (label, control, hint) => h("div", {}, h("label", {}, label), control, hint ? h("p", { class: "fine-print" }, hint) : null);
     const rowField = (label, control) => h("div", { class: "exam-row" }, h("label", {}, label), control);
     const stackField = (label, control) => h("div", { class: "exam-row exam-row-stack" }, h("label", {}, label), control);
+
+    function selectItemType(type) {
+      if (form.itemType === type && !form.legacyConflict) return;
+      const legacy = form.legacyConflict;
+      form.itemType = type || null;
+      form.code = type === "code"
+        ? (legacy?.code || { item_id: undefined, legacy: false, mode: "common", paperVersions: [], final: false, pretest: true, maxRuns: 20, cooldown: 2 })
+        : null;
+      form.zip = type === "zip"
+        ? (legacy?.zip || { item_id: undefined, mode: "random", files: new Set(), even: "", odd: "", map: {} })
+        : null;
+      form.legacyConflict = null;
+      scheduleAutosave();
+      render();
+    }
+
+    function itemTypeSelector() {
+      const options = [
+        ["", "Chưa chọn loại bài"],
+        ["code", "Bài code (chấm tự động)"],
+        ["zip", "Bài nộp file (đề ZIP/PDF)"],
+      ];
+      const legacyNotice = form.legacyConflict
+        ? h("div", { class: "alert alert-warning", role: "alert" },
+          h("strong", {}, "Bản nháp cũ có lựa chọn loại bài không hợp lệ."),
+          h("p", {}, "Chọn rõ một loại bên dưới để tiếp tục. Cấu hình được chọn sẽ được giữ; cấu hình còn lại sẽ bị loại khỏi bản nháp khi lưu."),
+          h("p", { class: "fine-print" }, `Dữ liệu cũ: ${[
+            form.legacyConflict.code ? "Bài code" : "",
+            form.legacyConflict.zip ? "Bài nộp file" : "",
+            form.legacyConflict.unsupported.length ? `${form.legacyConflict.unsupported.length} loại bài không hỗ trợ` : "",
+          ].filter(Boolean).join(", ") || "không xác định"}.`))
+        : null;
+      return mark("items", h("section", { class: "exam-form-section", "aria-label": "Loại bài thi" },
+        h("h3", {}, "Loại bài thi"),
+        h("div", { role: "radiogroup", "aria-label": "Chọn một loại bài thi" },
+          ...options.map(([value, label]) => h("label", { class: "checkbox-row" },
+            h("input", {
+              type: "radio", name: "exam-item-type", value, checked: (form.itemType || "") === value,
+              disabled: Boolean(form.legacyConflict && !value),
+              on: { change: (event) => { if (event.target.checked) selectItemType(value); } },
+            }), ` ${label}`))),
+        legacyNotice));
+    }
     const bind = (key, type) => (event) => {
       const t = event.target;
       form[key] = type === "bool" ? t.checked : type === "yesno" ? t.value === "true" : t.value;
@@ -424,128 +518,52 @@
     }
 
     function codeSection() {
-      const toggle = h("label", { class: "checkbox-row" }, h("input", {
-        type: "checkbox", checked: Boolean(form.code),
-        on: { change: (e) => { form.code = e.target.checked ? { item_id: undefined, ids: new Set(), final: false, pretest: true, maxRuns: 20, cooldown: 2 } : null; scheduleAutosave(); render(); } },
-      }), " Có bài code (chấm tự động)");
-      if (form.zip) return null;
-      if (!form.code) return mark("items", h("section", { class: "exam-form-section" }, h("h3", {}, h("i", { class: "fa fa-code" }), " Bài code"), toggle));
+      if (form.itemType !== "code" || !form.code) return null;
       const code = form.code;
-      const canEdit = !exam || exam.status === "draft";
-      const bank = new Map(ref.questions.map((question) => [question.id, question]));
-      const count = h("span", { class: "section-badge" });
-      const total = h("strong", {});
-      const selectedList = h("ol", { class: "qb-selected-list" });
-      const pickerList = h("div", { class: "qb-picker-list" });
-      const pickerCount = h("p", { class: "fine-print" });
-      const pick = form.pick;
-      let dragIndex = -1;
-
-      const supported = (question) => (question.language === "java" && ["reflection", "stdio"].includes(question.grading_mode)) || (question.language === "python" && question.grading_mode === "stdio");
-      const usageOk = (question) => {
-        const used = Number(question.usage_count) || 0;
-        if (pick.usage === "0") return used === 0;
-        if (pick.usage === "used") return used >= 1;
-        if (pick.usage === "1-2") return used >= 1 && used <= 2;
-        if (pick.usage === "3+") return used >= 3;
-        return true;
+      const canEdit = !exam || exam.status === "draft" || exam.status === "distributed";
+      const currentPool = ref.papers.filter((paper) => paper.status === "published" && (paper.schema_version >= 2 || paper.current_version_id));
+      const pairKey = (item) => `${item.paper_id}::${item.paper_version_id || "@paper"}`;
+      const currentSelection = code.paperVersions;
+      const warnings = currentSelection.filter((item) => !currentPool.some((paper) => paper.id === item.paper_id && (item.paper_version_id ? paper.current_version_id === item.paper_version_id : paper.schema_version >= 2)));
+      const togglePaper = (paper, checked) => {
+        const refItem = paper.schema_version >= 2 ? { paper_id: paper.id } : { paper_id: paper.id, paper_version_id: paper.current_version_id };
+        if (code.mode === "common") code.paperVersions = checked ? [refItem] : [];
+        else if (checked && !code.paperVersions.some((item) => pairKey(item) === pairKey(refItem))) code.paperVersions.push(refItem);
+        else if (!checked) code.paperVersions = code.paperVersions.filter((item) => pairKey(item) !== pairKey(refItem));
+        scheduleAutosave(); render();
       };
-      const matches = (question) => {
-        if (pick.language && question.language !== pick.language) return false;
-        if (pick.mode && question.grading_mode !== pick.mode) return false;
-        if (pick.status && question.status !== pick.status) return false;
-        if (pick.category && !String(question.category || "").toLowerCase().includes(pick.category.toLowerCase())) return false;
-        if (!usageOk(question)) return false;
-        const query = pick.search.trim().toLowerCase();
-        return !query || `${question.title || ""} ${(question.tags || []).join(" ")} ${question.id}`.toLowerCase().includes(query);
-      };
-      const reorder = (from, to) => {
-        const ids = [...code.ids];
-        if (from < 0 || to < 0 || from >= ids.length || to >= ids.length || from === to) return;
-        const [moved] = ids.splice(from, 1);
-        ids.splice(to, 0, moved);
-        code.ids = new Set(ids);
-        changed();
-      };
-      const remove = (id) => { code.ids.delete(id); changed(); };
-      const add = (id) => { code.ids.add(id); changed(); };
-      const changed = () => { renderSelected(); renderPicker(); scheduleAutosave(); };
-
-      function renderSelected() {
-        const ids = [...code.ids];
-        let sum = 0;
-        const rows = ids.map((id, index) => {
-          const question = bank.get(id);
-          sum += question ? Number(question.total_points) || 0 : 0;
-          const warning = !question ? "Câu hỏi không còn trong Ngân hàng câu hỏi."
-            : question.status !== "published" ? (question.status === "archived" ? "Câu hỏi đã được lưu trữ. Hãy thay thế trước khi phát đề." : "Câu hỏi đang ở trạng thái Nháp sau khi chỉnh sửa. Hãy xuất bản lại trước khi phát đề.")
-              : !supported(question) ? "Loại câu hỏi chưa được hỗ trợ trong đề nhiều câu." : "";
-          const move = (label, icon, delta) => h("button", {
-            type: "button", class: "btn btn-small btn-ghost", "aria-label": `${label}: ${question ? question.title : id}`, disabled: !canEdit || index + delta < 0 || index + delta >= ids.length,
-            on: { click: () => reorder(index, index + delta) },
-          }, h("i", { class: `fa ${icon}` }));
-          return h("li", {
-            class: `qb-selected${warning ? " qb-warn" : ""}`, draggable: canEdit ? "true" : false,
-            on: {
-              dragstart: (e) => { dragIndex = index; e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", String(index)); },
-              dragover: (e) => { if (canEdit && dragIndex >= 0) e.preventDefault(); },
-              drop: (e) => { e.preventDefault(); const from = dragIndex; dragIndex = -1; reorder(from, index); },
-              dragend: () => { dragIndex = -1; },
-            },
-          },
-          h("span", { class: "qb-handle", "aria-hidden": "true" }, h("i", { class: "fa fa-bars" })),
-          h("span", { class: "qb-index" }, `${index + 1}.`),
-          h("span", { class: "qb-main" }, h("strong", {}, question ? question.title : id), h("small", {}, question ? `${Number(question.total_points) || 0} điểm` : "Không tìm thấy"), warning ? h("small", { class: "qb-warning", role: "alert" }, h("i", { class: "fa fa-exclamation-triangle" }), ` ${warning}`) : null),
-          h("span", { class: "qb-actions" }, move("Chuyển lên", "fa-arrow-up", -1), move("Chuyển xuống", "fa-arrow-down", 1),
-            h("button", { type: "button", class: "btn btn-small btn-ghost", disabled: !canEdit, "aria-label": `Xóa khỏi đề: ${question ? question.title : id}`, on: { click: () => remove(id) } }, h("i", { class: "fa fa-times" }), " Xóa")));
-        });
-        selectedList.replaceChildren(...(rows.length ? rows : [h("li", { class: "muted" }, "Chưa chọn câu hỏi nào.")]));
-        count.textContent = `${ids.length} câu`;
-        total.textContent = `${sum} điểm`;
-      }
-
-      function renderPicker() {
-        const rows = ref.questions.filter(matches);
-        pickerCount.textContent = `Hiển thị ${rows.length}/${ref.questions.length} câu hỏi`;
-        pickerList.replaceChildren(...(rows.length ? rows.map((question) => {
-          const picked = code.ids.has(question.id);
-          const reason = picked ? "" : question.status !== "published" ? "Chỉ thêm được câu hỏi đã xuất bản" : !supported(question) ? "Chưa hỗ trợ trong đề nhiều câu" : "";
-          return h("div", { class: `qb-item${picked ? " qb-picked" : ""}` },
-            h("span", { class: "qb-main" },
-              h("strong", {}, question.title),
-              h("small", {}, [question.category, question.language, question.grading_mode, `${Number(question.total_points) || 0} điểm`, `đã dùng ${Number(question.usage_count) || 0} lần`].filter(Boolean).join(" · "))),
-            statusPill(question.status),
-            picked ? h("span", { class: "section-badge" }, "Đã chọn")
-              : h("button", { type: "button", class: "btn btn-small btn-secondary", disabled: !canEdit || Boolean(reason), title: reason || null, on: { click: () => add(question.id) } }, h("i", { class: "fa fa-plus" }), " Thêm"));
-        }) : [h("span", { class: "muted" }, ref.questions.length ? "Không có câu hỏi khớp bộ lọc." : "Chưa có câu hỏi trong Ngân hàng câu hỏi.")]));
-      }
-
-      const filterInput = (key, control) => { control.addEventListener("input", () => { pick[key] = control.value; renderPicker(); }); return control; };
-      const option = (value, label, current) => h("option", { value, selected: value === current }, label);
-      const filters = h("div", { class: "qb-filters" },
-        filterInput("search", h("input", { type: "search", value: pick.search, placeholder: "Tìm theo tiêu đề / tag" })),
-        filterInput("language", h("select", { "aria-label": "Ngôn ngữ" }, option("", "Mọi ngôn ngữ", pick.language), option("java", "Java", pick.language), option("python", "Python", pick.language))),
-        filterInput("mode", h("select", { "aria-label": "Kiểu chấm" }, option("", "Mọi kiểu chấm", pick.mode), option("reflection", "reflection", pick.mode), option("stdio", "stdio", pick.mode))),
-        filterInput("status", h("select", { "aria-label": "Trạng thái" }, option("", "Mọi trạng thái", pick.status), option("draft", "Nháp", pick.status), option("published", "Đã xuất bản", pick.status), option("archived", "Lưu trữ", pick.status))),
-        filterInput("category", h("input", { type: "text", value: pick.category, placeholder: "Danh mục" })),
-        filterInput("usage", h("select", { "aria-label": "Số lần sử dụng" }, option("", "Mọi mức sử dụng", pick.usage), option("0", "Chưa dùng (0 lần)", pick.usage), option("used", "Đã dùng (≥ 1 lần)", pick.usage), option("1-2", "Dùng 1–2 lần", pick.usage), option("3+", "Dùng từ 3 lần", pick.usage))));
-      renderSelected();
-      renderPicker();
-
-      const previewButton = h("button", { type: "button", class: "btn btn-secondary btn-small", on: { click: () => openPreview() } }, h("i", { class: "fa fa-eye" }), " Xem trước đề thi");
-      const rejectionPanel = () => !rejection ? null : h("div", { class: "alert alert-warning qb-rejection", role: "alert" },
-        h("strong", {}, `Chưa thể phát đề: ${rejection.invalid_questions.length} câu hỏi cần xử lý. Kỳ thi vẫn ở trạng thái Nháp; danh sách câu hỏi và thứ tự được giữ nguyên.`),
-        h("ul", {}, ...rejection.invalid_questions.map((item) => h("li", {},
-          `Câu ${item.position}: ${item.title || item.question_id} — ${item.reason} `,
-          item.code === "missing" || item.code === "duplicate" ? null
-            : h("a", { href: `/admin?section=exam-management&tab=questions&question=${encodeURIComponent(item.question_id)}`, target: "_blank", rel: "noopener" }, "Mở câu hỏi để chỉnh sửa")))),
-        h("p", { class: "fine-print" }, "Sau khi xuất bản lại câu hỏi, quay lại trang này và bấm “Phát đề” lần nữa. Câu hỏi không dùng được có thể bị xóa khỏi danh sách đã chọn."));
-      const builder = h("div", { class: "exam-builder" },
-        h("div", { class: "qb-panel" }, h("h4", {}, "Ngân hàng câu hỏi"),
-          canEdit ? h("p", { class: "fine-print" }, "Chỉ thêm được câu hỏi đã xuất bản thuộc loại Java Reflection, Java STDIO hoặc Python STDIO.") : h("p", { class: "fine-print" }, "Chỉ kỳ thi Nháp mới được thay đổi danh sách câu hỏi."),
-          filters, pickerCount, pickerList),
-        h("div", { class: "qb-panel" }, h("h4", {}, "Câu hỏi đã chọn ", count),
-          h("p", { class: "qb-total" }, "Tổng điểm: ", total), mark("code", selectedList)));
+      const legacyPanel = code.legacy ? h("div", { class: "alert alert-warning", role: "alert" },
+        h("strong", {}, "Kỳ thi này có lựa chọn câu hỏi theo cấu hình cũ."),
+        h("p", {}, "Danh sách cũ được giữ nguyên khi lưu. Tạo Paper trước nếu muốn chuyển cấu hình; việc chuyển sẽ bỏ lựa chọn question-based khỏi bản nháp."),
+        h("button", { type: "button", class: "btn btn-small btn-secondary", disabled: !canEdit, on: { click: () => { code.legacy = false; code.legacyQuestionIds = []; code.mode = "common"; code.paperVersions = []; scheduleAutosave(); render(); } },
+        }, "Bỏ cấu hình cũ và chọn Paper"),
+        h("p", { class: "fine-print" }, `Câu hỏi cũ: ${code.legacyQuestionIds.join(", ") || "không có"}`)) : null;
+      const distributionControls = !code.legacy ? h("div", { class: "exam-rows" },
+        rowField("Chế độ phân phối Paper", h("select", { class: "exam-select-wide", disabled: !canEdit, value: code.mode, on: { change: (e) => { code.mode = e.target.value; if (code.mode === "common") code.paperVersions = code.paperVersions.slice(0, 1); scheduleAutosave(); render(); } } },
+          h("option", { value: "common" }, "COMMON — cùng một Paper cho mọi sinh viên"),
+          h("option", { value: "random" }, "RANDOM — máy chủ chọn một Paper trong pool cho từng sinh viên"))),
+        h("p", { class: "fine-print" }, code.mode === "common"
+          ? "Chọn chính xác một Paper version."
+          : "Chọn pool Paper versions; máy chủ gán một Paper hoàn chỉnh cho mỗi sinh viên. Câu hỏi bên trong Paper không bị xáo trộn."),
+        warnings.length ? h("div", { class: "alert alert-warning", role: "alert" }, "Một số Paper đã chọn không còn là version hiện hành hoặc Paper không còn Published. Gỡ chúng hoặc khôi phục trạng thái trước khi phát.",
+          h("ul", {}, ...warnings.map((item) => h("li", {}, `${item.paper_id} · ${item.paper_version_id}`)))) : null,
+        h("div", { class: "paper-choice-list" }, ...(currentPool.length ? currentPool.map((paper) => {
+          const item = paper.schema_version >= 2 ? { paper_id: paper.id } : { paper_id: paper.id, paper_version_id: paper.current_version_id };
+          const checked = currentSelection.some((selected) => pairKey(selected) === pairKey(item));
+          return h("label", { class: "paper-choice" },
+            h("input", { type: "checkbox", checked, disabled: !canEdit, on: { change: (e) => togglePaper(paper, e.target.checked) } }),
+            h("span", {}, h("strong", {}, paper.title), h("small", {}, paper.schema_version >= 2 ? `${paper.question_count} câu · Paper ${paper.id}` : `${paper.question_count} câu · ${paper.version_count} version · ${paper.current_version_id}`)));
+        }) : [h("p", { class: "muted" }, "Chưa có Paper Published. Tạo và xuất bản Paper trong tab Quản lý đề thi.")])),
+        currentSelection.length ? h("p", { class: "fine-print" }, `Đã chọn ${currentSelection.length} Paper version${code.mode === "common" ? " (COMMON yêu cầu đúng 1)" : " trong pool RANDOM"}.`,
+          h("button", { type: "button", class: "btn btn-small btn-secondary", on: { click: () => openPreview() } }, h("i", { class: "fa fa-eye" }), " Xem trước Paper đã chọn")) : null,
+        currentSelection.length ? h("ol", { class: "qb-selected-list", "aria-label": "Paper versions đã chọn" }, ...currentSelection.map((selected, index) => {
+          const paper = ref.papers.find((entry) => entry.id === selected.paper_id);
+          const current = paper?.status === "published" && (selected.paper_version_id ? paper.current_version_id === selected.paper_version_id : paper.schema_version >= 2);
+          return h("li", { class: `qb-selected${current ? "" : " qb-warn"}` },
+            h("span", { class: "qb-index" }, `${index + 1}.`),
+            h("span", { class: "qb-main" }, h("strong", {}, paper?.title || selected.paper_id), h("small", {}, `${selected.paper_version_id || selected.paper_id}${current ? " · Published" : " · Không còn version hiện hành/Published"}`)),
+            h("button", { type: "button", class: "btn btn-small btn-ghost", disabled: !canEdit, "aria-label": `Gỡ Paper ${selected.paper_id} ${selected.paper_version_id}`, on: { click: () => { code.paperVersions = code.paperVersions.filter((_, selectedIndex) => selectedIndex !== index); scheduleAutosave(); render(); } } }, "Gỡ"));
+        })) : null) : null;
       const clampInput = (input, assign, integer) => {
         const raw = input.value.trim();
         if (raw === "" || Number.isNaN(Number(raw))) return;
@@ -570,10 +588,14 @@
       runsInput.addEventListener("change", () => settle(runsInput, setRuns, true));
       cooldownInput.addEventListener("input", () => clampInput(cooldownInput, setCooldown, false));
       cooldownInput.addEventListener("change", () => settle(cooldownInput, setCooldown, false));
+      const previewButton = h("button", {
+        type: "button", class: "btn btn-small btn-secondary",
+        on: { click: () => openPreview() },
+      }, h("i", { class: "fa fa-eye" }), " Xem trước kỳ thi");
       return h("section", { class: "exam-form-section" },
-        h("h3", {}, h("i", { class: "fa fa-code" }), " Bài code ", count), toggle,
-        rejectionPanel(),
-        builder,
+        h("h3", {}, h("i", { class: "fa fa-code" }), " Bài code"),
+        legacyPanel,
+        distributionControls,
         h("div", { class: "qb-preview-bar" }, previewButton),
         previewState ? previewPanel() : null,
         h("div", { class: "exam-rows" },
@@ -584,13 +606,8 @@
     }
 
     function zipSection() {
-      const toggle = h("label", { class: "checkbox-row" }, h("input", {
-        type: "checkbox", checked: Boolean(form.zip),
-        on: { change: (e) => { form.zip = e.target.checked ? { item_id: undefined, mode: "random", files: new Set(), even: "", odd: "", map: {} } : null; scheduleAutosave(); render(); } },
-      }), " Có bài nộp file (đề ZIP/PDF)");
       const heading = h("h3", {}, h("i", { class: "fa fa-file-archive-o" }), " Bài nộp file");
-      if (form.code) return null;
-      if (!form.zip) return mark("items", h("section", { class: "exam-form-section" }, heading, toggle));
+      if (form.itemType !== "zip" || !form.zip) return null;
       const zip = form.zip;
       const names = ref.files.map((file) => file.name);
       const fileOptions = (selected, onChange) => h("select", { on: { change: onChange } }, h("option", { value: "" }, "— Chọn đề —"), ...names.map((name) => h("option", { value: name, selected: name === selected }, name)));
@@ -614,7 +631,7 @@
             h("select", { on: { change: (e) => { zip.map[remainder] = e.target.value; scheduleAutosave(); } } },
               h("option", { value: "" }, "— Chọn đề —"), ...selected.map((name) => h("option", { value: name, selected: zip.map[remainder] === name }, name))))) : [])));
       }
-      return mark("items", h("section", { class: "exam-form-section" }, heading, toggle,
+      return mark("items", h("section", { class: "exam-form-section" }, heading,
         rowField("Chế độ phân phối", h("select", { class: "exam-select-wide", on: { change: (e) => { zip.mode = e.target.value; scheduleAutosave(); render(); } } },
           h("option", { value: "random", selected: zip.mode === "random" }, "Ngẫu nhiên (xa nhau theo IP) trong các đề được chọn"),
           h("option", { value: "selected", selected: zip.mode === "selected" }, "Luân phiên trong các đề được chọn"),
@@ -726,7 +743,7 @@
           h("div", { class: "exam-detail-status" }, pill(exam ? exam.status : "draft"), actionBar()),
           link("/admin?section=exams", "fa-arrow-left", "Danh sách kỳ thi", "btn-ghost")),
         warningText.trim() ? h("div", { class: "alert alert-warning" }, warningText) : null,
-        h("fieldset", { class: "exam-form", disabled: readOnly }, configSection(), participantsSection(), codeSection(), zipSection()),
+        h("fieldset", { class: "exam-form", disabled: readOnly }, configSection(), participantsSection(), itemTypeSelector(), codeSection(), zipSection()),
         mode() === "edit" && (!exam || exam.status === "draft") ? autosave : null,
         bottomBar(), notice);
       if (showErrors && mode() === "edit") applyErrors(publishProblems());
@@ -735,10 +752,10 @@
     async function init() {
       body.replaceChildren(h("p", { class: "muted" }, h("i", { class: "fa fa-spinner fa-spin" }), " Đang tải…"));
       try {
-        const [accounts, files, questions, list] = await Promise.all([
-          request("/api/admin/accounts"), request("/api/admin/exams"), request("/api/admin/questions"), request(API),
+        const [accounts, files, questions, papers, list] = await Promise.all([
+          request("/api/admin/accounts"), request("/api/admin/exams"), request("/api/admin/questions"), request("/api/admin/papers"), request(API),
         ]);
-        ref = { accounts: accounts.students || [], files: files.exams || [], questions: questions.questions || [], running: list.exams.some((item) => item.status === "started") };
+        ref = { accounts: accounts.students || [], files: files.exams || [], questions: questions.questions || [], papers: papers.papers || [], running: list.exams.some((item) => item.status === "started") };
         if (examId) exam = (await request(`${API}/${encodeURIComponent(examId)}`)).exam;
         editing = params.get("mode") === "edit";
         form = exam ? fromExam(exam) : blank();

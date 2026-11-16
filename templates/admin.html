@@ -21,6 +21,8 @@
             <p class="sidebar-label">QUẢN LÝ ĐỀ THI</p>
             <a class="{{ 'active' if section == 'exam-management' and tab == 'questions' else '' }}" href="/admin?section=exam-management&tab=questions"><i
                     class="fa fa-database"></i><span>Ngân hàng câu hỏi</span></a>
+            <a class="{{ 'active' if section == 'exam-management' and tab == 'papers' else '' }}" href="/admin?section=exam-management&tab=papers"><i
+                    class="fa fa-files-o"></i><span>Quản lý đề thi</span></a>
             <a class="{{ 'active' if section == 'exam-management' and tab == 'exams' else '' }}" href="/admin?section=exam-management&tab=exams"><i
                     class="fa fa-file-code-o"></i><span>Đề thi code</span></a>
             <a class="{{ 'active' if section == 'exam-management' and tab == 'results' else '' }}" href="/admin?section=exam-management&tab=results"><i
@@ -308,10 +310,17 @@
             <section class="panel" id="exam-management" data-tab="{{ tab|default('questions') }}">
                 <nav class="tab-bar" aria-label="Quản lý đề thi">
                     <a class="tab-link {{ 'active' if tab == 'questions' else '' }}" href="/admin?section=exam-management&tab=questions">Ngân hàng câu hỏi</a>
+                    <a class="tab-link {{ 'active' if tab == 'papers' else '' }}" href="/admin?section=exam-management&tab=papers">Quản lý đề thi</a>
                     <a class="tab-link {{ 'active' if tab == 'exams' else '' }}" href="/admin?section=exam-management&tab=exams">Đề thi code</a>
                     <a class="tab-link {{ 'active' if tab == 'results' else '' }}" href="/admin?section=exam-management&tab=results">Kết quả code</a>
                 </nav>
-                {% if tab == 'exams' %}
+                {% if tab == 'papers' %}
+                <div id="code-papers-view">
+                    <div id="cp-notice" class="notice hidden"></div>
+                    <div id="cp-list"></div>
+                    <div id="cp-editor" class="hidden"></div>
+                </div>
+                {% elif tab == 'exams' %}
                 <div id="code-exams-view">
                     <div class="panel-heading"><h2>Đề thi code</h2>
                         <a class="btn btn-primary btn-small" href="/admin?section=exams"><i class="fa fa-calendar"></i> Quản lý trong mục Kỳ thi</a></div>
@@ -368,6 +377,7 @@
 <script defer src="/static/js/admin.js"></script>
 <script defer src="/static/js/questions.js"></script>
 <script defer src="/static/js/code-exams.js"></script>
+<script defer src="/static/js/code-papers.js"></script>
 <script defer src="/static/js/exams.js"></script>
 <script defer src="/static/js/code-results.js"></script>
 {% endblock %}

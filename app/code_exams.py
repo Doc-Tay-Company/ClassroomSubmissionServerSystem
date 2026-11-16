@@ -176,6 +176,72 @@ def create_code_exam(payload: Mapping, actor: str, ip: str) -> dict:
     return exam
 
 
+def create_paper_code_exam(
+    payload: Mapping, *, general_exam_id: str, actor: str, ip: str
+) -> dict:
+    """Create a release-scoped code exam that references a reusable Paper version."""
+    if not isinstance(payload, Mapping):
+        raise CodeExamError("Paper code exam must be a JSON object", 422)
+    title = payload.get("title")
+    paper_ref = payload.get("paper_ref")
+    if not isinstance(title, str) or not title.strip() or len(title) > 200:
+        raise CodeExamError("title must contain 1 to 200 characters", 422)
+    if not isinstance(general_exam_id, str) or not general_exam_id or not isinstance(paper_ref, Mapping) or not isinstance(paper_ref.get("paper_id"), str):
+        raise CodeExamError("A valid Paper reference is required", 422)
+    from .papers import PaperError, resolve_paper_reference
+
+    try:
+        canonical_ref, paper_snapshot = resolve_paper_reference(paper_ref, require_published=True)
+    except PaperError as exc:
+        raise CodeExamError(str(exc), exc.status) from exc
+
+    settings = read_json("settings.json")
+    policy = payload.get("submission_policy", settings.get("submission_policy", "configurable"))
+    if policy not in {"once", "configurable"}:
+        raise CodeExamError("submission_policy must be once or configurable", 422)
+    max_submissions = _positive_int(
+        payload.get("max_submissions", settings.get("max_submissions", 1)),
+        "max_submissions", 1, 20,
+    )
+    show_score = payload.get("show_final_score_immediately", False)
+    allow_pretest = payload.get("allow_pretest", True)
+    if not isinstance(show_score, bool) or not isinstance(allow_pretest, bool):
+        raise CodeExamError("show_final_score_immediately and allow_pretest must be booleans", 422)
+    cooldown = payload.get("pretest_cooldown_seconds", 2)
+    if isinstance(cooldown, bool) or not isinstance(cooldown, (int, float)) or not 0 <= cooldown <= 3600:
+        raise CodeExamError("pretest_cooldown_seconds must be between 0 and 3600", 422)
+    max_pretest_runs = _positive_int(payload.get("max_pretest_runs", 20), "max_pretest_runs", 1, 1000)
+
+    exam_id = uuid.uuid4().hex
+    now = utc_now()
+    exam = {
+        "id": exam_id,
+        "schema_version": 2,
+        "status": "draft",
+        "release_id": None,
+        "general_exam_id": general_exam_id,
+        "paper_ref": canonical_ref,
+        "paper_snapshot": deepcopy(paper_snapshot),
+        "created_by": actor,
+        "created_at": now,
+        "updated_at": now,
+        "title": title.strip(),
+        "show_final_score_immediately": show_score,
+        "allow_pretest": allow_pretest,
+        "max_pretest_runs": max_pretest_runs,
+        "pretest_cooldown_seconds": float(cooldown),
+        "submission_policy": policy,
+        "max_submissions": max_submissions,
+    }
+    update_json("code_exams.json", lambda exams: exams.__setitem__(exam_id, exam))
+    audit("code.paper_exam_created", actor, ip, {
+        "exam_id": exam_id,
+        "general_exam_id": general_exam_id,
+        **exam["paper_ref"],
+    })
+    return get_code_exam(exam_id)
+
+
 def _increment_question_usage(snapshots: list[dict], *, exclude_question_ids: set[str] | None = None) -> None:
     def record_usage(questions):
         for item in snapshots:
@@ -237,11 +303,31 @@ def update_draft_code_exam(exam_id: str, payload: Mapping, actor: str, ip: str) 
 
 
 def list_code_exams() -> list[dict]:
-    return list(read_json("code_exams.json").values())
+    return [get_code_exam(exam_id) for exam_id in read_json("code_exams.json")]
 
 
 def get_code_exam(exam_id: str) -> dict | None:
-    return read_json("code_exams.json").get(exam_id)
+    exam = read_json("code_exams.json").get(exam_id)
+    if not exam:
+        return None
+    if exam.get("paper_ref") and exam.get("paper_snapshot"):
+        exam = deepcopy(exam)
+        exam["questions"] = deepcopy(exam["paper_snapshot"].get("questions", []))
+    elif exam.get("paper_ref"):
+        from .papers import PaperError, get_paper_version_snapshot
+
+        try:
+            version_id = exam["paper_ref"].get("paper_version_id")
+            if not isinstance(version_id, str) or not version_id:
+                raise PaperError("Legacy Paper version reference is incomplete", 409, "PAPER_VERSION_NOT_FOUND")
+            version = get_paper_version_snapshot(
+                exam["paper_ref"]["paper_id"], version_id
+            )
+        except PaperError as exc:
+            raise CodeExamError(f"The referenced Paper snapshot is unavailable: {exc}", 409) from exc
+        exam = deepcopy(exam)
+        exam["questions"] = deepcopy(version["questions"])
+    return exam
 
 
 def prepare_code_exam_distribution(exam_id: str) -> dict:
@@ -337,6 +423,10 @@ def _active_context(student_id: str) -> tuple[dict, dict, dict]:
     exam = get_code_exam(exam_id) if isinstance(exam_id, str) else None
     if not exam or exam.get("release_id") != assignment.get("release_id") or exam.get("status") != "started":
         raise CodeExamError("No started code exam is attached to this release", 403)
+    paper_ref = exam.get("paper_ref")
+    if paper_ref and (assignment.get("paper_id") != paper_ref.get("paper_id")
+        or assignment.get("paper_version_id") != paper_ref.get("paper_version_id")):
+        raise CodeExamError("The assigned Paper version does not match the code exam", 403)
     return settings, assignment, exam
 
 
@@ -398,6 +488,10 @@ def get_student_code_exam(student_id: str) -> dict:
         )
     ):
         raise CodeExamError("No matching code exam is available", 403)
+    paper_ref = exam.get("paper_ref")
+    if paper_ref and (assignment.get("paper_id") != paper_ref.get("paper_id")
+        or assignment.get("paper_version_id") != paper_ref.get("paper_version_id")):
+        raise CodeExamError("The assigned Paper version does not match the code exam", 403)
 
     deadline = assignment.get("ends_at")
     expired = True
@@ -453,6 +547,11 @@ def get_student_code_exam(student_id: str) -> dict:
         "progress": progress,
         "questions": [{**public_question(question), "total_points": question["total_points"]} for question in exam["questions"]],
     }
+    if paper_ref:
+        result.update({
+            "paper_id": paper_ref["paper_id"],
+        **({"paper_version_id": paper_ref["paper_version_id"]} if paper_ref.get("paper_version_id") is not None else {}),
+        })
     if reveal and all_submitted and all("score" in item for item in progress):
         result["exam_score"] = sum(float(item["score"] or 0) for item in progress)
     return result
@@ -780,6 +879,7 @@ def _reserve_submission(student_id: str, exam: dict, question: dict, source_code
         "exam_id": exam["id"],
         "release_id": exam["release_id"],
         "question_id": question["question_id"],
+        "snapshot_version": question.get("snapshot_version", question.get("version", 1)),
         "language": question["language"],
         "grading_mode": question["grading_mode"],
         "source_code": source_code,
@@ -790,6 +890,12 @@ def _reserve_submission(student_id: str, exam: dict, question: dict, source_code
         "total_points": question["total_points"],
         "results": [],
     }
+    if exam.get("paper_ref"):
+        record.update({
+            "paper_id": exam["paper_ref"]["paper_id"],
+        })
+        if exam["paper_ref"].get("paper_version_id") is not None:
+            record["paper_version_id"] = exam["paper_ref"]["paper_version_id"]
 
     def reserve(submissions):
         student_records = submissions.setdefault(student_id, [])
@@ -1207,52 +1313,55 @@ def get_student_submission(student_id: str, question_id: str) -> dict:
 
 
 def release_student_exam_scores(release_id: str) -> None:
-    exams = read_json("code_exams.json")
-    exam = next(
-        (item for item in exams.values() if item.get("release_id") == release_id),
-        None,
-    )
-    if not exam:
+    raw_exams = read_json("code_exams.json")
+    exams = [
+        get_code_exam(exam_id)
+        for exam_id, item in raw_exams.items()
+        if item.get("release_id") == release_id
+    ]
+    exams = [exam for exam in exams if exam]
+    if not exams:
         return
 
     def update_scores(submissions):
-        for records in submissions.values():
-            latest_by_question = {}
-            for item in records:
-                if (
-                    item.get("exam_id") == exam.get("id")
-                    and item.get("release_id") == release_id
-                    and item.get("status") == "graded"
-                ):
-                    latest_by_question[item.get("question_id")] = item
-            for record in records:
-                if record.get("exam_id") != exam.get("id") or record.get("release_id") != release_id:
-                    continue
-                question_scores = []
-                all_submitted = True
-                for question in exam.get("questions", []):
-                    latest = latest_by_question.get(question["question_id"])
-                    if latest is None:
-                        all_submitted = False
-                    question_scores.append(
+        for exam in exams:
+            for records in submissions.values():
+                latest_by_question = {}
+                for item in records:
+                    if (
+                        item.get("exam_id") == exam.get("id")
+                        and item.get("release_id") == release_id
+                        and item.get("status") == "graded"
+                    ):
+                        latest_by_question[item.get("question_id")] = item
+                for record in records:
+                    if record.get("exam_id") != exam.get("id") or record.get("release_id") != release_id:
+                        continue
+                    question_scores = []
+                    all_submitted = True
+                    for question in exam.get("questions", []):
+                        latest = latest_by_question.get(question["question_id"])
+                        if latest is None:
+                            all_submitted = False
+                        question_scores.append(
+                            {
+                                "question_id": question["question_id"],
+                                "score": latest.get("score", 0) if latest else 0,
+                                "total_points": question["total_points"],
+                            }
+                        )
+                    try:
+                        total = grade_exam(question_scores)
+                    except GradingError as exc:
+                        raise CodeExamError(f"Could not aggregate the code exam score: {exc}", 503) from exc
+                    record.update(
                         {
-                            "question_id": question["question_id"],
-                            "score": latest.get("score", 0) if latest else 0,
-                            "total_points": question["total_points"],
+                            "exam_score": total.score,
+                            "exam_total_points": total.total_points,
+                            "all_questions_submitted": all_submitted,
+                            "exam_ended": True,
                         }
                     )
-                try:
-                    total = grade_exam(question_scores)
-                except GradingError as exc:
-                    raise CodeExamError(f"Could not aggregate the code exam score: {exc}", 503) from exc
-                record.update(
-                    {
-                        "exam_score": total.score,
-                        "exam_total_points": total.total_points,
-                        "all_questions_submitted": all_submitted,
-                        "exam_ended": True,
-                    }
-                )
 
     update_json("code_submissions.json", update_scores)
 
@@ -1421,6 +1530,10 @@ def regrade_submission(
         or record.get("release_id") != exam.get("release_id")
     ):
         raise CodeExamError("Submission was not found for this code exam", 404)
+    paper_ref = exam.get("paper_ref")
+    if paper_ref and (record.get("paper_id") != paper_ref.get("paper_id")
+        or record.get("paper_version_id") != paper_ref.get("paper_version_id")):
+        raise CodeExamError("Submission does not reference this Paper version", 409)
     if record.get("status") not in {"graded", "error"}:
         raise CodeExamError("Only completed submissions can be regraded", 409)
     source_code = record.get("source_code")
@@ -1430,6 +1543,8 @@ def regrade_submission(
     question_id = record.get("question_id")
     question = _question_snapshot(exam, question_id)
     if use_latest_spec:
+        if exam.get("paper_ref"):
+            raise CodeExamError("Paper release regrading must use the frozen release question snapshot", 409)
         latest = get_question(question_id)
         if not latest or latest.get("status") != "published":
             raise CodeExamError("A published question version is required for regrading", 409)

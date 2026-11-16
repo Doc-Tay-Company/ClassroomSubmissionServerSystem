@@ -33,6 +33,7 @@ DEFAULTS = {
     "assignments.json": {},
     "submissions.json": {},
     "questions.json": {},
+    "papers.json": {},
     "code_exams.json": {},
     "exams.json": {},
     "code_submissions.json": {},

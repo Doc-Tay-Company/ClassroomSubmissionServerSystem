@@ -10,6 +10,7 @@ wrapped lazily (see ``reconcile``) without moving or rewriting their data.
 from __future__ import annotations
 
 import copy
+import random
 import uuid
 from collections.abc import Mapping
 
@@ -17,6 +18,7 @@ from .code_exams import (
     CodeExamError,
     attach_code_exam_to_release,
     create_code_exam,
+    create_paper_code_exam,
     discard_code_exam,
     get_code_exam,
     public_question,
@@ -32,6 +34,7 @@ from .exams import (
     start_exam_session,
 )
 from .security import hash_password
+from .papers import PaperError, resolve_paper_reference
 from .storage import audit, read_json, transaction, utc_now, write_json
 
 STATUSES = ("draft", "distributed", "started", "ended")
@@ -161,7 +164,42 @@ def _normalize_zip_item(entry: Mapping, item: dict) -> None:
 
 
 def _normalize_code_item(entry: Mapping, item: dict) -> None:
+    distribution = entry.get("distribution")
     question_ids = _string_list(entry.get("question_ids", []), "Danh sách câu hỏi")
+    if distribution is None:
+        item["question_ids"] = question_ids
+        item.pop("distribution", None)
+    else:
+        if not isinstance(distribution, Mapping):
+            raise ExamError("distribution phải là một object.")
+        if question_ids:
+            raise ExamError("Không thể kết hợp question_ids với phân phối Paper.")
+        mode = distribution.get("mode")
+        if mode not in {"common", "random"}:
+            raise ExamError("Paper distribution mode phải là common hoặc random.")
+        raw_refs = distribution.get("paper_versions", distribution.get("papers"))
+        if not isinstance(raw_refs, list) or not raw_refs:
+            raise ExamError("paper_versions phải chứa ít nhất một Paper version.")
+        refs = []
+        seen = set()
+        for ref in raw_refs:
+            if not isinstance(ref, Mapping):
+                raise ExamError("Mỗi Paper version phải là một object.")
+            paper_id = ref.get("paper_id")
+            version_id = ref.get("paper_version_id")
+            if not isinstance(paper_id, str) or not paper_id or len(paper_id) > 80:
+                raise ExamError("paper_id không hợp lệ.")
+            if version_id is not None and (not isinstance(version_id, str) or not version_id or len(version_id) > 160):
+                raise ExamError("paper_version_id không hợp lệ.")
+            key = (paper_id, version_id) if version_id is not None else (paper_id, "@paper")
+            if key in seen:
+                raise ExamError("Một Paper version không thể xuất hiện hai lần trong pool.")
+            seen.add(key)
+            refs.append({"paper_id": paper_id, **({"paper_version_id": version_id} if version_id is not None else {})})
+        if mode == "common" and len(refs) != 1:
+            raise ExamError("COMMON phải chọn chính xác một Paper version.")
+        item["question_ids"] = []
+        item["distribution"] = {"mode": mode, "paper_versions": refs}
     cooldown = entry.get("pretest_cooldown_seconds", 2)
     if isinstance(cooldown, bool) or not isinstance(cooldown, (int, float)) or not 0 <= cooldown <= 3600:
         raise ExamError("Thời gian chờ giữa các lần chạy thử phải từ 0 đến 3600 giây.")
@@ -200,6 +238,8 @@ def _normalize_items(raw, base_items: list[dict]) -> list[dict]:
             _normalize_code_item(entry, item)
             if prev and prev.get("code_exam_id"):
                 item["code_exam_id"] = prev["code_exam_id"]
+            if prev and prev.get("paper_code_exam_ids"):
+                item["paper_code_exam_ids"] = copy.deepcopy(prev["paper_code_exam_ids"])
         else:
             _normalize_zip_item(entry, item)
         items.append(item)
@@ -240,12 +280,109 @@ def _must(exams: dict, exam_id: str) -> dict:
 
 def _touch(exam: dict) -> None:
     exam["updated_at"] = utc_now()
+    exam["revision"] = int(exam.get("revision", 1)) + 1
 
 
 def _drop_code_snapshot(exam: dict) -> None:
     for item in exam.get("items", []):
         if item["type"] == "code":
-            discard_code_exam(item.pop("code_exam_id", None))
+            code_ids = set(item.get("paper_code_exam_ids", {}).values())
+            if item.get("code_exam_id"):
+                code_ids.add(item["code_exam_id"])
+            for code_id in code_ids:
+                discard_code_exam(code_id)
+            item.pop("code_exam_id", None)
+            item.pop("paper_code_exam_ids", None)
+
+
+def _code_exam_ids(code_item: dict | None) -> set[str]:
+    if not code_item:
+        return set()
+    ids = set(code_item.get("paper_code_exam_ids", {}).values())
+    if code_item.get("code_exam_id"):
+        ids.add(code_item["code_exam_id"])
+    return ids
+
+
+def _has_release_activity(release_id: str) -> bool:
+    """Return True when persisted records show a Student has started this release."""
+    settings = read_json("settings.json")
+    if settings.get("exam_release_id") == release_id and settings.get("exam_state") in {"started", "ended"}:
+        return True
+
+    for assignment in read_json("assignments.json").values():
+        if assignment.get("release_id") != release_id:
+            continue
+        if assignment.get("started_at"):
+            return True
+        if assignment.get("status", "assigned") not in {"", "assigned", "draft"}:
+            return True
+
+    for code_exam in read_json("code_exams.json").values():
+        if code_exam.get("release_id") == release_id and (
+            code_exam.get("started_at") or code_exam.get("ended_at")
+            or code_exam.get("status") not in {"draft", "distributed"}
+        ):
+            return True
+
+    def contains_release_record(value) -> bool:
+        if isinstance(value, Mapping):
+            if value.get("release_id") == release_id:
+                return True
+            return any(contains_release_record(item) for item in value.values())
+        if isinstance(value, list):
+            return any(contains_release_record(item) for item in value)
+        return False
+
+    return any(contains_release_record(read_json(name)) for name in (
+        "code_submissions.json", "code_runs.json", "submissions.json",
+    ))
+
+
+def _synchronize_prestart_assignments(old_release_id: str, release: dict, exam: dict) -> None:
+    """Replace only unapplied assignment records with the newly built release plan."""
+    assignments = read_json("assignments.json")
+    code_item = _item(exam, "code")
+    changed = False
+    for student_id, assignment in list(assignments.items()):
+        if assignment.get("release_id") != old_release_id:
+            continue
+        if student_id not in release.get("assignments", {}):
+            del assignments[student_id]
+            changed = True
+            continue
+        assignment.update({
+            "release_id": release["release_id"],
+            "exam_file": release["assignments"][student_id],
+            "assigned_at": release["released_at"],
+            "started_at": None,
+            "ends_at": None,
+            "status": "assigned",
+        })
+        for key in ("paper_id", "paper_version_id", "code_exam_id"):
+            assignment.pop(key, None)
+        paper_assignment = release.get("paper_assignments", {}).get(student_id)
+        if paper_assignment:
+            assignment.update({
+                "paper_id": paper_assignment["paper_id"],
+                **({"paper_version_id": paper_assignment["paper_version_id"]} if paper_assignment.get("paper_version_id") is not None else {}),
+                "code_exam_id": paper_assignment["code_exam_id"],
+            })
+        elif code_item and code_item.get("code_exam_id"):
+            assignment["code_exam_id"] = code_item["code_exam_id"]
+        assignments[student_id] = assignment
+        changed = True
+    if changed:
+        write_json("assignments.json", assignments)
+
+    settings = read_json("settings.json")
+    if settings.get("exam_release_id") == old_release_id and settings.get("exam_state") == "distributed":
+        settings.update({
+            "exam_release_id": release["release_id"],
+            "exam_release_at": release["released_at"],
+            "exam_released": False,
+        })
+        write_json("settings.json", settings)
 
 
 def _clear_applied_release(release_id: str) -> None:
@@ -279,6 +416,18 @@ def _legacy_exam(exam_id: str, title: str, config: dict, items: list[dict], stat
 
 
 def _code_item_from_snapshot(code_exam: dict) -> dict:
+    if code_exam.get("paper_ref"):
+        return {
+            "item_id": _new_id(),
+            "type": "code",
+            "question_ids": [],
+            "distribution": {"mode": "common", "paper_versions": [dict(code_exam["paper_ref"])]},
+            "show_final_score_immediately": code_exam.get("show_final_score_immediately", False),
+            "allow_pretest": code_exam.get("allow_pretest", True),
+            "max_pretest_runs": code_exam.get("max_pretest_runs", 20),
+            "pretest_cooldown_seconds": code_exam.get("pretest_cooldown_seconds", 2),
+            "paper_code_exam_ids": {_paper_ref_key(code_exam["paper_ref"]): code_exam["id"]},
+        }
     return {
         "item_id": _new_id(),
         "type": "code",
@@ -292,10 +441,11 @@ def _code_item_from_snapshot(code_exam: dict) -> dict:
 
 
 def reconcile() -> None:
-    """Wrap pre-exams.json data and keep statuses aligned with the runtime state.
+    """Wrap legacy data, align states, and remove uncommitted Paper snapshots.
 
-    Idempotent. Never modifies settings.json, assignments.json, code_exams.json or any
-    submission record; it only creates/updates entries in exams.json.
+    Idempotent. Old question-based data stays untouched. Paper code-exam records
+    whose owning release never reached exams.json are discarded as interrupted
+    release-build artifacts.
     """
     with transaction():
         exams = _load()
@@ -303,7 +453,13 @@ def reconcile() -> None:
         settings = read_json("settings.json")
         assignments = read_json("assignments.json")
         changed = False
-        linked_code = {item.get("code_exam_id") for exam in exams.values() for item in exam.get("items", []) if item["type"] == "code"}
+        linked_code = {
+            code_id
+            for exam in exams.values()
+            for item in exam.get("items", [])
+            if item["type"] == "code"
+            for code_id in _code_exam_ids(item)
+        }
         linked_releases = {exam["release"]["release_id"] for exam in exams.values() if exam.get("release")}
         active_release = settings.get("exam_release_id")
         active_state = settings.get("exam_state")
@@ -354,8 +510,15 @@ def reconcile() -> None:
                 exams[exam_id]["started_at"] = settings["exam_started_at"]
             changed = True
 
-        for code_exam in code_exams.values():
+        # Paper code-exam records are created while a release is being built,
+        # before exams.json can commit the release that owns them. If the
+        # process stopped in that gap, discard those uncommitted records on
+        # startup instead of reconciling them as historical standalone exams.
+        for code_exam in list(code_exams.values()):
             if code_exam["id"] in linked_code:
+                continue
+            if code_exam.get("general_exam_id"):
+                discard_code_exam(code_exam["id"])
                 continue
             status = code_exam.get("status", "draft")
             release_id = code_exam.get("release_id")
@@ -421,12 +584,17 @@ def _remaining(exam: dict, assignments: dict) -> int | None:
 
 def _public(exam: dict, assignments: dict | None = None) -> dict:
     result = copy.deepcopy(exam)
+    result.setdefault("revision", 1)
     config = result["config"]
     config["has_password"] = bool(config.get("password_hash"))
     config.pop("password_hash", None)
     release = result.get("release")
     if release:
-        result["release"] = {key: release[key] for key in ("release_id", "released_at", "applied", "assigned_count") if key in release}
+        visible_release_keys = (
+            "release_id", "released_at", "applied", "assigned_count",
+            "distribution_mode", "paper_pool", "paper_distribution_summary",
+        )
+        result["release"] = {key: release[key] for key in visible_release_keys if key in release}
     result["remaining_seconds"] = _remaining(exam, assignments if assignments is not None else read_json("assignments.json"))
     return result
 
@@ -452,6 +620,47 @@ def preview_exam(exam_id: str) -> dict:
     code_item = _item(exam, "code")
     if not code_item:
         raise ExamError("Kỳ thi này không có bài code để xem trước.", 409)
+    if code_item.get("distribution"):
+        paper_previews = []
+        for ref in code_item["distribution"].get("paper_versions", []):
+            version = None
+            release = exam.get("release")
+            if release:
+                snapshot_ids = code_item.get("paper_code_exam_ids", {})
+                code_exam_id = snapshot_ids.get(_paper_ref_key(ref))
+                if not code_exam_id and code_item.get("code_exam_id") and ref.get("paper_version_id"):
+                    code_exam_id = code_item["code_exam_id"]
+                snapshot = get_code_exam(code_exam_id) if code_exam_id else None
+                if snapshot:
+                    expected_ref = {"paper_id": ref["paper_id"], **({"paper_version_id": ref["paper_version_id"]} if ref.get("paper_version_id") is not None else {})}
+                    if snapshot.get("release_id") != release.get("release_id") or snapshot.get("paper_ref") != expected_ref:
+                        raise ExamError("The release Paper snapshot is missing or mismatched.", 409)
+                    version = {
+                        "title": (snapshot.get("paper_snapshot") or {}).get("title", snapshot.get("title", "")),
+                        "questions": snapshot.get("questions", []),
+                    }
+                elif not ref.get("paper_version_id"):
+                    raise ExamError("The release Paper snapshot is unavailable.", 409)
+            if version is None:
+                try:
+                    _, version = resolve_paper_reference(ref)
+                except PaperError as exc:
+                    raise ExamError(str(exc), exc.status) from exc
+            paper_previews.append({
+                "paper_id": ref["paper_id"],
+                **({"paper_version_id": ref["paper_version_id"]} if ref.get("paper_version_id") is not None else {}),
+                "title": version.get("title", ""),
+                "questions": [
+                    {**public_question(question), "total_points": question.get("total_points", 0)}
+                    for question in version["questions"]
+                ],
+            })
+        return {
+            "exam_id": exam_id,
+            "title": exam["title"],
+            "distribution_mode": code_item["distribution"]["mode"],
+            "paper_versions": paper_previews,
+        }
     snapshot = get_code_exam(code_item["code_exam_id"]) if code_item.get("code_exam_id") else None
     if snapshot and exam["status"] != "draft":
         source = {question["question_id"]: question for question in snapshot.get("questions", [])}
@@ -506,9 +715,13 @@ def assignment_exam(assignment: dict | None) -> dict | None:
 
 def create_exam(payload, actor: str, ip: str) -> dict:
     fields = _normalize(payload, None)
+    code_item = _item({"items": fields["items"]}, "code")
+    if code_item and code_item.get("distribution"):
+        _check_code_papers(code_item)
     now = utc_now()
     exam = {
         "id": _new_id(),
+        "revision": 1,
         "title": fields["title"],
         "tag": fields["tag"],
         "status": "draft",
@@ -541,8 +754,8 @@ def _validate_publishable(exam: dict) -> None:
     code_item = _item(exam, "code")
     if len(exam["items"]) != 1 or exam["items"][0].get("type") not in ITEM_TYPES:
         problems.append(("items", "chọn đúng một loại bài thi: bài nộp file hoặc bài code"))
-    elif code_item and not code_item["question_ids"]:
-        problems.append(("code", "câu hỏi cho bài code"))
+    elif code_item and not code_item.get("distribution") and not code_item["question_ids"]:
+        problems.append(("code", "Paper version hoặc câu hỏi cho bài code"))
     if problems:
         raise ExamError("Chưa thể phát đề. Còn thiếu: " + "; ".join(label for _, label in problems) + ".", 400, [key for key, _ in problems])
 
@@ -592,18 +805,44 @@ def _check_code_questions(code_item: dict) -> None:
         )
 
 
-def _build_release(exam: dict, actor: str, ip: str) -> dict:
-    """Validate the exam, snapshot its code questions and compute the student assignments.
+def _paper_ref_key(ref: Mapping) -> str:
+    return f"{ref['paper_id']}::{ref.get('paper_version_id', '@paper')}"
 
-    Mutates ``exam`` only by pointing its code item at the new snapshot; the caller
-    decides when to persist and which old snapshot to discard.
-    """
+
+def _check_code_papers(code_item: dict) -> list[dict]:
+    distribution = code_item.get("distribution") or {}
+    refs = distribution.get("paper_versions", [])
+    if distribution.get("mode") not in {"common", "random"} or not refs:
+        raise ExamError("Cấu hình phân phối Paper không hợp lệ.", 422, ["code"])
+    if distribution["mode"] == "common" and len(refs) != 1:
+        raise ExamError("COMMON phải chọn chính xác một Paper version.", 422, ["code"])
+    validated = []
+    for ref in refs:
+        try:
+            canonical, version = resolve_paper_reference(ref, require_published=True)
+        except PaperError as exc:
+            raise ExamError(str(exc), exc.status, ["code"], {"paper_ref": dict(ref)}) from exc
+        validated.append({**canonical, "version": version})
+    return validated
+
+
+def _choose_random_paper(refs: list[dict]) -> dict:
+    """Choose a complete paper version once while constructing the release."""
+    return random.SystemRandom().choice(refs)
+
+
+def _build_release(exam: dict, actor: str, ip: str) -> dict:
+    """Validate a release and persist its immutable assignment selection map."""
     _validate_publishable(exam)
     config = exam["config"]
     zip_item = _item(exam, "zip")
     code_item = _item(exam, "code")
+    validated_papers = []
     if code_item:
-        _check_code_questions(code_item)
+        if code_item.get("distribution"):
+            validated_papers = _check_code_papers(code_item)
+        else:
+            _check_code_questions(code_item)
     students = read_json("students.json")
     participants = config["participants"]
     missing = [sid for sid in participants if sid not in students]
@@ -621,28 +860,76 @@ def _build_release(exam: dict, actor: str, ip: str) -> dict:
 
     release_id = _new_id()
     new_code_id = None
+    created_code_ids = []
+    paper_assignments = {}
+    paper_code_exam_ids = {}
     if code_item:
-        try:
-            snapshot = create_code_exam(
-                {
-                    "title": exam["title"],
-                    "question_ids": code_item["question_ids"],
-                    "submission_policy": config["submission_policy"],
-                    "max_submissions": config["max_submissions"],
-                    "show_final_score_immediately": code_item["show_final_score_immediately"],
-                    "allow_pretest": code_item["allow_pretest"],
-                    "max_pretest_runs": code_item["max_pretest_runs"],
-                    "pretest_cooldown_seconds": code_item["pretest_cooldown_seconds"],
-                },
-                actor,
-                ip,
-            )
-            new_code_id = snapshot["id"]
-            attach_code_exam_to_release(new_code_id, release_id)
-        except CodeExamError as exc:
-            discard_code_exam(new_code_id)
-            raise ExamError(str(exc), exc.status) from exc
-        code_item["code_exam_id"] = new_code_id
+        if validated_papers:
+            try:
+                for ref in validated_papers:
+                    snapshot = create_paper_code_exam(
+                        {
+                            "title": exam["title"],
+                            "paper_ref": {
+                                "paper_id": ref["paper_id"],
+                                **({"paper_version_id": ref["paper_version_id"]} if ref.get("paper_version_id") is not None else {}),
+                            },
+                            "submission_policy": config["submission_policy"],
+                            "max_submissions": config["max_submissions"],
+                            "show_final_score_immediately": code_item["show_final_score_immediately"],
+                            "allow_pretest": code_item["allow_pretest"],
+                            "max_pretest_runs": code_item["max_pretest_runs"],
+                            "pretest_cooldown_seconds": code_item["pretest_cooldown_seconds"],
+                        },
+                        general_exam_id=exam["id"],
+                        actor=actor,
+                        ip=ip,
+                    )
+                    code_exam_id = snapshot["id"]
+                    created_code_ids.append(code_exam_id)
+                    attach_code_exam_to_release(code_exam_id, release_id)
+                    paper_code_exam_ids[_paper_ref_key(ref)] = code_exam_id
+                code_item["paper_code_exam_ids"] = paper_code_exam_ids
+                refs = [
+                    {"paper_id": ref["paper_id"], **({"paper_version_id": ref["paper_version_id"]} if ref.get("paper_version_id") is not None else {})}
+                    for ref in validated_papers
+                ]
+                for sid in assignments:
+                    selected = refs[0] if code_item["distribution"]["mode"] == "common" else _choose_random_paper(refs)
+                    paper_assignments[sid] = {
+                        **selected,
+                        "code_exam_id": paper_code_exam_ids[_paper_ref_key(selected)],
+                    }
+            except (CodeExamError, PaperError) as exc:
+                for created_id in created_code_ids:
+                    discard_code_exam(created_id)
+                raise ExamError(str(exc), getattr(exc, "status", 409)) from exc
+            except Exception:
+                for created_id in created_code_ids:
+                    discard_code_exam(created_id)
+                raise
+        else:
+            try:
+                snapshot = create_code_exam(
+                    {
+                        "title": exam["title"],
+                        "question_ids": code_item["question_ids"],
+                        "submission_policy": config["submission_policy"],
+                        "max_submissions": config["max_submissions"],
+                        "show_final_score_immediately": code_item["show_final_score_immediately"],
+                        "allow_pretest": code_item["allow_pretest"],
+                        "max_pretest_runs": code_item["max_pretest_runs"],
+                        "pretest_cooldown_seconds": code_item["pretest_cooldown_seconds"],
+                    },
+                    actor,
+                    ip,
+                )
+                new_code_id = snapshot["id"]
+                attach_code_exam_to_release(new_code_id, release_id)
+            except CodeExamError as exc:
+                discard_code_exam(new_code_id)
+                raise ExamError(str(exc), exc.status) from exc
+            code_item["code_exam_id"] = new_code_id
 
     if missing:
         students = read_json("students.json")
@@ -657,7 +944,7 @@ def _build_release(exam: dict, actor: str, ip: str) -> dict:
     for filename in assignments.values():
         if filename:
             summary[filename] = summary.get(filename, 0) + 1
-    return {
+    release = {
         "release_id": release_id,
         "released_at": utc_now(),
         "applied": False,
@@ -665,11 +952,37 @@ def _build_release(exam: dict, actor: str, ip: str) -> dict:
         "assignments": assignments,
         "distribution_summary": summary,
     }
+    if validated_papers:
+        counts = {}
+        for selected in paper_assignments.values():
+            key = selected.get("paper_version_id", selected["paper_id"])
+            counts[key] = counts.get(key, 0) + 1
+        release.update({
+            "distribution_mode": code_item["distribution"]["mode"],
+            "paper_pool": [
+                {"paper_id": ref["paper_id"], **({"paper_version_id": ref["paper_version_id"]} if ref.get("paper_version_id") is not None else {})}
+                for ref in validated_papers
+            ],
+            "paper_assignments": paper_assignments,
+            "paper_distribution_summary": counts,
+        })
+    return release
 
 
 def _check_new_code_questions(old_item: dict | None, new_item: dict | None) -> None:
     """Questions already in the exam may stay (with warnings); newly added ones must be Published and supported."""
     if not new_item:
+        return
+    new_distribution = new_item.get("distribution")
+    if new_distribution:
+        old_refs = {
+            (ref["paper_id"], ref.get("paper_version_id"))
+            for ref in ((old_item or {}).get("distribution") or {}).get("paper_versions", [])
+        }
+        for ref in new_distribution.get("paper_versions", []):
+            if (ref["paper_id"], ref.get("paper_version_id")) in old_refs:
+                continue
+            _check_code_papers({"distribution": {"mode": "common", "paper_versions": [ref]}})
         return
     previous = set(old_item["question_ids"]) if old_item else set()
     bank = read_json("questions.json")
@@ -688,23 +1001,34 @@ def update_exam(exam_id: str, payload, actor: str, ip: str) -> dict:
         reconcile()
         exams = _load()
         exam = _must(exams, exam_id)
+        expected_revision = payload.get("expected_revision") if isinstance(payload, Mapping) else None
+        if isinstance(expected_revision, bool) or not isinstance(expected_revision, int):
+            raise ExamError("expected_revision is required", 422, ["expected_revision"])
+        current_revision = int(exam.get("revision", 1))
+        if expected_revision != current_revision:
+            raise ExamError("This exam changed since it was opened. Reload before saving.", 409, ["revision"], {
+                "expected_revision": expected_revision, "current_revision": current_revision,
+            })
         if exam["status"] not in {"draft", "distributed"}:
             raise ExamError("Không thể chỉnh sửa kỳ thi đang diễn ra hoặc đã kết thúc.", 409)
         fields = _normalize(payload, exam)
         _check_new_code_questions(_item(exam, "code"), _item({"items": fields["items"]}, "code"))
         updated = {**copy.deepcopy(exam), **fields}
         if exam["status"] == "distributed":
-            if exam["release"].get("applied"):
-                raise ExamError("Đề đang được phát theo luồng cũ. Hãy thu hồi kỳ thi trước khi chỉnh sửa.", 409)
             old_code = _item(exam, "code")
-            old_code_id = old_code.get("code_exam_id") if old_code else None
+            release_id = exam["release"].get("release_id")
+            if exam.get("started_at") or exam.get("ended_at") or _has_release_activity(release_id):
+                raise ExamError("Student activity exists for this release; its configuration and historical data cannot be changed.", 409)
+            old_code_ids = _code_exam_ids(old_code)
             updated["release"] = _build_release(updated, actor, ip)
             new_code = _item(updated, "code")
-            if old_code_id and old_code_id != (new_code.get("code_exam_id") if new_code else None):
-                discard_code_exam(old_code_id)
         _touch(updated)
         exams[exam_id] = updated
         write_json("exams.json", exams)
+        if exam["status"] == "distributed":
+            _synchronize_prestart_assignments(release_id, updated["release"], updated)
+            for old_code_id in old_code_ids - _code_exam_ids(new_code):
+                discard_code_exam(old_code_id)
     audit("exam.updated", actor, ip, {"exam_id": exam_id, "status": updated["status"]})
     return _public(updated)
 
@@ -714,13 +1038,20 @@ def publish_exam(exam_id: str, actor: str, ip: str) -> dict:
         reconcile()
         exams = _load()
         exam = _must(exams, exam_id)
+        if exam["status"] == "distributed" and exam.get("release"):
+            return _public(exam)
         if exam["status"] != "draft":
             raise ExamError("Chỉ có thể phát đề cho kỳ thi ở trạng thái Nháp.", 409)
         updated = copy.deepcopy(exam)
         code_item = _item(updated, "code")
-        old_code_id = code_item.pop("code_exam_id", None) if code_item else None
+        old_code_ids = _code_exam_ids(code_item)
+        if code_item:
+            code_item.pop("code_exam_id", None)
+            code_item.pop("paper_code_exam_ids", None)
         updated["release"] = _build_release(updated, actor, ip)
-        discard_code_exam(old_code_id)
+        new_code = _item(updated, "code")
+        for old_code_id in old_code_ids - _code_exam_ids(new_code):
+            discard_code_exam(old_code_id)
         updated["status"] = "distributed"
         _touch(updated)
         exams[exam_id] = updated
@@ -754,6 +1085,7 @@ def _apply_release(exam: dict, settings: dict) -> None:
     files = {entry["name"] for entry in list_exam_files()}
     students = read_json("students.json")
     sessions = read_json("sessions.json")
+    old_assignments = read_json("assignments.json")
     code_item = _item(exam, "code")
     zip_item = _item(exam, "zip")
     persisted = {}
@@ -763,21 +1095,43 @@ def _apply_release(exam: dict, settings: dict) -> None:
             continue
         if filename and filename not in files:
             raise ExamError(f"File đề '{filename}' không còn tồn tại. Hãy thu hồi và phát đề lại.", 409)
+        previous = old_assignments.get(sid, {})
+        previous = previous if previous.get("release_id") == release_id else {}
         item = {
             "exam_file": filename,
             "release_id": release_id,
             "assigned_at": release["released_at"],
-            "started_at": None,
-            "ends_at": None,
-            "status": "assigned",
-            "ip_at_assignment": next((s.get("ip") for s in sessions.values() if s.get("user_id") == sid and s.get("role") == "student"), None),
+            "started_at": previous.get("started_at"),
+            "ends_at": previous.get("ends_at"),
+            "status": previous.get("status", "assigned"),
+            "ip_at_assignment": previous.get("ip_at_assignment") or next((s.get("ip") for s in sessions.values() if s.get("user_id") == sid and s.get("role") == "student"), None),
         }
         if code_item and code_item.get("code_exam_id"):
             item["code_exam_id"] = code_item["code_exam_id"]
+        paper_assignment = release.get("paper_assignments", {}).get(sid)
+        if paper_assignment:
+            expected_ref = {
+                "paper_id": paper_assignment.get("paper_id"),
+                **({"paper_version_id": paper_assignment["paper_version_id"]} if paper_assignment.get("paper_version_id") is not None else {}),
+            }
+            code_exam = get_code_exam(paper_assignment.get("code_exam_id"))
+            if (
+                not code_exam
+                or code_exam.get("release_id") != release_id
+                or code_exam.get("paper_ref") != expected_ref
+            ):
+                raise ExamError("Paper assignment snapshot is missing or mismatched.", 409)
+            item.update({**expected_ref, "code_exam_id": paper_assignment["code_exam_id"]})
+        elif code_item and code_item.get("distribution"):
+            raise ExamError("Paper assignment is missing from the persisted release.", 409)
         persisted[sid] = item
     if not persisted:
         raise ExamError("Không còn sinh viên hợp lệ để bắt đầu kỳ thi.", 409)
-    started_at = utc_now()
+    started_at = (
+        settings.get("exam_started_at")
+        if settings.get("exam_release_id") == release_id and settings.get("exam_started_at")
+        else utc_now()
+    )
     settings.update(
         {
             "exam_duration_minutes": config["duration_minutes"],
@@ -815,13 +1169,23 @@ def start_exam(exam_id: str, actor: str, ip: str) -> dict:
         if settings.get("exam_state") == "started" or settings.get("exam_released"):
             raise ExamError("Đang có một kỳ thi diễn ra. Hãy kết thúc kỳ thi đó trước khi bắt đầu kỳ thi khác.", 409)
         release = exam["release"]
-        if release.get("applied"):
+        if (
+            release.get("applied")
+            and settings.get("exam_state") == "distributed"
+            and settings.get("exam_release_id") == release.get("release_id")
+            and isinstance(release.get("assignments"), Mapping)
+        ):
+            # A published, not-started release may already have preparatory assignments.
+            # Re-apply the persisted release map at explicit Start so synced Paper choices
+            # and any other current Exam configuration become authoritative together.
+            _apply_release(exam, settings)
+        elif release.get("applied"):
             try:
                 start_exam_session()
             except ValueError as exc:
                 raise ExamError(str(exc), 409) from exc
         else:
-            if settings.get("exam_state") == "distributed" and settings.get("exam_release_id"):
+            if settings.get("exam_state") == "distributed" and settings.get("exam_release_id") not in {None, release.get("release_id")}:
                 raise ExamError("Đang có đề phát theo luồng cũ chưa bắt đầu. Hãy thu hồi hoặc bắt đầu kỳ thi đó trước.", 409)
             _apply_release(exam, settings)
         exam.update({"status": "started", "started_at": utc_now()})
@@ -887,6 +1251,7 @@ def copy_exam(exam_id: str, actor: str, ip: str) -> dict:
         for item in items:
             item["item_id"] = _new_id()
             item.pop("code_exam_id", None)
+            item.pop("paper_code_exam_ids", None)
         title = f"{source['title']} (bản sao)"
         clone = {
             "id": _new_id(),
