@@ -261,7 +261,7 @@
         accepted_submission_extensions: form.ext, password_enabled: form.pwEnabled, participants: [...form.participants],
       };
       if (form.pw) config.password = form.pw;
-      return { title: form.title, tag: form.tag, config, items };
+      return { title: form.title, tag: form.tag, config, items, ...(exam ? { expected_revision: exam.revision || 1 } : {}) };
     }
 
     async function openPreview() {
@@ -284,7 +284,7 @@
           h("div", { class: "qb-preview-head" }, h("h4", {}, `Xem trước Paper (${previewState.distribution_mode?.toUpperCase() || ""})`),
             h("button", { type: "button", class: "btn btn-small btn-ghost", on: { click: () => { previewState = null; render(); } } }, h("i", { class: "fa fa-times" }), " Đóng")),
           ...previewState.paper_versions.map((paper) => h("section", { class: "qb-preview-item" },
-            h("h5", {}, `${paper.title} · ${paper.paper_version_id}`),
+            h("h5", {}, `${paper.title} · ${paper.paper_version_id || paper.paper_id}`),
             ...(paper.questions || []).map((question, index) => h("article", {},
               h("h5", {}, `Câu ${index + 1}: ${question.title}`),
               h("p", { class: "fine-print" }, [question.category, question.language, `${Number(question.total_points) || 0} điểm`].filter(Boolean).join(" · ")),
@@ -520,13 +520,13 @@
     function codeSection() {
       if (form.itemType !== "code" || !form.code) return null;
       const code = form.code;
-      const canEdit = !exam || exam.status === "draft";
-      const currentPool = ref.papers.filter((paper) => paper.status === "published" && paper.current_version_id);
-      const pairKey = (item) => `${item.paper_id}::${item.paper_version_id}`;
+      const canEdit = !exam || exam.status === "draft" || exam.status === "distributed";
+      const currentPool = ref.papers.filter((paper) => paper.status === "published" && (paper.schema_version >= 2 || paper.current_version_id));
+      const pairKey = (item) => `${item.paper_id}::${item.paper_version_id || "@paper"}`;
       const currentSelection = code.paperVersions;
-      const warnings = currentSelection.filter((item) => !currentPool.some((paper) => paper.id === item.paper_id && paper.current_version_id === item.paper_version_id));
+      const warnings = currentSelection.filter((item) => !currentPool.some((paper) => paper.id === item.paper_id && (item.paper_version_id ? paper.current_version_id === item.paper_version_id : paper.schema_version >= 2)));
       const togglePaper = (paper, checked) => {
-        const refItem = { paper_id: paper.id, paper_version_id: paper.current_version_id };
+        const refItem = paper.schema_version >= 2 ? { paper_id: paper.id } : { paper_id: paper.id, paper_version_id: paper.current_version_id };
         if (code.mode === "common") code.paperVersions = checked ? [refItem] : [];
         else if (checked && !code.paperVersions.some((item) => pairKey(item) === pairKey(refItem))) code.paperVersions.push(refItem);
         else if (!checked) code.paperVersions = code.paperVersions.filter((item) => pairKey(item) !== pairKey(refItem));
@@ -548,20 +548,20 @@
         warnings.length ? h("div", { class: "alert alert-warning", role: "alert" }, "Một số Paper đã chọn không còn là version hiện hành hoặc Paper không còn Published. Gỡ chúng hoặc khôi phục trạng thái trước khi phát.",
           h("ul", {}, ...warnings.map((item) => h("li", {}, `${item.paper_id} · ${item.paper_version_id}`)))) : null,
         h("div", { class: "paper-choice-list" }, ...(currentPool.length ? currentPool.map((paper) => {
-          const item = { paper_id: paper.id, paper_version_id: paper.current_version_id };
+          const item = paper.schema_version >= 2 ? { paper_id: paper.id } : { paper_id: paper.id, paper_version_id: paper.current_version_id };
           const checked = currentSelection.some((selected) => pairKey(selected) === pairKey(item));
           return h("label", { class: "paper-choice" },
             h("input", { type: "checkbox", checked, disabled: !canEdit, on: { change: (e) => togglePaper(paper, e.target.checked) } }),
-            h("span", {}, h("strong", {}, paper.title), h("small", {}, `${paper.question_count} câu · ${paper.version_count} version · ${paper.current_version_id}`)));
+            h("span", {}, h("strong", {}, paper.title), h("small", {}, paper.schema_version >= 2 ? `${paper.question_count} câu · Paper ${paper.id}` : `${paper.question_count} câu · ${paper.version_count} version · ${paper.current_version_id}`)));
         }) : [h("p", { class: "muted" }, "Chưa có Paper Published. Tạo và xuất bản Paper trong tab Quản lý đề thi.")])),
         currentSelection.length ? h("p", { class: "fine-print" }, `Đã chọn ${currentSelection.length} Paper version${code.mode === "common" ? " (COMMON yêu cầu đúng 1)" : " trong pool RANDOM"}.`,
           h("button", { type: "button", class: "btn btn-small btn-secondary", on: { click: () => openPreview() } }, h("i", { class: "fa fa-eye" }), " Xem trước Paper đã chọn")) : null,
         currentSelection.length ? h("ol", { class: "qb-selected-list", "aria-label": "Paper versions đã chọn" }, ...currentSelection.map((selected, index) => {
           const paper = ref.papers.find((entry) => entry.id === selected.paper_id);
-          const current = paper?.status === "published" && paper.current_version_id === selected.paper_version_id;
+          const current = paper?.status === "published" && (selected.paper_version_id ? paper.current_version_id === selected.paper_version_id : paper.schema_version >= 2);
           return h("li", { class: `qb-selected${current ? "" : " qb-warn"}` },
             h("span", { class: "qb-index" }, `${index + 1}.`),
-            h("span", { class: "qb-main" }, h("strong", {}, paper?.title || selected.paper_id), h("small", {}, `${selected.paper_version_id}${current ? " · Published" : " · Không còn version hiện hành/Published"}`)),
+            h("span", { class: "qb-main" }, h("strong", {}, paper?.title || selected.paper_id), h("small", {}, `${selected.paper_version_id || selected.paper_id}${current ? " · Published" : " · Không còn version hiện hành/Published"}`)),
             h("button", { type: "button", class: "btn btn-small btn-ghost", disabled: !canEdit, "aria-label": `Gỡ Paper ${selected.paper_id} ${selected.paper_version_id}`, on: { click: () => { code.paperVersions = code.paperVersions.filter((_, selectedIndex) => selectedIndex !== index); scheduleAutosave(); render(); } } }, "Gỡ"));
         })) : null) : null;
       const clampInput = (input, assign, integer) => {

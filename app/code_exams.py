@@ -186,20 +186,12 @@ def create_paper_code_exam(
     paper_ref = payload.get("paper_ref")
     if not isinstance(title, str) or not title.strip() or len(title) > 200:
         raise CodeExamError("title must contain 1 to 200 characters", 422)
-    if (
-        not isinstance(general_exam_id, str)
-        or not general_exam_id
-        or not isinstance(paper_ref, Mapping)
-        or not isinstance(paper_ref.get("paper_id"), str)
-        or not isinstance(paper_ref.get("paper_version_id"), str)
-    ):
-        raise CodeExamError("A valid Paper version reference is required", 422)
-    from .papers import PaperError, get_paper_version_snapshot
+    if not isinstance(general_exam_id, str) or not general_exam_id or not isinstance(paper_ref, Mapping) or not isinstance(paper_ref.get("paper_id"), str):
+        raise CodeExamError("A valid Paper reference is required", 422)
+    from .papers import PaperError, resolve_paper_reference
 
     try:
-        get_paper_version_snapshot(
-            paper_ref["paper_id"], paper_ref["paper_version_id"], require_published=True
-        )
+        canonical_ref, paper_snapshot = resolve_paper_reference(paper_ref, require_published=True)
     except PaperError as exc:
         raise CodeExamError(str(exc), exc.status) from exc
 
@@ -228,10 +220,8 @@ def create_paper_code_exam(
         "status": "draft",
         "release_id": None,
         "general_exam_id": general_exam_id,
-        "paper_ref": {
-            "paper_id": paper_ref["paper_id"],
-            "paper_version_id": paper_ref["paper_version_id"],
-        },
+        "paper_ref": canonical_ref,
+        "paper_snapshot": deepcopy(paper_snapshot),
         "created_by": actor,
         "created_at": now,
         "updated_at": now,
@@ -320,12 +310,18 @@ def get_code_exam(exam_id: str) -> dict | None:
     exam = read_json("code_exams.json").get(exam_id)
     if not exam:
         return None
-    if exam.get("paper_ref"):
+    if exam.get("paper_ref") and exam.get("paper_snapshot"):
+        exam = deepcopy(exam)
+        exam["questions"] = deepcopy(exam["paper_snapshot"].get("questions", []))
+    elif exam.get("paper_ref"):
         from .papers import PaperError, get_paper_version_snapshot
 
         try:
+            version_id = exam["paper_ref"].get("paper_version_id")
+            if not isinstance(version_id, str) or not version_id:
+                raise PaperError("Legacy Paper version reference is incomplete", 409, "PAPER_VERSION_NOT_FOUND")
             version = get_paper_version_snapshot(
-                exam["paper_ref"]["paper_id"], exam["paper_ref"]["paper_version_id"]
+                exam["paper_ref"]["paper_id"], version_id
             )
         except PaperError as exc:
             raise CodeExamError(f"The referenced Paper snapshot is unavailable: {exc}", 409) from exc
@@ -428,10 +424,8 @@ def _active_context(student_id: str) -> tuple[dict, dict, dict]:
     if not exam or exam.get("release_id") != assignment.get("release_id") or exam.get("status") != "started":
         raise CodeExamError("No started code exam is attached to this release", 403)
     paper_ref = exam.get("paper_ref")
-    if paper_ref and (
-        assignment.get("paper_id") != paper_ref.get("paper_id")
-        or assignment.get("paper_version_id") != paper_ref.get("paper_version_id")
-    ):
+    if paper_ref and (assignment.get("paper_id") != paper_ref.get("paper_id")
+        or assignment.get("paper_version_id") != paper_ref.get("paper_version_id")):
         raise CodeExamError("The assigned Paper version does not match the code exam", 403)
     return settings, assignment, exam
 
@@ -495,10 +489,8 @@ def get_student_code_exam(student_id: str) -> dict:
     ):
         raise CodeExamError("No matching code exam is available", 403)
     paper_ref = exam.get("paper_ref")
-    if paper_ref and (
-        assignment.get("paper_id") != paper_ref.get("paper_id")
-        or assignment.get("paper_version_id") != paper_ref.get("paper_version_id")
-    ):
+    if paper_ref and (assignment.get("paper_id") != paper_ref.get("paper_id")
+        or assignment.get("paper_version_id") != paper_ref.get("paper_version_id")):
         raise CodeExamError("The assigned Paper version does not match the code exam", 403)
 
     deadline = assignment.get("ends_at")
@@ -558,7 +550,7 @@ def get_student_code_exam(student_id: str) -> dict:
     if paper_ref:
         result.update({
             "paper_id": paper_ref["paper_id"],
-            "paper_version_id": paper_ref["paper_version_id"],
+        **({"paper_version_id": paper_ref["paper_version_id"]} if paper_ref.get("paper_version_id") is not None else {}),
         })
     if reveal and all_submitted and all("score" in item for item in progress):
         result["exam_score"] = sum(float(item["score"] or 0) for item in progress)
@@ -901,8 +893,9 @@ def _reserve_submission(student_id: str, exam: dict, question: dict, source_code
     if exam.get("paper_ref"):
         record.update({
             "paper_id": exam["paper_ref"]["paper_id"],
-            "paper_version_id": exam["paper_ref"]["paper_version_id"],
         })
+        if exam["paper_ref"].get("paper_version_id") is not None:
+            record["paper_version_id"] = exam["paper_ref"]["paper_version_id"]
 
     def reserve(submissions):
         student_records = submissions.setdefault(student_id, [])
@@ -1538,10 +1531,8 @@ def regrade_submission(
     ):
         raise CodeExamError("Submission was not found for this code exam", 404)
     paper_ref = exam.get("paper_ref")
-    if paper_ref and (
-        record.get("paper_id") != paper_ref.get("paper_id")
-        or record.get("paper_version_id") != paper_ref.get("paper_version_id")
-    ):
+    if paper_ref and (record.get("paper_id") != paper_ref.get("paper_id")
+        or record.get("paper_version_id") != paper_ref.get("paper_version_id")):
         raise CodeExamError("Submission does not reference this Paper version", 409)
     if record.get("status") not in {"graded", "error"}:
         raise CodeExamError("Only completed submissions can be regraded", 409)
@@ -1552,6 +1543,8 @@ def regrade_submission(
     question_id = record.get("question_id")
     question = _question_snapshot(exam, question_id)
     if use_latest_spec:
+        if exam.get("paper_ref"):
+            raise CodeExamError("Paper release regrading must use the frozen release question snapshot", 409)
         latest = get_question(question_id)
         if not latest or latest.get("status") != "published":
             raise CodeExamError("A published question version is required for regrading", 409)

@@ -20,10 +20,11 @@ _QUESTION_FILTER_KEYS = {"search", "category", "language", "grading_mode", "diff
 class PaperError(ValueError):
     """A paper request is invalid or conflicts with its stored state."""
 
-    def __init__(self, message: str, status: int = 400, code: str | None = None) -> None:
+    def __init__(self, message: str, status: int = 400, code: str | None = None, extra: Mapping | None = None) -> None:
         super().__init__(message)
         self.status = status
         self.code = code
+        self.extra = dict(extra or {})
 
 
 def _copy_json(value, label: str):
@@ -177,10 +178,16 @@ def _validate_question_selection(
         isinstance(question_limit, bool) or not isinstance(question_limit, int) or question_limit < 1
     ):
         raise PaperError("question_limit must be an integer of at least 1", 422, "INVALID_QUESTION_LIMIT")
+    bank = read_json("questions.json")
+    if question_limit is not None and question_limit > len(bank):
+        raise PaperError("question_limit cannot exceed the Question Bank size", 422, "INVALID_QUESTION_LIMIT",
+                         {"question_bank_max": len(bank), "actual": question_limit})
     if require_exact and (question_limit is None or question_limit != len(question_ids)):
-        raise PaperError("question_limit must equal the number of selected questions", 422, "QUESTION_LIMIT_MISMATCH")
-    if question_limit is not None and question_limit < len(question_ids):
-        raise PaperError("question_limit cannot be less than the number of selected questions", 422, "QUESTION_LIMIT_MISMATCH")
+        raise PaperError(
+            "The number of selected questions must exactly match question_limit", 422,
+            "QUESTION_LIMIT_MISMATCH",
+            {"expected_count": question_limit, "actual_count": len(question_ids)},
+        )
 
     pool = _filtered_eligible_questions(filters)
     previous_ids = previous_ids or set()
@@ -235,8 +242,27 @@ def _serialize_version(version: Mapping) -> dict:
     return result
 
 
+def _independent_source_questions(paper: Mapping) -> list[dict]:
+    snapshots = paper.get("questions", [])
+    question_ids = paper.get("question_ids", [])
+    if not question_ids:
+        return list(snapshots)
+    snapshot_by_id = {
+        item.get("question_id"): item for item in snapshots
+        if isinstance(item, Mapping) and isinstance(item.get("question_id"), str)
+    }
+    return [snapshot_by_id.get(qid, {"question_id": qid}) for qid in question_ids]
+
+
 def _serialize_paper(paper: Mapping) -> dict:
     result = deepcopy(dict(paper))
+    if result.get("schema_version", 1) >= 2:
+        result.setdefault("question_count", len(result.get("questions", [])) or len(result.get("question_ids", [])))
+        source_questions = _independent_source_questions(result)
+        statuses = [_source_status(item["question_id"], item) for item in source_questions]
+        result["source_status"] = statuses
+        result["warnings"] = [item for item in statuses if item["warning"]]
+        return result
     for version_id, version in result.get("versions", {}).items():
         result["versions"][version_id] = _serialize_version(version)
     draft = result.get("draft")
@@ -255,12 +281,27 @@ def list_papers() -> list[dict]:
     papers = read_json("papers.json")
     result = []
     for paper in papers.values():
+        if paper.get("schema_version", 1) >= 2:
+            questions = paper.get("questions", [])
+            source_questions = _independent_source_questions(paper)
+            source_status = [_source_status(item["question_id"], item) for item in source_questions]
+            result.append({
+                "id": paper["id"], "title": paper.get("title", ""),
+                "metadata": deepcopy(paper.get("metadata", {})), "status": paper.get("status", "draft"),
+                "revision": paper.get("revision", 1), "question_count": len(questions) or len(paper.get("question_ids", [])),
+                "source_status": source_status, "warnings": [item for item in source_status if item["warning"]],
+                "updated_at": paper.get("updated_at"), "schema_version": 2,
+            })
+            continue
         current_id = paper.get("current_version_id")
         current = paper.get("versions", {}).get(current_id, {}) if current_id else {}
         question_ids = (paper.get("draft") or {}).get("question_ids", [])
-        source_questions = current.get("questions", []) or [
-            {"question_id": qid} for qid in question_ids
-        ]
+        if paper.get("status") == "draft" and isinstance(paper.get("draft"), Mapping):
+            source_questions = [{"question_id": qid} for qid in question_ids]
+        else:
+            source_questions = current.get("questions", []) or [
+                {"question_id": qid} for qid in question_ids
+            ]
         source_status = [_source_status(item["question_id"], item) for item in source_questions]
         result.append({
             "id": paper["id"],
@@ -292,6 +333,10 @@ def get_paper_version_snapshot(
     paper = _get_paper(paper_id)
     if not paper:
         raise PaperError("Paper was not found", 404, "PAPER_NOT_FOUND")
+    if paper.get("schema_version", 1) >= 2:
+        raise PaperError("Independent Papers do not have legacy version IDs", 404, "PAPER_VERSION_NOT_FOUND")
+    if not isinstance(paper_version_id, str) or not paper_version_id:
+        raise PaperError("A valid legacy paper_version_id is required", 422, "PAPER_VERSION_NOT_FOUND")
     if require_published and paper.get("status") != "published":
         raise PaperError("Paper is not published", 409, "PAPER_NOT_PUBLISHED")
     version = paper.get("versions", {}).get(paper_version_id)
@@ -314,6 +359,67 @@ def get_paper_version_snapshot(
     return deepcopy(dict(version))
 
 
+def resolve_paper_reference(ref: Mapping, *, require_published: bool = False) -> tuple[dict, dict]:
+    """Resolve either an explicit legacy version pair or a new Paper ID reference."""
+    if not isinstance(ref, Mapping) or not isinstance(ref.get("paper_id"), str):
+        raise PaperError("A valid Paper reference is required", 422)
+    paper_id = ref["paper_id"]
+    version_id = ref.get("paper_version_id")
+    if version_id is not None:
+        if not isinstance(version_id, str) or not version_id:
+            raise PaperError("A valid legacy paper_version_id is required", 422, "PAPER_VERSION_NOT_FOUND")
+        return {"paper_id": paper_id, "paper_version_id": version_id}, get_paper_version_snapshot(
+            paper_id, version_id, require_published=require_published
+        )
+    paper = _get_paper(paper_id)
+    if not paper or paper.get("schema_version", 1) < 2:
+        raise PaperError("An explicit legacy paper_version_id is required", 404, "PAPER_VERSION_NOT_FOUND")
+    if require_published and paper.get("status") != "published":
+        raise PaperError("Paper is not published", 409, "PAPER_NOT_PUBLISHED")
+    questions = paper.get("questions") or []
+    if not questions:
+        raise PaperError("Published Paper has no saved question snapshots", 409, "PAPER_INVALID")
+    snapshot = {"id": paper["id"], "title": paper.get("title", ""),
+        "metadata": deepcopy(paper.get("metadata", {})), "questions": deepcopy(questions)}
+    return {"paper_id": paper_id}, snapshot
+
+
+def create_draft_copy(paper_id: str, payload: Mapping, actor: str, ip: str) -> dict:
+    """Create an independent Draft Paper from the current content of a Published Paper."""
+    source = _get_paper(paper_id)
+    if not source:
+        raise PaperError("Paper was not found", 404, "PAPER_NOT_FOUND")
+    if source.get("schema_version", 1) < 2 or source.get("status") != "published":
+        raise PaperError("Only an independent Published Paper can be copied as a Draft", 409)
+    _require_revision(source, payload)
+    ids = list(payload.get("question_ids", source.get("question_ids", [])))
+    question_ids = _validate_ids(ids, allow_empty=True)
+    if question_ids:
+        _validate_new_questions(question_ids)
+    title = _validate_title(payload.get("title", source.get("title", "")))
+    metadata = _validate_metadata(payload.get("metadata", source.get("metadata", {})))
+    limit, filters, _ = _validate_question_selection(
+        question_ids, payload.get("question_limit", source.get("question_limit", len(question_ids) or None)),
+        payload.get("question_filters", source.get("question_filters", {})),
+        previous_ids=set(question_ids),
+    )
+    now = utc_now()
+    draft = {"id": uuid.uuid4().hex, "schema_version": 2, "title": title, "metadata": metadata,
+        "status": "draft", "revision": 1, "question_ids": question_ids,
+        "question_limit": limit, "question_filters": filters, "questions": [],
+        "created_by": actor, "created_at": now, "updated_at": now,
+        "copied_from_paper_id": paper_id}
+    with transaction():
+        papers = read_json("papers.json")
+        current = papers.get(paper_id)
+        if not current or current.get("revision", 1) != source.get("revision", 1):
+            raise PaperError("Paper has changed; reload before retrying", 409, "PAPER_CHANGED")
+        papers[draft["id"]] = draft
+        write_json("papers.json", papers)
+    audit("paper.draft_copied", actor, ip, {"source_paper_id": paper_id, "paper_id": draft["id"]})
+    return _serialize_paper(draft)
+
+
 def create_paper(payload: Mapping, actor: str, ip: str) -> dict:
     if not isinstance(payload, Mapping):
         raise PaperError("Paper must be a JSON object", 422)
@@ -333,13 +439,8 @@ def create_paper(payload: Mapping, actor: str, ip: str) -> dict:
         "metadata": metadata,
         "status": "draft",
         "revision": 1,
-        "draft": {
-            "title": title,
-            "metadata": metadata,
-            "question_ids": question_ids,
-            "question_limit": question_limit,
-            "question_filters": question_filters,
-        },
+        "draft": {"title": title, "metadata": metadata, "question_ids": question_ids,
+            "question_limit": question_limit, "question_filters": question_filters},
         "current_version_id": None,
         "versions": {},
         "created_by": actor,
@@ -356,6 +457,30 @@ def create_paper(payload: Mapping, actor: str, ip: str) -> dict:
         update_json("papers.json", insert)
     audit("paper.created", actor, ip, {"paper_id": paper_id, "question_count": len(question_ids)})
     return get_paper(paper_id)
+
+
+def create_independent_paper(payload: Mapping, actor: str, ip: str) -> dict:
+    if not isinstance(payload, Mapping):
+        raise PaperError("Paper must be a JSON object", 422)
+    title = _validate_title(payload.get("title"))
+    metadata = _validate_metadata(payload.get("metadata", {}))
+    question_ids = _validate_ids(payload.get("question_ids"), allow_empty=True)
+    default_limit = len(question_ids) if question_ids else None
+    question_limit, question_filters, _ = _validate_question_selection(
+        question_ids, payload.get("question_limit", default_limit), payload.get("question_filters", {})
+    )
+    now = utc_now()
+    paper_id = uuid.uuid4().hex
+    paper = {"id": paper_id, "schema_version": 2, "title": title, "metadata": metadata,
+        "status": "draft", "revision": 1, "question_ids": question_ids,
+        "question_limit": question_limit, "question_filters": question_filters, "questions": [],
+        "created_by": actor, "created_at": now, "updated_at": now}
+    with transaction():
+        if question_ids:
+            _validate_new_questions(question_ids)
+        update_json("papers.json", lambda papers: papers.__setitem__(paper_id, paper))
+    audit("paper.created", actor, ip, {"paper_id": paper_id, "question_count": len(question_ids), "schema_version": 2})
+    return _serialize_paper(paper)
 
 
 def _require_revision(paper: Mapping, payload: Mapping) -> None:
@@ -377,6 +502,36 @@ def update_paper(paper_id: str, payload: Mapping, actor: str, ip: str) -> dict:
         _require_revision(paper, payload)
         if paper.get("status") == "archived":
             raise PaperError("Archived papers cannot be edited; restore the paper first", 409)
+        if paper.get("schema_version", 1) >= 2:
+            title = _validate_title(payload.get("title", paper.get("title")))
+            metadata = _validate_metadata(payload.get("metadata", paper.get("metadata", {})))
+            ids = _validate_ids(payload.get("question_ids", paper.get("question_ids", [])), allow_empty=True)
+            limit, filters, _ = _validate_question_selection(
+                ids, payload.get("question_limit", paper.get("question_limit")),
+                payload.get("question_filters", paper.get("question_filters", {})),
+                previous_ids=set(paper.get("question_ids", [])),
+                require_exact=paper.get("status") == "published",
+            )
+            # Drafts may be saved before any questions have been selected.
+            # Publish and Published edits still validate the complete selection below.
+            if ids:
+                _validate_new_questions(ids)
+            questions = paper.get("questions", [])
+            if paper.get("status") == "published":
+                try:
+                    _, questions = _validate_code_exam_payload({"title": title, "question_ids": ids})
+                except CodeExamError as exc:
+                    raise PaperError(str(exc), exc.status, "PAPER_INVALID") from exc
+            updated = {**paper, "title": title, "metadata": metadata, "question_ids": ids,
+                "question_limit": limit, "question_filters": filters,
+                "questions": questions,
+                "revision": paper.get("revision", 1) + 1, "updated_at": utc_now()}
+            papers = read_json("papers.json")
+            papers[paper_id] = updated
+            write_json("papers.json", papers)
+            result = _serialize_paper(updated)
+            audit("paper.updated", actor, ip, {"paper_id": paper_id, "revision": updated["revision"]})
+            return result
         draft = paper.get("draft") or {
             "title": paper.get("title", ""),
             "metadata": deepcopy(paper.get("metadata", {})),
@@ -488,6 +643,19 @@ def publish_paper(paper_id: str, payload: Mapping, actor: str, ip: str) -> dict:
         _require_revision(paper, payload)
         if paper.get("status") == "archived":
             raise PaperError("Archived papers cannot be published", 409)
+        if paper.get("schema_version", 1) >= 2:
+            # Let exact-count validation report the Draft's empty selection as a
+            # publication mismatch; empty selections remain valid while saving Drafts.
+            ids = _validate_ids(paper.get("question_ids"), allow_empty=True)
+            _validate_question_selection(ids, paper.get("question_limit"), paper.get("question_filters", {}), previous_ids=set(ids), require_exact=True)
+            _validate_new_questions(ids)
+            _, snapshots = _validate_code_exam_payload({"title": paper["title"], "question_ids": ids})
+            updated = {**paper, "status": "published", "questions": snapshots,
+                "revision": paper.get("revision", 1) + 1, "updated_at": utc_now()}
+            papers[paper_id] = updated
+            write_json("papers.json", papers)
+            audit("paper.published", actor, ip, {"paper_id": paper_id, "revision": updated["revision"]})
+            return _serialize_paper(updated)
         draft = paper.get("draft")
         if not isinstance(draft, Mapping):
             raise PaperError("Paper has no draft to publish", 409)
@@ -512,6 +680,18 @@ def preview_paper(paper_id: str, version_id: str | None = None, *, draft_only: b
     paper = _get_paper(paper_id)
     if not paper:
         raise PaperError("Paper was not found", 404, "PAPER_NOT_FOUND")
+    if paper.get("schema_version", 1) >= 2:
+        if version_id is not None:
+            raise PaperError("Independent Papers do not have version IDs", 404, "PAPER_VERSION_NOT_FOUND")
+        if paper.get("status") == "published":
+            return {"paper_id": paper_id, "status": paper.get("status"), "paper": deepcopy(paper)}
+        questions = []
+        bank = read_json("questions.json")
+        for order, qid in enumerate(paper.get("question_ids", [])):
+            question = bank.get(qid)
+            if question:
+                questions.append({**_snapshot_question(question), "question_id": qid, "order": order})
+        return {"paper_id": paper_id, "status": paper.get("status"), "paper": {**deepcopy(paper), "questions": questions}}
     if draft_only and version_id is not None:
         raise PaperError("Draft preview cannot request a published version", 422, "INVALID_PREVIEW_TARGET")
     selected_id = version_id
