@@ -227,7 +227,7 @@
         h("td", {}, statusPill(q.status), q.practice_enabled ? h("span", { style: "display:inline-block; margin-left:4px; font-size:10px; padding:1px 5px; border-radius:8px; background:#e0f2fe; color:#0369a1; font-weight:600;" }, "Practice") : null),
         h("td", {}, q.version ?? 1),
         h("td", {}, q.usage_count ?? 0),
-        h("td", { class: "row-actions" }, ...actions));
+        h("td", {}, h("div", { class: "row-actions" }, ...actions)));
     });
     listHost.replaceChildren(h("table", { class: "data-table" }, h("thead", {}, head), h("tbody", {}, body)));
   }

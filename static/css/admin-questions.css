@@ -5,6 +5,8 @@
 .filter-row input,.filter-row select{min-width:150px}
 .data-table{width:100%;border-collapse:collapse;font-size:14px}
 .data-table th,.data-table td{padding:8px 10px;border-bottom:1px solid #e5eaf2;text-align:left;vertical-align:top}
+.data-table td{vertical-align:middle}
+.data-table td .fine-print{margin-top:8px}
 .row-actions{display:flex;flex-wrap:wrap;gap:4px;align-items:center}
 .pad{padding:16px}
 .field{display:flex;flex-direction:column;gap:4px;margin-bottom:8px}
