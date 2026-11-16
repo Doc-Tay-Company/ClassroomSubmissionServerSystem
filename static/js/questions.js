@@ -61,6 +61,8 @@
   const listNotice = document.getElementById("q-notice");
   let questions = [];
   let listLoadGeneration = 0;
+  const pendingPractice = new Map();
+  const practiceSaving = new Set();
 
   const SERVER_OWNED = ["id", "status", "source", "usage_count", "version", "validation", "reference_source", "practice_revision", "expected_version", "expected_practice_revision"];
   const CHECK_KINDS = {
@@ -191,6 +193,9 @@
   }
 
   function renderList() {
+    for (const q of questions) {
+      if (q.status === "archived" && !practiceSaving.has(q.id)) pendingPractice.delete(q.id);
+    }
     const rows = filteredQuestions();
     // The Question Bank preserves insertion order; surface recent saves first.
     rows.sort((a, b) => String(b.source?.created_at || "").localeCompare(String(a.source?.created_at || "")));
@@ -206,14 +211,38 @@
     }
     const head = h("tr", {}, ...["Tiêu đề", "Ngôn ngữ / kiểu chấm", "Điểm", "Trạng thái", "Phiên bản", "Đã dùng", ""].map((t) => h("th", {}, t)));
     const body = rows.map((q) => {
-      const act = (label, cls, fn) => h("button", { type: "button", class: `btn btn-small ${cls}`, on: { click: (e) => { e.stopPropagation(); fn(); } } }, label);
+      const act = (label, cls, fn, disabled = false) => h("button", { type: "button", class: `btn btn-small ${cls}`, disabled, on: { click: (e) => { e.stopPropagation(); fn(); } } }, label);
       const open = () => (q.status === "draft" ? openEditor(q.id) : openDetail(q.id));
+      const hasPendingPractice = pendingPractice.has(q.id);
+      const practiceEnabled = hasPendingPractice ? pendingPractice.get(q.id) : q.practice_enabled === true;
+      const practiceBusy = practiceSaving.has(q.id);
       const actions = [];
-      if (q.status === "published") actions.push(act("Chỉnh sửa", "btn-secondary", () => openEditor(q.id)), act("Thu hồi", "btn-ghost", () => revoke(q)));
-      if (q.status === "archived") actions.push(act("Khôi phục", "btn-secondary", () => restore(q)));
-      actions.push(act("Sao chép", "btn-ghost", () => duplicate(q)));
-      if (q.status !== "archived") actions.push(act("Lưu trữ", "btn-ghost", () => archive(q)));
-      actions.push(act("Xóa", "btn-danger", () => remove(q)));
+      if (q.status === "published") actions.push(act("Chỉnh sửa", "btn-secondary", () => openEditor(q.id), practiceBusy), act("Thu hồi", "btn-ghost", () => revoke(q), practiceBusy));
+      if (q.status === "archived") actions.push(act("Khôi phục", "btn-secondary", () => restore(q), practiceBusy));
+      actions.push(act("Sao chép", "btn-ghost", () => duplicate(q), practiceBusy));
+      if (q.status !== "archived") actions.push(act("Lưu trữ", "btn-ghost", () => archive(q), practiceBusy));
+      if (q.status !== "archived") {
+        actions.push(h("label", {
+          class: "practice-toggle",
+          title: "Cho phép sinh viên luyện tập câu hỏi này",
+          on: { click: (e) => e.stopPropagation() },
+        },
+          h("input", {
+            type: "checkbox",
+            checked: practiceEnabled,
+            disabled: practiceBusy,
+            "aria-label": `Cho phép luyện tập: ${q.title}`,
+            on: {
+              click: (e) => e.stopPropagation(),
+              change: (e) => stagePracticeChange(q, e.target.checked),
+            },
+          }),
+          " Luyện tập"));
+        if (hasPendingPractice) {
+          actions.push(act("Lưu", "btn-primary", () => savePracticeChange(q), practiceBusy));
+        }
+      }
+      actions.push(act("Xóa", "btn-danger", () => remove(q), practiceBusy));
       return h("tr", {
         class: "q-row-clickable", tabindex: "0", title: q.status === "draft" ? "Mở để chỉnh sửa" : "Mở để xem",
         on: {
@@ -258,6 +287,29 @@
     ...(q.practice_revision !== undefined ? { expected_practice_revision: q.practice_revision } : {}),
   });
 
+  function stagePracticeChange(q, enabled) {
+    if (enabled === (q.practice_enabled === true)) pendingPractice.delete(q.id);
+    else pendingPractice.set(q.id, enabled);
+    renderList();
+  }
+
+  async function savePracticeChange(q) {
+    if (!pendingPractice.has(q.id) || practiceSaving.has(q.id) || q.status === "archived") return;
+    const enabled = pendingPractice.get(q.id);
+    practiceSaving.add(q.id);
+    renderList();
+    const succeeded = await mutate(() => {
+      const draft = toEditorQuestion(q);
+      draft.practice_enabled = enabled;
+      const payload = buildPayload(draft, q);
+      if (q.status === "published") payload.sample_source = q.reference_source || "";
+      return post(`/api/admin/questions/${encodeURIComponent(q.id)}/update`, payload);
+    }, enabled ? "Đã bật luyện tập cho câu hỏi." : "Đã tắt luyện tập cho câu hỏi.");
+    practiceSaving.delete(q.id);
+    if (succeeded) pendingPractice.delete(q.id);
+    renderList();
+  }
+
   function duplicate(q) {
     return mutate(() => post(`/api/admin/questions/${encodeURIComponent(q.id)}/duplicate`, expectedState(q)), "Đã nhân bản câu hỏi (bản sao ở trạng thái nháp).");
   }
@@ -270,7 +322,12 @@
   }
   function archive(q) {
     if (!window.confirm(`Lưu trữ câu hỏi “${q.title}”? Câu hỏi sẽ không thể chọn cho đề mới.`)) return;
-    return mutate(() => post(`/api/admin/questions/${encodeURIComponent(q.id)}/archive`, expectedState(q)), "Đã lưu trữ câu hỏi.");
+    return mutate(() => post(`/api/admin/questions/${encodeURIComponent(q.id)}/archive`, expectedState(q)), "Đã lưu trữ câu hỏi.").then((succeeded) => {
+      if (succeeded) {
+        pendingPractice.delete(q.id);
+        renderList();
+      }
+    });
   }
   function remove(q) {
     if (!window.confirm(`Xóa vĩnh viễn câu hỏi “${q.title}”?`)) return;
@@ -281,7 +338,9 @@
         if (error.status === 409) throw new Error(`Không thể xóa: câu hỏi đang được đề thi, bài nộp hoặc lượt chạy sử dụng. Hãy dùng “Lưu trữ”. (${error.message})`);
         throw error;
       }
-    }, "Đã xóa câu hỏi.");
+    }, "Đã xóa câu hỏi.").then((succeeded) => {
+      if (succeeded) pendingPractice.delete(q.id);
+    });
   }
 
   // ---------- detail + validation/publish ----------
@@ -1019,14 +1078,14 @@
   }
 
   // ---------- save / import / export ----------
-  function buildPayload() {
-    const d = clone(editing.draft);
+  function buildPayload(draft = editing.draft, original = editing?.original) {
+    const d = clone(draft);
     for (const key of SERVER_OWNED) delete d[key];
     refreshTotalOn(d);
-    if (editing && editing.original) {
-      d.expected_version = editing.original.version ?? 1;
-      if (editing.original.practice_revision !== undefined) {
-        d.expected_practice_revision = editing.original.practice_revision;
+    if (original) {
+      d.expected_version = original.version ?? 1;
+      if (original.practice_revision !== undefined) {
+        d.expected_practice_revision = original.practice_revision;
       }
     }
     if (d.grading_mode === "reflection") {

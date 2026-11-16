@@ -10,6 +10,9 @@
 .data-table td{vertical-align:middle}
 .data-table td .fine-print{margin-top:8px}
 .row-actions{display:flex;flex-wrap:wrap;gap:4px;align-items:center}
+.practice-toggle{display:inline-flex;align-items:center;gap:4px;color:#52617a;font-size:11px;font-weight:750;white-space:nowrap;cursor:pointer}
+.practice-toggle input{width:14px;height:14px;margin:0;accent-color:#245edb;cursor:pointer}
+.practice-toggle input:disabled{cursor:not-allowed}
 .pad{padding:16px}
 .field{display:flex;flex-direction:column;gap:4px;margin-bottom:8px}
 .field>span{font-weight:600;font-size:13px}
