@@ -8,41 +8,20 @@ class Element {
   constructor(tag, attrs = {}, children = []) {
     this.tagName = String(tag).toUpperCase();
     this.attrs = attrs;
-    this.children = [];
+    this.children = children.filter((child) => child !== null && child !== undefined && child !== false);
     this.listeners = attrs.on || {};
     this.dataset = {};
     this.className = attrs.class || '';
     this.type = attrs.type || '';
     this.name = attrs.name || '';
-    this._value = '';
-    this._selectHasSelection = false;
-    this.value = attrs.value ?? '';
+    this.value = attrs.value ?? (this.tagName === 'SELECT' ? (children.find((child) => child?.attrs?.selected)?.attrs?.value ?? children.find((child) => child?.tagName === 'option')?.attrs?.value ?? '') : '');
     this.checked = Boolean(attrs.checked);
     this.disabled = Boolean(attrs.disabled);
     this.style = {};
     this._textContent = '';
     this.classList = { add() {}, remove() {}, contains: () => false };
-    this.append(...children);
   }
-  get value() { return this._value; }
-  set value(value) {
-    this._value = String(value ?? '');
-    if (this.tagName === 'SELECT') {
-      const options = this.children.filter((child) => child instanceof Element && child.tagName === 'OPTION');
-      this._selectHasSelection = options.some((option) => option.value === this._value);
-    }
-  }
-  append(...items) {
-    for (const item of items.filter((child) => child != null)) {
-      this.children.push(item);
-      if (this.tagName === 'SELECT' && item instanceof Element && item.tagName === 'OPTION') {
-        if (item.attrs.selected || !this._selectHasSelection) {
-          this._value = item.value;
-          this._selectHasSelection = true;
-        }
-      }
-    }
-  }
+  append(...items) { this.children.push(...items.filter((item) => item != null)); }
   replaceChildren(...items) { this.children = items.filter((item) => item != null); }
   addEventListener(type, fn) { this.listeners[type] = fn; }
   async dispatch(type) {
@@ -113,11 +92,7 @@ const examRecord = (items, extra = {}) => ({
   id: 'exam-1', title: 'Existing Exam', tag: '', status: 'draft', config: config(), ...extra, items,
 });
 
-<<<<<<< HEAD
-async function openEditor(existing = null, paperList = []) {
-=======
 async function openEditor(existing = null, options = {}) {
->>>>>>> 80f4165c717a3f4d6f3745dd80458a1f0495569c
   const root = new Element('main');
   root.dataset.examId = existing ? existing.id : '';
   const calls = [];
@@ -129,11 +104,7 @@ async function openEditor(existing = null, options = {}) {
       if (url === '/api/admin/accounts') return { students: [{ student_id: 'student1', full_name: 'Student One' }] };
       if (url === '/api/admin/exams') return { exams: [] };
       if (url === '/api/admin/questions') return { questions: [] };
-<<<<<<< HEAD
-      if (url === '/api/admin/papers') return { papers: paperList };
-=======
       if (url === '/api/admin/papers') return { papers: options.papers || [] };
->>>>>>> 80f4165c717a3f4d6f3745dd80458a1f0495569c
       if (url === '/api/admin/exam-records') return { exams: [] };
       if (url === `/api/admin/exam-records/${existing.id}`) return { exam: existing };
       throw new Error(`Unexpected GET ${url}`);
@@ -167,8 +138,6 @@ async function openEditor(existing = null, options = {}) {
   return {
     root, calls, toasts, get saved() { return created; },
     radio(value) { return root.querySelector(`input[name="exam-item-type"][value="${value}"]`); },
-    paperMode() { return root.findAll((node) => node.tagName === 'SELECT' && node.children.some((child) => child.attrs?.value === 'common') && node.children.some((child) => child.attrs?.value === 'random'))[0] || null; },
-    paperChoices() { return root.findAll((node) => node.className.split(/\s+/).includes('paper-choice')); },
     select: async (value) => { const radio = root.querySelector(`input[name="exam-item-type"][value="${value}"]`); assert(radio, `missing radio ${value}`); radio.checked = true; await radio.dispatch('change'); },
     async fillBasics() {
       const title = root.findAll((node) => node.tagName === 'INPUT' && String(node.attrs.placeholder || '').startsWith('Ví dụ:'))[0];
@@ -180,6 +149,8 @@ async function openEditor(existing = null, options = {}) {
     },
     async save() { const button = root.querySelectorAll('button').find((item) => item.textContent.includes('Lưu nháp')); assert(button, 'missing Save Draft button'); await button.dispatch('click'); },
     paperChoice(id) { return root.findAll((node) => node.tagName === 'LABEL' && node.className.includes('paper-choice')).find((label) => label.children[0]?.attrs.type === 'checkbox' && label.textContent.includes(id))?.children[0]; },
+    paperMode() { return root.findAll((node) => node.tagName === 'SELECT' && node.children.some((child) => child.attrs?.value === 'common') && node.children.some((child) => child.attrs?.value === 'random'))[0] || null; },
+    paperChoices() { return root.findAll((node) => node.tagName === 'LABEL' && node.className.includes('paper-choice')); },
     async saveChanges() { const button = root.querySelectorAll('button').find((item) => item.textContent.includes('Lưu thay đổi')); assert(button, 'missing Save Changes button'); await button.dispatch('click'); },
     panelText() { return root.textContent; },
   };
@@ -245,52 +216,6 @@ async function main() {
     assert.strictEqual(reloaded.radio(item.type).checked, true, `${item.type} remains selected after reload`);
   }
 
-<<<<<<< HEAD
-  const publishedPapers = [
-    { id: 'paper-a', title: 'Paper A', status: 'published', current_version_id: 'paper-a:v1', question_count: 2, version_count: 1 },
-    { id: 'paper-b', title: 'Paper B', status: 'published', current_version_id: 'paper-b:v2', question_count: 3, version_count: 2 },
-  ];
-  const randomEditor = await openEditor(null, publishedPapers);
-  await randomEditor.select('code');
-  assert.strictEqual(randomEditor.paperMode().value, 'common', 'new Code exam defaults to COMMON');
-  const modeSelect = randomEditor.paperMode();
-  modeSelect.value = 'random';
-  await modeSelect.dispatch('change');
-  assert.strictEqual(randomEditor.paperMode().value, 'random', 'RANDOM remains selected after re-render');
-  for (const [paperId, title] of [['paper-a', 'Paper A'], ['paper-b', 'Paper B']]) {
-    const choice = randomEditor.paperChoices().find((node) => node.textContent.includes(title));
-    assert(choice, `missing published Paper choice ${paperId}`);
-    const checkbox = choice.children[0];
-    checkbox.checked = true;
-    await checkbox.dispatch('change');
-  }
-  assert.strictEqual(randomEditor.root.findAll((node) => node.className.split(/\s+/).includes('qb-selected')).length, 2,
-    'RANDOM allows multiple Paper versions');
-  await randomEditor.fillBasics();
-  await randomEditor.save();
-  let savedPayload = JSON.parse(randomEditor.calls.filter((call) => call.options.method).at(-1).options.body);
-  assert.strictEqual(savedPayload.items[0].distribution.mode, 'random');
-  assert.deepStrictEqual(savedPayload.items[0].distribution.paper_versions, [
-    { paper_id: 'paper-a', paper_version_id: 'paper-a:v1' },
-    { paper_id: 'paper-b', paper_version_id: 'paper-b:v2' },
-  ]);
-
-  const reopenedRandom = await openEditor(randomEditor.saved, publishedPapers);
-  assert.strictEqual(reopenedRandom.paperMode().value, 'random', 'saved RANDOM mode hydrates after reopening');
-  assert.strictEqual(reopenedRandom.root.findAll((node) => node.className.split(/\s+/).includes('qb-selected')).length, 2,
-    'saved RANDOM pool hydrates after reopening');
-  const reopenedMode = reopenedRandom.paperMode();
-  reopenedMode.value = 'common';
-  await reopenedMode.dispatch('change');
-  assert.strictEqual(reopenedRandom.paperMode().value, 'common', 'COMMON remains selectable from RANDOM');
-  assert.strictEqual(reopenedRandom.root.findAll((node) => node.className.split(/\s+/).includes('qb-selected')).length, 1,
-    'switching to COMMON retains only one Paper version');
-  await reopenedRandom.save();
-  savedPayload = JSON.parse(reopenedRandom.calls.filter((call) => call.options.method).at(-1).options.body);
-  assert.strictEqual(savedPayload.items[0].distribution.mode, 'common');
-  assert.strictEqual(savedPayload.items[0].distribution.paper_versions.length, 1);
-
-=======
   const papers = [
     { id: 'paper-a', title: 'Paper A', schema_version: 2, status: 'published', question_count: 1 },
     { id: 'paper-b', title: 'Paper B', schema_version: 2, status: 'published', question_count: 1 },
@@ -301,6 +226,35 @@ async function main() {
     question_ids: [], show_final_score_immediately: false, allow_pretest: true,
     max_pretest_runs: 20, pretest_cooldown_seconds: 2,
   };
+  const randomEditor = await openEditor(null, { papers });
+  await randomEditor.select('code');
+  assert.strictEqual(randomEditor.paperMode().value, 'common', 'Code Paper distribution defaults to COMMON');
+  randomEditor.paperMode().value = 'random';
+  await randomEditor.paperMode().dispatch('change');
+  assert.strictEqual(randomEditor.paperMode().value, 'random', 'RANDOM mode survives rerender');
+  for (const title of ['Paper A', 'Paper B']) {
+    const choice = randomEditor.paperChoices().find((label) => label.textContent.includes(title));
+    assert(choice, 'RANDOM pool includes ' + title);
+    choice.children[0].checked = true;
+    await choice.children[0].dispatch('change');
+  }
+  await randomEditor.fillBasics();
+  await randomEditor.save();
+  const randomPayload = JSON.parse(randomEditor.calls.filter((call) => call.options.method).at(-1).options.body);
+  assert.strictEqual(randomPayload.items[0].distribution.mode, 'random');
+  assert.deepStrictEqual(randomPayload.items[0].distribution.paper_versions, [{ paper_id: 'paper-a' }, { paper_id: 'paper-b' }]);
+  const reopenedRandom = await openEditor(randomEditor.saved, { papers, editMode: true });
+  assert.strictEqual(reopenedRandom.paperMode().value, 'random', 'RANDOM configuration hydrates after reopening');
+  assert.strictEqual(reopenedRandom.paperChoices().filter((label) => label.children[0].checked).length, 2, 'saved RANDOM pool hydrates');
+  reopenedRandom.paperMode().value = 'common';
+  await reopenedRandom.paperMode().dispatch('change');
+  assert.strictEqual(reopenedRandom.paperMode().value, 'common');
+  assert.strictEqual(reopenedRandom.paperChoices().filter((label) => label.children[0].checked).length, 1, 'COMMON retains one Paper');
+  await reopenedRandom.save();
+  const commonPayload = JSON.parse(reopenedRandom.calls.filter((call) => call.options.method).at(-1).options.body);
+  assert.strictEqual(commonPayload.items[0].distribution.mode, 'common');
+  assert.strictEqual(commonPayload.items[0].distribution.paper_versions.length, 1);
+
   const draftSelection = await openEditor(null, { papers });
   await draftSelection.select('code');
   const draftPaper = draftSelection.paperChoice('Paper B');
@@ -329,7 +283,6 @@ async function main() {
   assert(!started.root.querySelectorAll('button').some((item) => item.textContent.includes('Lưu thay đổi')), 'Started Exam has no Save Changes action');
 
   console.log('PASS Draft and Published Paper selection editing; Started Exam remains locked');
->>>>>>> 80f4165c717a3f4d6f3745dd80458a1f0495569c
   console.log('PASS Exam Code/ZIP selector UI state regressions');
 }
 

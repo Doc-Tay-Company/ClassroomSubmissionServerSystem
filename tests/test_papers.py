@@ -597,13 +597,11 @@ class ExamPaperApiTests(unittest.TestCase):
                 self.assertEqual(status, 201, created)
                 self.assertEqual(created["paper"]["draft"]["question_limit"], limit)
 
-    def test_question_limit_rejects_invalid_bounds_and_nonmatching_new_questions(self):
+    def test_question_limit_rejects_invalid_bounds_and_filter_metadata(self):
         invalid_payloads = [
             {"question_ids": ["q-1"], "question_limit": 0},
             {"question_ids": ["q-1"], "question_limit": True},
             {"question_ids": ["q-1"], "question_limit": "1"},
-            {"question_ids": ["q-1"], "question_limit": 1, "question_filters": {"category": "no-matching-category"}},
-            {"question_ids": ["q-1", "q-2"], "question_limit": 2, "question_filters": {"category": "math", "difficulty": "easy"}},
             {"question_ids": ["q-1"], "question_limit": 1, "question_filters": {"language": "ruby"}},
             {"question_ids": ["q-1"], "question_limit": 1, "question_filters": {"unknown": "value"}},
         ]
@@ -615,6 +613,48 @@ class ExamPaperApiTests(unittest.TestCase):
                 )
                 self.assertEqual(status, 422, payload)
         self.assertEqual(storage.read_json("papers.json"), {})
+
+    def test_selection_survives_tag_filter_changes_and_saves_order(self):
+        bank = storage.read_json("questions.json")
+        bank["q-1"]["tags"] = ["intro"]
+        bank["q-2"]["tags"] = ["advanced"]
+        storage.write_json("questions.json", bank)
+
+        status, created = self.request(
+            "POST", "/api/admin/papers/independent", cookie=self.admin_cookie,
+            payload={"title": "Tag switching", "metadata": {}, "question_ids": ["q-1"], "question_limit": 2,
+                "question_filters": {"tags": ["intro"]}},
+        )
+        self.assertEqual(status, 201, created)
+        paper = created["paper"]
+
+        status, updated = self.request(
+            "PUT", f"/api/admin/papers/{paper['id']}", cookie=self.admin_cookie,
+            payload={"expected_revision": paper["revision"], "title": "Tag switching",
+                "question_ids": ["q-1", "q-2"], "question_limit": 2,
+                "question_filters": {"tags": ["intro"]}},
+        )
+        self.assertEqual(status, 200, updated)
+        paper = updated["paper"]
+
+        status, switched_to_b = self.request(
+            "PUT", f"/api/admin/papers/{paper['id']}", cookie=self.admin_cookie,
+            payload={"expected_revision": paper["revision"], "title": "Tag switching",
+                "question_ids": ["q-1", "q-2"], "question_limit": 2,
+                "question_filters": {"tags": ["advanced"]}},
+        )
+        self.assertEqual(status, 200, switched_to_b)
+        paper = switched_to_b["paper"]
+
+        status, switched_back = self.request(
+            "PUT", f"/api/admin/papers/{paper['id']}", cookie=self.admin_cookie,
+            payload={"expected_revision": paper["revision"], "title": "Tag switching",
+                "question_ids": ["q-1", "q-2"], "question_limit": 2,
+                "question_filters": {"tags": ["intro"]}},
+        )
+        self.assertEqual(status, 200, switched_back)
+        self.assertEqual(switched_back["paper"]["question_ids"], ["q-1", "q-2"])
+        self.assertEqual(switched_back["paper"]["question_filters"]["tags"], ["intro"])
 
     def test_legacy_paper_without_quantity_metadata_remains_readable_and_editable(self):
         paper = self.create_paper(("q-1",))
@@ -638,7 +678,7 @@ class ExamPaperApiTests(unittest.TestCase):
         self.assertEqual(updated["paper"]["draft"]["question_limit"], 1)
         self.assertEqual(updated["paper"]["draft"]["question_filters"]["tags"], [])
 
-    def test_update_rejects_new_unpublished_or_filter_mismatched_questions(self):
+    def test_update_rejects_new_unpublished_questions_but_allows_filter_mismatch(self):
         bank = storage.read_json("questions.json")
         bank["q-1"]["category"] = "Math"
         bank["q-2"]["category"] = "Science"
@@ -653,20 +693,21 @@ class ExamPaperApiTests(unittest.TestCase):
         self.assertEqual(paper_status, 201, paper_body)
         paper = paper_body["paper"]
 
-        invalid_updates = [
-            ({"question_ids": ["q-1", "q-draft"], "question_limit": 2, "question_filters": {}}, 409),
-            ({"question_ids": ["q-1", "q-2"], "question_limit": 2, "question_filters": {"category": "math"}}, 422),
-        ]
-        for fields, expected in invalid_updates:
-            with self.subTest(fields=fields):
-                status, _ = self.request(
-                    "PUT", f"/api/admin/papers/{paper['id']}", cookie=self.admin_cookie,
-                    payload={"expected_revision": paper["revision"], **fields},
-                )
-                self.assertEqual(status, expected)
+        status, _ = self.request(
+            "PUT", f"/api/admin/papers/{paper['id']}", cookie=self.admin_cookie,
+            payload={"expected_revision": paper["revision"], "question_ids": ["q-1", "q-draft"],
+                "question_limit": 2, "question_filters": {}},
+        )
+        self.assertEqual(status, 409)
+        status, updated = self.request(
+            "PUT", f"/api/admin/papers/{paper['id']}", cookie=self.admin_cookie,
+            payload={"expected_revision": paper["revision"], "question_ids": ["q-1", "q-2"],
+                "question_limit": 2, "question_filters": {"category": "math"}},
+        )
+        self.assertEqual(status, 200, updated)
         stored = storage.read_json("papers.json")[paper["id"]]
-        self.assertEqual(stored["revision"], paper["revision"])
-        self.assertEqual(stored["draft"]["question_ids"], ["q-1"])
+        self.assertEqual(stored["revision"], paper["revision"] + 1)
+        self.assertEqual(stored["draft"]["question_ids"], ["q-1", "q-2"])
 
     def test_publish_captures_complete_ordered_snapshot_and_never_mutates_it(self):
         paper = self.create_paper(("q-2", "q-1"))
