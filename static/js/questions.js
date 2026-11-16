@@ -835,7 +835,8 @@
     }
     const select = h("select", {}, ...Object.entries(CHECK_KINDS).map(([k, label]) => h("option", { value: k }, label)));
     return h("span", { class: "inline-group" }, select,
-      h("button", { type: "button", class: "btn btn-secondary btn-small", on: { click: () => { editing.draft.checks.push(newCheck(select.value)); renderItems(); refreshTotal(); } } }, h("i", { class: "fa fa-plus" }), " Thêm check"));
+      h("button", { type: "button", class: "btn btn-secondary btn-small check-add-btn", on: { click: () => { editing.draft.checks.push(newCheck(select.value)); renderItems(); refreshTotal(); } } },
+        h("i", { class: "fa fa-plus" }), "Thêm check"));
   }
 
   function uniqueId(prefix) {
