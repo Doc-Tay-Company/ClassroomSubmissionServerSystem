@@ -364,7 +364,7 @@ async function main() {
   assert(scoreTab.elements['practice-modal-host'].innerHTML.includes('0%'));
   preview(true,null,false);
   assert(!scoreTab.elements['practice-modal-host'].innerHTML.includes('0%'));
-  assert(scoreTab.elements['practice-modal-host'].innerHTML.includes('Not scored'));
+  assert(scoreTab.elements['practice-modal-host'].innerHTML.includes('Chưa tính điểm'));
   preview(false,null,false);
   assert(!scoreTab.elements['practice-modal-host'].innerHTML.includes('0%'));
   assert(scoreTab.elements['practice-modal-host'].innerHTML.includes('Not scored'));
@@ -384,8 +384,11 @@ async function main() {
       result_summary:[{id:'visible-1',verdict:'WA',passed:false,points_earned:0,points:2,
         expected_output:'expected\n  line  ',actual_output:'<img src=x onerror=alert(1)>\nactual',diagnostic:'SyntaxError: invalid syntax'}]}});
   const feedbackHtml=feedbackTab.elements['practice-modal-host'].innerHTML;
-  assert(feedbackHtml.includes('Expected output') && feedbackHtml.includes('expected\n  line  '));
-  assert(feedbackHtml.includes('Actual output') && feedbackHtml.includes('0 / 2 points'));
+  for (const heading of ['Test case', 'Kết quả', 'Điểm', 'Kỳ vọng', 'Thực tế', 'Lỗi']) {
+    assert(feedbackHtml.includes(`<th scope="col">${heading}</th>`));
+  }
+  assert(feedbackHtml.includes('expected\n  line  ') && feedbackHtml.includes('0 / 2'));
+  assert(feedbackHtml.includes('status-red">Sai') && feedbackHtml.includes('>WA</small>'));
   assert(feedbackHtml.includes('&lt;img') && !feedbackHtml.includes('<img src=x'));
   assert(feedbackHtml.includes('SyntaxError: invalid syntax'));
   console.log('PASS visible feedback is rendered with whitespace preserved and HTML escaped');
@@ -398,7 +401,8 @@ async function main() {
       practice_revision:'rev-zero',progress:null}],catalog_token:'token-zero'};
     if (url === '/api/student/practice/run') return {ok:true,completed:true,question_id:'qNoScore',practice_revision:'rev-zero',
       attempt_id:JSON.parse(opts.body).attempt_id,run_sequence:1,verdict:'CE',earned_visible_points:0,
-      maximum_visible_points:0,practice_percentage:null,score_available:false,results:[]};
+      maximum_visible_points:0,practice_percentage:null,score_available:false,results:[],
+      run_diagnostic:'SyntaxError: <invalid>'};
     return {};
   }});
   unscoredTab.api.setCatalog([{question_id:'qNoScore',available:true,practice_revision:'rev-zero',progress:null}]);
@@ -407,7 +411,8 @@ async function main() {
   await unscoredTab.elements['practice-code-editor'].dispatchEvent({type:'input'});
   await unscoredTab.elements['practice-run-btn'].dispatchEvent({type:'click'});
   const unscoredHtml=unscoredTab.elements['practice-run-result'].innerHTML;
-  assert(unscoredHtml.includes('No visible test points can be scored'), unscoredHtml);
+  assert(unscoredHtml.includes('Chưa tính điểm'), unscoredHtml);
+  assert(unscoredHtml.includes('SyntaxError: &lt;invalid&gt;'));
   assert(!unscoredHtml.includes('0%'));
   assert(!unscoredHtml.includes('0 / 0'));
   console.log('PASS CP3 missing visible denominator remains explicitly unscored');
@@ -446,7 +451,8 @@ async function main() {
   await runPromise;
   assert.strictEqual(cp3RunTab.api.getNeedsRetest(),true,'newer editor source remains untested');
   assert(cp3RunTab.elements['practice-run-result'].innerHTML.includes('0%'),'valid zero score is shown');
-  assert(cp3RunTab.elements['practice-run-result'].innerHTML.includes('changed since this result'));
+  assert(cp3RunTab.elements['practice-run-result'].innerHTML.includes('Mã đã thay đổi từ lần chấm này'));
+  assert(cp3RunTab.elements['practice-run-result'].innerHTML.includes('practice-feedback-table'));
   assert.strictEqual(cp3RunTab.elements['practice-run-btn'].disabled,false);
   console.log('PASS CP3 Run requires an edit, disables in flight, and preserves retest state for newer code');
 
@@ -461,6 +467,7 @@ async function main() {
   assert.strictEqual(cp3RunTab.api.getNeedsRetest(),true,'failed execution must retain needs_retest');
   assert.strictEqual(cp3RunTab.elements['practice-run-result'].innerHTML,lastResult);
   assert(cp3RunTab.elements['practice-editor-alert'].textContent.includes('JUDGE_INFRA_ERROR'));
+  assert.strictEqual(cp3RunTab.elements['practice-editor-alert'].className,'notice notice-error');
 
   // A later valid completion replaces the previous result.
   const validRun=cp3RunTab.elements['practice-run-btn'].dispatchEvent({type:'click'});

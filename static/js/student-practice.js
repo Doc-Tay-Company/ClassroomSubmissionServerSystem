@@ -263,63 +263,77 @@
       wsRunResult.innerHTML = "";
       return;
     }
-    const escape = getEscape();
-    const pct = getValidScore(progress);
-    const rows = Array.isArray(progress.result_summary) ? progress.result_summary : [];
-    const scoreLabel = pct === null ? "Chưa có điểm số khả dụng" : `${pct}%`;
-    const pointsLabel = pct === null
-      ? "No visible test points can be scored for this question."
-      : `${escape(progress.earned_visible_points ?? "-")} / ${escape(progress.maximum_visible_points ?? "-")} visible points`;
-    const staleText = needsRetest ? '<p class="muted">Current code has changed since this result; Run Test again to test it.</p>' : "";
-    const resultRows = renderFeedbackRows(rows, escape);
-    const runDiagnostic = !rows.some((row) => row && row.diagnostic) && typeof progress.run_diagnostic === "string"
-      ? `<p class="practice-feedback-diagnostic">${escape(progress.run_diagnostic)}</p>`
-      : "";
-    wsRunResult.innerHTML = `<h3>Practice result: ${escape(scoreLabel)}</h3>${staleText}<p>${pointsLabel}</p>${runDiagnostic}${resultRows ? `<ul class="practice-feedback-list">${resultRows}</ul>` : ""}`;
+    wsRunResult.innerHTML = renderPracticeResult(progress, "Kết quả chạy thử", needsRetest);
     wsRunResult.classList.remove("hidden");
   }
 
-  function renderFeedbackRows(rows, escape) {
-    if (!Array.isArray(rows)) return "";
-    return rows.map((row) => {
-      if (!row || typeof row !== "object") return "";
-      const points = row.points_earned !== undefined || row.points !== undefined
-        ? `${escape(row.points_earned ?? "-")}/${escape(row.points ?? "-")} points`
-        : "Points unavailable";
-      const blocks = [];
-      for (const [field, label] of [["expected_output", "Expected output"], ["expected", "Expected"]]) {
-        if (typeof row[field] === "string") blocks.push(`<div class="practice-feedback-detail"><strong>${label}</strong><pre class="practice-feedback-output">${escape(row[field])}</pre></div>`);
-      }
-      for (const [field, label] of [["actual_output", "Actual output"], ["actual", "Actual"]]) {
-        if (typeof row[field] === "string") blocks.push(`<div class="practice-feedback-detail"><strong>${label}</strong><pre class="practice-feedback-output">${escape(row[field])}</pre></div>`);
-      }
-      if (typeof row.diagnostic === "string" && row.diagnostic) {
-        blocks.push(`<div class="practice-feedback-diagnostic"><strong>Details</strong><pre class="practice-feedback-output">${escape(row.diagnostic)}</pre></div>`);
-      }
-      return `<li class="practice-feedback-row"><div class="practice-feedback-heading"><strong>${escape(row.id || "")}</strong><span>${escape(row.verdict || "")}</span><span>${points}</span></div>${blocks.join("")}</li>`;
-    }).join("");
+  function feedbackPassed(row) {
+    return row.passed ?? (row.verdict === "AC");
   }
 
-  function renderFeedbackTableRows(rows, escape) {
-    if (!Array.isArray(rows)) return "";
-    return rows.map((row) => {
-      if (!row || typeof row !== "object") return "";
-      const verdict = row.verdict || (row.passed ? "AC" : "WA");
-      const points = `${escape(row.points_earned ?? "-")} / ${escape(row.points ?? "-")}`;
-      const details = [];
-      for (const [field, label] of [["expected_output", "Expected output"], ["expected", "Expected"], ["actual_output", "Actual output"], ["actual", "Actual"], ["diagnostic", "Details"]]) {
-        if (typeof row[field] === "string" && row[field]) {
-          details.push(`<div class="practice-feedback-detail"><strong>${label}</strong><pre class="practice-feedback-output">${escape(row[field])}</pre></div>`);
-        }
-      }
-      return `<tr><td><strong>${escape(row.id || "")}</strong></td><td><span class="status-pill ${row.passed ? "status-green" : "status-red"}">${escape(verdict)}</span><br>${points} points</td><td>${details.join("")}</td></tr>`;
+  function renderPracticeResult(progress, title, stale = false) {
+    const escape = getEscape();
+    const pct = getValidScore(progress);
+    const rows = Array.isArray(progress.result_summary)
+      ? progress.result_summary.filter((row) => row && typeof row === "object")
+      : [];
+    const allPassed = pct === 100 && rows.every(feedbackPassed);
+    const statusClass = pct === null ? "status-gray" : allPassed ? "status-green" : "status-red";
+    const statusLabel = pct === null ? "Chưa tính điểm" : allPassed ? "Đạt toàn bộ" : "Chưa đạt";
+    const points = pct === null ? "" : `Điểm ${escape(progress.earned_visible_points ?? "—")} / ${escape(progress.maximum_visible_points ?? "—")} (${pct}%)`;
+    const diagnostic = progress.run_diagnostic;
+    const runDiagnostic = typeof diagnostic === "string" && diagnostic && !rows.some((row) => row.diagnostic === diagnostic)
+      ? `<div class="alert alert-warning"><strong>Chi tiết lỗi chạy thử</strong>${renderFeedbackValue(diagnostic, escape)}</div>`
+      : "";
+    return `
+      <h3 class="practice-result-title">${escape(title)}</h3>
+      <p class="practice-result-summary"><span class="status-pill ${statusClass}">${statusLabel}</span>${points}</p>
+      ${stale ? '<p class="alert alert-warning">Mã đã thay đổi từ lần chấm này. Hãy chạy thử lại.</p>' : ""}
+      ${runDiagnostic}
+      ${renderFeedbackTable(rows, escape)}
+    `;
+  }
+
+  function renderFeedbackValue(value, escape) {
+    if (typeof value !== "string") return "—";
+    return `<pre class="practice-feedback-output">${value === "" ? "(trống)" : escape(value)}</pre>`;
+  }
+
+  function renderFeedbackTable(rows, escape) {
+    if (!rows.length) return "";
+    const body = rows.map((row) => {
+      const passed = feedbackPassed(row);
+      const verdict = row.verdict || (passed ? "AC" : "WA");
+      const points = row.points_earned == null && row.points == null
+        ? "—"
+        : `${escape(row.points_earned ?? "—")} / ${escape(row.points ?? "—")}`;
+      return `
+        <tr>
+          <td><strong>${escape(row.id || "")}</strong></td>
+          <td><span class="status-pill ${passed ? "status-green" : "status-red"}">${passed ? "Đạt" : "Sai"}</span>
+            <small class="muted practice-feedback-verdict">${escape(verdict)}</small></td>
+          <td>${points}</td>
+          <td>${renderFeedbackValue(row.expected_output ?? row.expected, escape)}</td>
+          <td>${renderFeedbackValue(row.actual_output ?? row.actual, escape)}</td>
+          <td>${renderFeedbackValue(row.diagnostic, escape)}</td>
+        </tr>
+      `;
     }).join("");
+    const headers = ["Test case", "Kết quả", "Điểm", "Kỳ vọng", "Thực tế", "Lỗi"];
+    return `
+      <div class="table-scroll practice-feedback-scroll" tabindex="0" role="region" aria-label="Chi tiết từng test case">
+        <table class="data-table practice-feedback-table">
+          <thead><tr>${headers.map((label) => `<th scope="col">${label}</th>`).join("")}</tr></thead>
+          <tbody>${body}</tbody>
+        </table>
+      </div>
+    `;
   }
 
   function setRunMessage(message, isError = false) {
     if (!wsEditorAlert) return;
     wsEditorAlert.textContent = message || "";
-    wsEditorAlert.className = message ? (isError ? "notice notice-warning" : "notice notice-info") : "notice hidden";
+    wsEditorAlert.className = message ? (isError ? "notice notice-error" : "notice") : "notice hidden";
   }
 
   async function refreshRunStatus(questionId, generation = workspaceGeneration) {
@@ -410,6 +424,7 @@
         earned_visible_points: response.earned_visible_points,
         maximum_visible_points: response.maximum_visible_points,
         result_summary: response.results,
+        run_diagnostic: response.run_diagnostic,
       });
       hasApplicableResult = true;
       hasApplicableResult = true;
@@ -800,38 +815,9 @@
       return;
     }
 
-    // Available question preview modal
-    let resultSectionHtml = "";
-    if (hasResult) {
-      const pct = getValidScore(item.progress);
-      const colorCls = getScoreColorClass(pct);
-      const barCls = getProgressBarColorClass(pct);
-      const rows = renderFeedbackTableRows(item.progress.result_summary || [], escape);
-      const runDiagnostic = !item.progress.result_summary?.some((r) => r && r.diagnostic) && typeof item.progress.run_diagnostic === "string"
-        ? `<p class="practice-feedback-diagnostic">${escape(item.progress.run_diagnostic)}</p>`
-        : "";
-
-      resultSectionHtml = pct === null ? `
-        <div class="practice-section"><span class="practice-badge practice-pill-neutral">Not scored</span></div>` : `
-        <div class="practice-section">
-          <h3 class="practice-section-title">Kết quả hiện tại</h3>
-          <div class="flex items-center gap-2 mb-2">
-            <span class="practice-badge ${colorCls} text-sm">${pct}%</span>
-            <small class="muted">${escape(item.progress.earned_visible_points || 0)} / ${escape(item.progress.maximum_visible_points || 0)} điểm hiển thị</small>
-          </div>
-          <div class="practice-progress-bar">
-            <div class="practice-progress-fill ${barCls}" data-width="${Math.min(100, Math.max(0, pct))}"></div>
-          </div>
-          ${runDiagnostic}${rows ? `
-          <div class="table-scroll">
-            <table class="data-table">
-              <thead><tr><th>Test ID</th><th>Kết quả</th><th>Điểm</th></tr></thead>
-              <tbody>${rows}</tbody>
-            </table>
-          </div>` : ""}
-        </div>
-      `;
-    }
+    const resultSectionHtml = hasResult
+      ? `<div class="practice-section">${renderPracticeResult(item.progress, "Kết quả hiện tại")}</div>`
+      : "";
 
     let revisionAlertHtml = "";
     let actionButtonsHtml = "";
@@ -875,14 +861,6 @@
         </div>
       </div>
     `;
-
-    const fillEl = modalHost.querySelector(".practice-progress-fill[data-width]");
-    if (fillEl) {
-      const w = fillEl.getAttribute("data-width");
-      if (w !== null) {
-        fillEl.style.width = `${w}%`;
-      }
-    }
 
     modalHost.querySelector(".modal-update-btn")?.addEventListener("click", async () => {
       closeModal();
