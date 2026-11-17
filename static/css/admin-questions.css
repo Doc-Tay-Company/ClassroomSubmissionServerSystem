@@ -168,7 +168,7 @@ small.fine-print{font-style:italic;font-weight:400}
 @media(max-width:900px){#exam-root .exam-builder{grid-template-columns:1fr}}
 
 /* Reusable Paper management and Paper selection in exam builder */
-#code-papers-view .exam-builder{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;min-width:0}
+#code-papers-view .exam-builder{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;min-width:0;margin-bottom:12px}
 #code-papers-view .qb-panel{border:1px solid #e5eaf2;border-radius:10px;padding:12px;min-width:0;display:flex;flex-direction:column;gap:8px}
 #code-papers-view .qb-question-tools{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px 14px;margin:12px 0;padding:14px;border:1px solid #e4eaf2;border-radius:12px;background:#f8faff;min-width:0}
 #code-papers-view .qb-question-filters{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;min-width:0}

@@ -164,6 +164,11 @@ async function main() {
   const selected = () => editor.querySelector('.qb-selected-list').textContent;
   const selectedTitles = () => editor.querySelectorAll('.qb-selected').map((row) => row.children[1].children[0].textContent);
   const questionFilters = editor.querySelector('.qb-question-filters');
+  const toolsIndex = editor.children.indexOf(editor.querySelector('.qb-question-tools'));
+  assert.strictEqual(editor.children[toolsIndex + 1], editor.querySelector('.exam-builder'),
+    'question builder appears immediately after question tools');
+  assert.strictEqual(editor.children[toolsIndex + 2], editor.querySelector('.qb-question-summary'),
+    'question summary appears immediately after the builder');
   const reset = editor.querySelector('[data-role="clear-question-filters"]');
   assert(questionFilters && questionFilters.attrs.role === 'search', 'Question filters render in a labeled search group');
   assert.strictEqual(questionFilters.querySelectorAll('.paper-question-filter-field').length, 5, 'keyword and existing select filters each have a visible label');

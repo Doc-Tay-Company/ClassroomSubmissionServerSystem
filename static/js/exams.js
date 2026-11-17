@@ -456,11 +456,7 @@
           stackField("Chính sách nộp bài", h("select", { on: { change: bind("policy") } },
             h("option", { value: "once", selected: form.policy === "once" }, "Một lần duy nhất"),
             h("option", { value: "configurable", selected: form.policy === "configurable" }, "Theo số lần Admin cấu hình"))),
-          stackField("Số lần nộp tối đa", mark("maxSub", h("input", { type: "number", min: 1, max: 20, value: form.maxSub, on: { input: bind("maxSub") } }))),
-          stackField("Khi nộp lại", h("select", { on: { change: bind("overwrite", "yesno") } },
-            h("option", { value: "true", selected: form.overwrite }, "Ghi đè file trước"),
-            h("option", { value: "false", selected: !form.overwrite }, "Giữ các file trước"))),
-          stackField("Loại file được chấp nhận", mark("ext", h("input", { value: form.ext, placeholder: ".zip .pdf .docx", on: { input: bind("ext") } })))),
+          stackField("Số lần nộp tối đa", mark("maxSub", h("input", { type: "number", min: 1, max: 20, value: form.maxSub, on: { input: bind("maxSub") } })))),
         h("label", { class: "checkbox-row" }, h("input", { type: "checkbox", checked: form.pwEnabled, on: { change: (e) => { form.pwEnabled = e.target.checked; scheduleAutosave(); render(); } } }), " Yêu cầu mật khẩu đề thi"),
         form.pwEnabled
           ? stackField("Mật khẩu đề thi", mark("password", h("input", { type: "password", autocomplete: "new-password", value: form.pw, placeholder: form.hasPw ? "Đã có mật khẩu — chỉ nhập khi muốn đổi" : "Nhập mật khẩu", on: { input: bind("pw") } })))
@@ -649,7 +645,12 @@
           h("option", { value: "selected", selected: zip.mode === "selected" }, "Luân phiên trong các đề được chọn"),
           h("option", { value: "parity", selected: zip.mode === "parity" }, "Chẵn/lẻ theo chữ số cuối MSSV"),
           h("option", { value: "custom", selected: zip.mode === "custom" }, "Quy tắc tùy chỉnh theo chữ số cuối MSSV"))),
-        ...extra));
+        ...extra,
+        h("div", { class: "exam-grid" },
+          stackField("Khi nộp lại", h("select", { on: { change: bind("overwrite", "yesno") } },
+            h("option", { value: "true", selected: form.overwrite }, "Ghi đè file trước"),
+            h("option", { value: "false", selected: !form.overwrite }, "Giữ các file trước"))),
+          stackField("Loại file được chấp nhận", mark("ext", h("input", { value: form.ext, placeholder: ".zip .pdf .docx", on: { input: bind("ext") } }))))));
     }
 
     let busy = false;
@@ -750,14 +751,15 @@
       const warningText = !readOnly || !exam ? "" : exam.status === "distributed"
         ? "Kỳ thi đã phát đề. Bấm “Chỉnh sửa” để thay đổi (đề sẽ được phát lại)."
         : "Kỳ thi ở chế độ chỉ xem.";
-      body.replaceChildren(
+      body.replaceChildren(...[
         h("div", { class: "exam-detail-head" },
           h("div", { class: "exam-detail-status" }, pill(exam ? exam.status : "draft"), actionBar()),
           link("/admin?section=exams", "fa-arrow-left", "Danh sách kỳ thi", "btn-ghost")),
         warningText.trim() ? h("div", { class: "alert alert-warning" }, warningText) : null,
         h("fieldset", { class: "exam-form", disabled: readOnly }, configSection(), participantsSection(), itemTypeSelector(), codeSection(), zipSection()),
         mode() === "edit" && (!exam || exam.status === "draft") ? autosave : null,
-        bottomBar(), notice);
+        bottomBar(), notice,
+      ].filter((node) => node !== null));
       if (showErrors && mode() === "edit") applyErrors(publishProblems());
     }
 

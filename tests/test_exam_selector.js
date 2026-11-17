@@ -22,7 +22,7 @@ class Element {
     this.classList = { add() {}, remove() {}, contains: () => false };
   }
   append(...items) { this.children.push(...items.filter((item) => item != null)); }
-  replaceChildren(...items) { this.children = items.filter((item) => item != null); }
+  replaceChildren(...items) { this.children = items.map((item) => item instanceof Element ? item : String(item)); }
   addEventListener(type, fn) { this.listeners[type] = fn; }
   async dispatch(type) {
     const handler = this.listeners[type];
@@ -194,21 +194,48 @@ async function testExamListFilters() {
 
 async function main() {
   const empty = await openEditor();
+  assert(!empty.panelText().includes('null'), 'new Exam render does not display null for the absent warning above configuration');
   assert(empty.radio('code') && empty.radio('zip') && empty.radio(''), 'selector remains visible in empty state');
   assert.strictEqual(empty.radio('code').checked, false);
   assert(!empty.panelText().includes('Chế độ phân phối Paper'));
   assert(!empty.panelText().includes('Đề dùng để phân phối'));
+  assert(!empty.panelText().includes('Khi nộp lại') && !empty.panelText().includes('Loại file được chấp nhận'),
+    'file submission settings stay hidden until ZIP is selected');
   const publishButton = empty.root.querySelectorAll('button').find((item) => item.textContent.includes('Phát đề'));
   assert(publishButton, 'missing Publish button'); await publishButton.dispatch('click');
   assert(empty.toasts.some((message) => message.includes('chọn Bài code hoặc Bài nộp file')), 'missing clear validation for empty type');
   await empty.select('code');
   assert(empty.panelText().includes('Chế độ phân phối Paper'), 'selecting Code renders Code configuration');
   assert(!empty.panelText().includes('Đề dùng để phân phối'), 'Code selection hides ZIP configuration only');
+  assert(!empty.panelText().includes('Khi nộp lại') && !empty.root.querySelector('[data-field="ext"]'),
+    'Code selection hides file submission settings');
   await empty.select('zip');
   assert(empty.panelText().includes('Đề dùng để phân phối'), 'switching to ZIP renders ZIP configuration');
   assert(!empty.panelText().includes('Chế độ phân phối Paper'), 'ZIP selection hides Code configuration only');
+  const zipSection = empty.root.findAll((node) => node.tagName === 'SECTION'
+    && node.children.some((child) => child.tagName === 'H3' && child.textContent.includes('Bài nộp file')))[0];
+  assert(zipSection, 'ZIP configuration section exists');
+  assert(zipSection.textContent.indexOf('Khi nộp lại') > zipSection.textContent.indexOf('Đề dùng để phân phối'),
+    'resubmission setting appears below the distribution controls in the ZIP section');
+  assert(zipSection.textContent.includes('Loại file được chấp nhận'), 'accepted file types appear in the ZIP section');
+  const overwrite = zipSection.findAll((node) => node.tagName === 'SELECT'
+    && node.children.some((child) => child.attrs?.value === 'false'))[0];
+  overwrite.value = 'false'; await overwrite.dispatch('change');
+  const extensions = zipSection.querySelector('[data-field="ext"]');
+  extensions.value = '.pdf .docx'; await extensions.dispatch('input');
   await empty.select('code');
   assert(empty.panelText().includes('Chế độ phân phối Paper'), 'switching back to Code works');
+  assert(!empty.panelText().includes('Khi nộp lại') && !empty.root.querySelector('[data-field="ext"]'),
+    'switching back to Code hides file submission settings again');
+  await empty.select('zip');
+  assert.strictEqual(empty.root.querySelector('[data-field="ext"]').value, '.pdf .docx',
+    'file submission settings survive switching item types');
+  await empty.fillBasics();
+  await empty.save();
+  const zipPayload = JSON.parse(empty.calls.filter((call) => call.options.method).at(-1).options.body);
+  assert.strictEqual(zipPayload.config.overwrite_previous, false, 'moved resubmission control still saves its value');
+  assert.strictEqual(zipPayload.config.accepted_submission_extensions, '.pdf .docx', 'moved extensions control still saves its value');
+  await empty.select('code');
   await empty.fillBasics();
   await empty.save();
   const createdPayload = JSON.parse(empty.calls.filter((call) => call.options.method).at(-1).options.body);

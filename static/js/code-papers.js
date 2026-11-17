@@ -697,15 +697,15 @@
           h("label", { class: "paper-question-filter-field" }, h("span", {}, "Độ khó"), difficultyFilter),
           h("div", { class: "paper-tag-filter-field" }, h("span", {}, "Tags · khớp bất kỳ"), tagFilterHost)),
         h("div", { class: "qb-filter-actions" }, resetFilters)),
+      h("div", { class: "exam-builder" },
+        h("div", { class: "qb-panel" }, h("h3", {}, "Câu hỏi đã xuất bản"), availableHost),
+        h("div", { class: "qb-panel" }, h("h3", {}, `Thứ tự câu hỏi (${selected.length})`), selectedHost)),
       h("div", { class: "qb-question-summary" },
         h("label", { class: "paper-question-filter-field qb-question-limit-field" }, h("span", {}, "Question Limit"), quantityInput),
         h("div", { class: "qb-question-count-summary" }, counts, quantityNotice)),
       h("div", { class: "qb-selection-tools" },
         h("label", { class: "checkbox-row" }, filteredSelection, " Chọn/bỏ chọn nhóm câu phù hợp (giữ câu ngoài bộ lọc)"),
         randomButton, selectAllButton, deselectAllButton, selectionNotice),
-      h("div", { class: "exam-builder" },
-        h("div", { class: "qb-panel" }, h("h3", {}, "Câu hỏi đã xuất bản"), availableHost),
-        h("div", { class: "qb-panel" }, h("h3", {}, `Thứ tự câu hỏi (${selected.length})`), selectedHost)),
       previewHost,
       h("div", { id: "cp-editor-notice", class: "notice hidden" }));
 
