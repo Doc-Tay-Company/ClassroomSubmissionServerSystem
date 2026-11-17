@@ -258,7 +258,6 @@
       const row = el("tr");
       const who = el("td");
       who.append(el("strong", entry.full_name || students.get(entry.student_id) || entry.student_id), el("div", `MSSV: ${entry.student_id}`, "fine-print"));
-      if (entry.proctoring_terminated) who.append(el("span", "Đình chỉ · 0 điểm", "status-pill status-red"));
       row.append(who);
       const buttons = [];
       entry.cells.forEach((cell) => {

@@ -75,7 +75,7 @@ def _state(assignment: dict | None, active: bool, now: datetime) -> dict:
         "grace_seconds": RETURN_GRACE_SECONDS,
         "grace_remaining": grace_remaining,
         "termination_reason": assignment.get("proctoring_termination_reason"),
-        "terminated_at": assignment.get("proctoring_terminated_at"),
+        "terminated_at": assignment.get("_at"),
         "final_score": 0 if is_terminated(assignment) else None,
     }
 
@@ -98,7 +98,7 @@ def _terminate_locked(
                 "forced_submit": True,
                 "terminated_by_proctoring": True,
                 "proctoring_termination_reason": reason,
-                "proctoring_terminated_at": timestamp,
+                "_at": timestamp,
                 "proctoring_final_score": 0,
                 "final_score": 0,
             }
@@ -127,9 +127,11 @@ def state_for(student_id: str, *, ip: str | None = None, enforce_timeout: bool =
         assignment = assignments.get(student_id)
         active = _is_active(settings, assignment)
         if active and enforce_timeout and assignment.get("proctoring_pending_since"):
-            elapsed = _elapsed_seconds(assignment.get("proctoring_pending_since"), now)
+            elapsed = _elapsed_seconds(
+                assignment.get("proctoring_pending_since"), now)
             if elapsed is not None and elapsed >= RETURN_GRACE_SECONDS:
-                assignment = _terminate_locked(assignments, student_id, "return_timeout", ip, now)
+                assignment = _terminate_locked(
+                    assignments, student_id, "return_timeout", ip, now)
                 active = False
         return _state(assignment, active, now)
 
@@ -156,11 +158,13 @@ def register_violation(student_id: str, event: str = "leave", ip: str | None = N
             "proctoring.violation",
             student_id,
             ip,
-            {"event": str(event)[:40], "violation_count": count, "max_warnings": MAX_WARNINGS},
+            {"event": str(event)[:40], "violation_count": count,
+             "max_warnings": MAX_WARNINGS},
         )
 
         if count > MAX_WARNINGS:
-            assignment = _terminate_locked(assignments, student_id, "violation_limit", ip, now)
+            assignment = _terminate_locked(
+                assignments, student_id, "violation_limit", ip, now)
             return _state(assignment, False, now)
         return _state(assignment, True, now)
 
@@ -179,17 +183,20 @@ def acknowledge_warning(student_id: str, ip: str | None = None) -> dict:
         if pending_since:
             elapsed = _elapsed_seconds(pending_since, now)
             if elapsed is not None and elapsed >= RETURN_GRACE_SECONDS:
-                assignment = _terminate_locked(assignments, student_id, "return_timeout", ip, now)
+                assignment = _terminate_locked(
+                    assignments, student_id, "return_timeout", ip, now)
                 return _state(assignment, False, now)
             assignment.pop("proctoring_pending_since", None)
-            assignment["proctoring_last_ack_at"] = now.isoformat(timespec="seconds")
+            assignment["proctoring_last_ack_at"] = now.isoformat(
+                timespec="seconds")
             assignments[student_id] = assignment
             write_json("assignments.json", assignments)
             audit(
                 "proctoring.warning_acknowledged",
                 student_id,
                 ip,
-                {"violation_count": int(assignment.get("proctoring_violation_count", 0) or 0)},
+                {"violation_count": int(assignment.get(
+                    "proctoring_violation_count", 0) or 0)},
             )
         return _state(assignment, True, now)
 
@@ -216,14 +223,17 @@ def sweep_abandoned(*, now: datetime | None = None, ignore_startup_grace: bool =
             if student_id and seen >= latest.get(student_id, ""):
                 latest[student_id] = seen
 
-        startup_ready = ignore_startup_grace or (time.monotonic() - _SWEEP_STARTED_AT) >= RETURN_GRACE_SECONDS
+        startup_ready = ignore_startup_grace or (
+            time.monotonic() - _SWEEP_STARTED_AT) >= RETURN_GRACE_SECONDS
         changed = False
         for student_id, assignment in list(assignments.items()):
             if not _is_active(settings, assignment):
                 continue
-            pending_elapsed = _elapsed_seconds(assignment.get("proctoring_pending_since"), now)
+            pending_elapsed = _elapsed_seconds(
+                assignment.get("proctoring_pending_since"), now)
             if pending_elapsed is not None and pending_elapsed >= RETURN_GRACE_SECONDS:
-                _terminate_locked(assignments, student_id, "return_timeout", None, now)
+                _terminate_locked(assignments, student_id,
+                                  "return_timeout", None, now)
                 terminated += 1
                 changed = True
                 continue
@@ -233,11 +243,13 @@ def sweep_abandoned(*, now: datetime | None = None, ignore_startup_grace: bool =
             if last_seen is None:
                 started = _elapsed_seconds(assignment.get("started_at"), now)
                 if started is not None and started >= RETURN_GRACE_SECONDS:
-                    _terminate_locked(assignments, student_id, "disconnect_timeout", None, now)
+                    _terminate_locked(assignments, student_id,
+                                      "disconnect_timeout", None, now)
                     terminated += 1
                     changed = True
             elif last_seen >= RETURN_GRACE_SECONDS:
-                _terminate_locked(assignments, student_id, "disconnect_timeout", None, now)
+                _terminate_locked(assignments, student_id,
+                                  "disconnect_timeout", None, now)
                 terminated += 1
                 changed = True
         if changed:

@@ -1,4 +1,6 @@
 from __future__ import annotations
+from app.submissions import accept_submission
+from app import code_exams, proctoring
 
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -12,9 +14,6 @@ storage.DATA_DIR = Path(_TEST_TEMP.name) / "data"
 storage.LOG_DIR = Path(_TEST_TEMP.name) / "logs"
 storage.DATA_DIR.mkdir(parents=True, exist_ok=True)
 storage.LOG_DIR.mkdir(parents=True, exist_ok=True)
-
-from app import code_exams, proctoring
-from app.submissions import accept_submission
 
 
 def _iso(moment: datetime) -> str:
@@ -65,7 +64,8 @@ class ProctoringTests(unittest.TestCase):
 
     def test_three_warnings_then_fourth_terminates_with_zero(self):
         for expected in range(1, proctoring.MAX_WARNINGS + 1):
-            state = proctoring.register_violation("s1", "tab_hidden", "127.0.0.1")
+            state = proctoring.register_violation(
+                "s1", "tab_hidden", "127.0.0.1")
             self.assertFalse(state["terminated"], state)
             self.assertTrue(state["warning_pending"], state)
             self.assertEqual(state["violation_count"], expected)
@@ -78,7 +78,8 @@ class ProctoringTests(unittest.TestCase):
         self.assertTrue(assignment["terminated_by_proctoring"])
         self.assertTrue(assignment["forced_submit"])
         self.assertEqual(assignment["final_score"], 0)
-        self.assertEqual(assignment["proctoring_termination_reason"], "violation_limit")
+        self.assertEqual(
+            assignment["proctoring_termination_reason"], "violation_limit")
         self.assertEqual(assignment["status"], "submitted")
 
     def test_acknowledgement_clears_pending_warning(self):
@@ -96,7 +97,8 @@ class ProctoringTests(unittest.TestCase):
                 {
                     "proctoring_violation_count": 1,
                     "proctoring_pending_since": _iso(
-                        self.now - timedelta(seconds=proctoring.RETURN_GRACE_SECONDS + 1)
+                        self.now -
+                        timedelta(seconds=proctoring.RETURN_GRACE_SECONDS + 1)
                     ),
                 }
             ),
@@ -115,7 +117,9 @@ class ProctoringTests(unittest.TestCase):
                     "user_id": "s1",
                     "role": "student",
                     "last_seen": _iso(
-                        self.now - timedelta(seconds=proctoring.RETURN_GRACE_SECONDS + 5)
+                        self.now -
+                            timedelta(
+                                seconds=proctoring.RETURN_GRACE_SECONDS + 5)
                     ),
                 }
             },
@@ -126,7 +130,8 @@ class ProctoringTests(unittest.TestCase):
         self.assertEqual(terminated, 1)
         assignment = self._assignment()
         self.assertTrue(assignment["terminated_by_proctoring"])
-        self.assertEqual(assignment["proctoring_termination_reason"], "disconnect_timeout")
+        self.assertEqual(
+            assignment["proctoring_termination_reason"], "disconnect_timeout")
         self.assertEqual(assignment["final_score"], 0)
 
     def test_watchdog_keeps_student_with_fresh_heartbeat(self):
@@ -134,7 +139,8 @@ class ProctoringTests(unittest.TestCase):
             now=self.now, ignore_startup_grace=True
         )
         self.assertEqual(terminated, 0)
-        self.assertFalse(self._assignment().get("terminated_by_proctoring", False))
+        self.assertFalse(self._assignment().get(
+            "terminated_by_proctoring", False))
 
     def test_terminated_student_cannot_submit_zip_again(self):
         storage.update_json(
@@ -190,7 +196,7 @@ class ProctoringTests(unittest.TestCase):
         )
         result = code_exams.get_admin_code_results("exam-1")
         matrix = result["matrix"][0]
-        self.assertTrue(matrix["proctoring_terminated"])
+        self.assertNotIn("proctoring_terminated", matrix)
         self.assertEqual(matrix["total_score"], 0)
         self.assertEqual(matrix["cells"][0]["score"], 0)
 
@@ -243,7 +249,7 @@ class ProctoringTests(unittest.TestCase):
             ),
         )
         result = code_exams.get_student_code_exam("s1")
-        self.assertTrue(result["proctoring_terminated"])
+        self.assertNotIn("proctoring_terminated", result)
         self.assertTrue(result["read_only"])
         self.assertEqual(result["exam_score"], 0)
         self.assertEqual(result["progress"][0]["score"], 0)

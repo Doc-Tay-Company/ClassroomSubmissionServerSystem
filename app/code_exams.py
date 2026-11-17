@@ -32,7 +32,8 @@ class CodeExamError(ValueError):
 MAX_SOURCE_BYTES = 1024 * 1024
 MAX_PRETEST_HISTORY = 10_000
 try:
-    MAX_CONCURRENT_RUNS = max(1, min(16, int(os.getenv("CSS_MAX_CONCURRENT_CODE_RUNS", "2"))))
+    MAX_CONCURRENT_RUNS = max(
+        1, min(16, int(os.getenv("CSS_MAX_CONCURRENT_CODE_RUNS", "2"))))
 except ValueError:
     MAX_CONCURRENT_RUNS = 2
 _RUN_SLOTS = threading.BoundedSemaphore(MAX_CONCURRENT_RUNS)
@@ -44,7 +45,8 @@ def _decimal(value, field: str) -> Decimal:
     try:
         number = Decimal(str(value))
     except Exception as exc:
-        raise CodeExamError(f"{field} must be a finite non-negative number") from exc
+        raise CodeExamError(
+            f"{field} must be a finite non-negative number") from exc
     if not number.is_finite() or number < 0:
         raise CodeExamError(f"{field} must be a finite non-negative number")
     return number
@@ -52,7 +54,8 @@ def _decimal(value, field: str) -> Decimal:
 
 def _positive_int(value, field: str, minimum: int, maximum: int) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or not minimum <= value <= maximum:
-        raise CodeExamError(f"{field} must be an integer between {minimum} and {maximum}")
+        raise CodeExamError(
+            f"{field} must be an integer between {minimum} and {maximum}")
     return value
 
 
@@ -69,14 +72,18 @@ def _validate_code_exam_payload(payload: Mapping) -> tuple[dict, list[dict]]:
         or not question_ids
         or any(not isinstance(value, str) or not value for value in question_ids)
     ):
-        raise CodeExamError("question_ids must be a non-empty array of question ids", 422)
+        raise CodeExamError(
+            "question_ids must be a non-empty array of question ids", 422)
     if len(set(question_ids)) != len(question_ids):
-        raise CodeExamError("A question may appear only once in a code exam", 422)
+        raise CodeExamError(
+            "A question may appear only once in a code exam", 422)
 
     settings = read_json("settings.json")
-    policy = payload.get("submission_policy", settings.get("submission_policy", "configurable"))
+    policy = payload.get("submission_policy", settings.get(
+        "submission_policy", "configurable"))
     if policy not in {"once", "configurable"}:
-        raise CodeExamError("submission_policy must be once or configurable", 422)
+        raise CodeExamError(
+            "submission_policy must be once or configurable", 422)
     max_submissions = _positive_int(
         payload.get("max_submissions", settings.get("max_submissions", 1)),
         "max_submissions",
@@ -86,10 +93,12 @@ def _validate_code_exam_payload(payload: Mapping) -> tuple[dict, list[dict]]:
     show_score = payload.get("show_final_score_immediately", False)
     allow_pretest = payload.get("allow_pretest", True)
     if not isinstance(show_score, bool) or not isinstance(allow_pretest, bool):
-        raise CodeExamError("show_final_score_immediately and allow_pretest must be booleans", 422)
+        raise CodeExamError(
+            "show_final_score_immediately and allow_pretest must be booleans", 422)
     cooldown = payload.get("pretest_cooldown_seconds", 2)
     if isinstance(cooldown, bool) or not isinstance(cooldown, (int, float)) or not 0 <= cooldown <= 3600:
-        raise CodeExamError("pretest_cooldown_seconds must be between 0 and 3600", 422)
+        raise CodeExamError(
+            "pretest_cooldown_seconds must be between 0 and 3600", 422)
     max_pretest_runs = _positive_int(
         payload.get("max_pretest_runs", 20), "max_pretest_runs", 1, 1000
     )
@@ -100,7 +109,8 @@ def _validate_code_exam_payload(payload: Mapping) -> tuple[dict, list[dict]]:
         if not question:
             raise CodeExamError(f"Question '{question_id}' was not found", 404)
         if question.get("status") != "published":
-            raise CodeExamError(f"Question '{question_id}' is not published", 409)
+            raise CodeExamError(
+                f"Question '{question_id}' is not published", 409)
         snapshots.append(
             {
                 **_json_copy(question),
@@ -113,12 +123,14 @@ def _validate_code_exam_payload(payload: Mapping) -> tuple[dict, list[dict]]:
     try:
         grade_exam(
             [
-                {"question_id": item["question_id"], "score": 0, "total_points": item["total_points"]}
+                {"question_id": item["question_id"], "score": 0,
+                    "total_points": item["total_points"]}
                 for item in snapshots
             ]
         )
     except (GradingError, KeyError) as exc:
-        raise CodeExamError(f"Question snapshots have invalid points: {exc}", 422) from exc
+        raise CodeExamError(
+            f"Question snapshots have invalid points: {exc}", 422) from exc
 
     return (
         {
@@ -162,7 +174,8 @@ def create_code_exam(payload: Mapping, actor: str, ip: str) -> dict:
 
     update_json("code_exams.json", insert)
     _increment_question_usage(snapshots)
-    audit("code.exam_created", actor, ip, {"exam_id": exam_id, "question_count": len(snapshots)})
+    audit("code.exam_created", actor, ip, {
+          "exam_id": exam_id, "question_count": len(snapshots)})
     return exam
 
 
@@ -171,7 +184,8 @@ def _increment_question_usage(snapshots: list[dict], *, exclude_question_ids: se
         for item in snapshots:
             question = questions.get(item["question_id"])
             if question:
-                question["usage_count"] = int(question.get("usage_count", 0)) + 1
+                question["usage_count"] = int(
+                    question.get("usage_count", 0)) + 1
 
     update_json("questions.json", record_usage)
 
@@ -184,11 +198,13 @@ def _update_question_usage_for_exam(exam: dict, snapshots: list[dict]) -> None:
         for question_id in old_ids - new_ids:
             question = questions.get(question_id)
             if question:
-                question["usage_count"] = max(0, int(question.get("usage_count", 0)) - 1)
+                question["usage_count"] = max(
+                    0, int(question.get("usage_count", 0)) - 1)
         for question_id in new_ids - old_ids:
             question = questions.get(question_id)
             if question:
-                question["usage_count"] = int(question.get("usage_count", 0)) + 1
+                question["usage_count"] = int(
+                    question.get("usage_count", 0)) + 1
 
     update_json("questions.json", update_usage)
 
@@ -221,7 +237,8 @@ def update_draft_code_exam(exam_id: str, payload: Mapping, actor: str, ip: str) 
         "code.exam_updated",
         actor,
         ip,
-        {"exam_id": exam_id, "question_ids": [item["question_id"] for item in snapshots]},
+        {"exam_id": exam_id, "question_ids": [
+            item["question_id"] for item in snapshots]},
     )
     return updated
 
@@ -239,7 +256,8 @@ def prepare_code_exam_distribution(exam_id: str) -> dict:
     if not exam:
         raise CodeExamError("Code exam was not found", 404)
     if exam.get("status") != "draft" or not exam.get("questions"):
-        raise CodeExamError("Only a non-empty draft code exam can be distributed", 409)
+        raise CodeExamError(
+            "Only a non-empty draft code exam can be distributed", 409)
     return exam
 
 
@@ -247,8 +265,10 @@ def attach_code_exam_to_release(exam_id: str, release_id: str) -> None:
     def attach(exams):
         exam = exams.get(exam_id)
         if not exam or exam.get("status") != "draft":
-            raise CodeExamError("Code exam is no longer available for distribution", 409)
-        exam.update({"status": "distributed", "release_id": release_id, "distributed_at": utc_now(), "updated_at": utc_now()})
+            raise CodeExamError(
+                "Code exam is no longer available for distribution", 409)
+        exam.update({"status": "distributed", "release_id": release_id,
+                    "distributed_at": utc_now(), "updated_at": utc_now()})
 
     update_json("code_exams.json", attach)
 
@@ -262,7 +282,8 @@ def discard_code_exam(exam_id: str | None) -> bool:
     def remove(exams):
         exam = exams.get(exam_id)
         if exam and exam.get("status") in {"draft", "distributed"}:
-            removed.extend(question.get("question_id") for question in exam.get("questions", []))
+            removed.extend(question.get("question_id")
+                           for question in exam.get("questions", []))
             del exams[exam_id]
 
     update_json("code_exams.json", remove)
@@ -273,7 +294,8 @@ def discard_code_exam(exam_id: str | None) -> bool:
         for question_id in removed:
             question = questions.get(question_id)
             if question:
-                question["usage_count"] = max(0, int(question.get("usage_count", 0)) - 1)
+                question["usage_count"] = max(
+                    0, int(question.get("usage_count", 0)) - 1)
 
     update_json("questions.json", release_usage)
     return True
@@ -287,9 +309,11 @@ def transition_code_exam(release_id: str | None, state: str) -> None:
         for exam in exams.values():
             if exam.get("release_id") == release_id:
                 if state == "started" and exam.get("status") == "distributed":
-                    exam.update({"status": "started", "started_at": utc_now(), "updated_at": utc_now()})
+                    exam.update(
+                        {"status": "started", "started_at": utc_now(), "updated_at": utc_now()})
                 elif state == "ended" and exam.get("status") in {"distributed", "started"}:
-                    exam.update({"status": "ended", "ended_at": utc_now(), "updated_at": utc_now()})
+                    exam.update(
+                        {"status": "ended", "ended_at": utc_now(), "updated_at": utc_now()})
 
     update_json("code_exams.json", transition)
 
@@ -319,14 +343,16 @@ def _active_context(student_id: str) -> tuple[dict, dict, dict]:
         if deadline.tzinfo is None:
             deadline = deadline.replace(tzinfo=timezone.utc)
     except (TypeError, ValueError) as exc:
-        raise CodeExamError("The assigned exam deadline is invalid", 503) from exc
+        raise CodeExamError(
+            "The assigned exam deadline is invalid", 503) from exc
     if datetime.now(timezone.utc) >= deadline:
         raise CodeExamError("The server-side exam deadline has passed", 409)
 
     exam_id = assignment.get("code_exam_id")
     exam = get_code_exam(exam_id) if isinstance(exam_id, str) else None
     if not exam or exam.get("release_id") != assignment.get("release_id") or exam.get("status") != "started":
-        raise CodeExamError("No started code exam is attached to this release", 403)
+        raise CodeExamError(
+            "No started code exam is attached to this release", 403)
     return settings, assignment, exam
 
 
@@ -338,8 +364,10 @@ def _question_snapshot(exam: dict, question_id: str) -> dict:
 
 
 def public_question(question: Mapping) -> dict:
-    visible_key = "checks" if question.get("grading_mode") == "reflection" else "tests"
-    visible_items = [item for item in question.get(visible_key, []) if item.get("is_visible") is True]
+    visible_key = "checks" if question.get(
+        "grading_mode") == "reflection" else "tests"
+    visible_items = [item for item in question.get(
+        visible_key, []) if item.get("is_visible") is True]
     result = {
         key: question[key]
         for key in (
@@ -363,7 +391,8 @@ def public_question(question: Mapping) -> dict:
         if key in question
     }
     result[visible_key] = deepcopy(visible_items)
-    result["visible_points"] = sum(float(item.get("points", 0)) for item in visible_items)
+    result["visible_points"] = sum(
+        float(item.get("points", 0)) for item in visible_items)
     result["order"] = question.get("order", 0)
     return result
 
@@ -407,7 +436,8 @@ def get_student_code_exam(student_id: str) -> dict:
         or bool(assignment.get("forced_submit"))
         or expired
     )
-    reveal = exam.get("show_final_score_immediately", False) or exam.get("status") == "ended"
+    reveal = exam.get("show_final_score_immediately",
+                      False) or exam.get("status") == "ended"
     student_records = [
         item
         for item in read_json("code_submissions.json").get(student_id, [])
@@ -416,7 +446,8 @@ def get_student_code_exam(student_id: str) -> dict:
     progress = []
     all_submitted = True
     for question in exam["questions"]:
-        records = [item for item in student_records if item.get("question_id") == question["question_id"]]
+        records = [item for item in student_records if item.get(
+            "question_id") == question["question_id"]]
         latest = records[-1] if records else None
         entry = {
             "question_id": question["question_id"],
@@ -427,7 +458,8 @@ def get_student_code_exam(student_id: str) -> dict:
         if latest is None:
             all_submitted = False
         if reveal and latest and latest.get("status") == "graded":
-            entry.update({"score": latest.get("score"), "total_points": latest.get("total_points"), "verdict": latest.get("verdict")})
+            entry.update({"score": latest.get("score"), "total_points": latest.get(
+                "total_points"), "verdict": latest.get("verdict")})
         progress.append(entry)
     result = {
         "exam_id": exam["id"],
@@ -444,13 +476,13 @@ def get_student_code_exam(student_id: str) -> dict:
         "questions": [{**public_question(question), "total_points": question["total_points"]} for question in exam["questions"]],
     }
     if reveal and all_submitted and all("score" in item for item in progress):
-        result["exam_score"] = sum(float(item["score"] or 0) for item in progress)
+        result["exam_score"] = sum(float(item["score"] or 0)
+                                   for item in progress)
     if proctoring.is_terminated(assignment):
         result.update(
             {
                 "read_only": True,
                 "exam_score": 0,
-                "proctoring_terminated": True,
                 "proctoring_reason": assignment.get("proctoring_termination_reason"),
             }
         )
@@ -487,7 +519,8 @@ def _job_limits(question: Mapping) -> JobLimits:
         or not isinstance(memory_mb, int)
         or not 16 <= memory_mb <= 2048
     ):
-        raise ValueError("memory_limit_mb must be an integer between 16 and 2048")
+        raise ValueError(
+            "memory_limit_mb must be an integer between 16 and 2048")
     if question.get("language") == "java" and memory_mb < MIN_JAVA_JOB_MEMORY_MB:
         raise ValueError(
             f"Java memory_limit_mb must be at least {MIN_JAVA_JOB_MEMORY_MB}"
@@ -509,40 +542,52 @@ def _reflection_judge_checks(checks: list[Mapping]) -> list[dict]:
         if kind == "field":
             check["name"] = check.get("name", check.get("field_name"))
             check["type"] = check.get("type", check.get("expected_type"))
-            modifiers = check.get("modifier", check.get("expected_modifiers", []))
-            check["modifier"] = " ".join(modifiers) if isinstance(modifiers, list) else modifiers
+            modifiers = check.get(
+                "modifier", check.get("expected_modifiers", []))
+            check["modifier"] = " ".join(modifiers) if isinstance(
+                modifiers, list) else modifiers
             for key in ("field_name", "expected_type", "expected_modifiers"):
                 check.pop(key, None)
         elif kind == "constructor":
-            check["parameter_types"] = check.get("parameter_types", check.get("param_types", []))
-            modifiers = check.get("modifier", check.get("expected_modifiers", []))
-            check["modifier"] = " ".join(modifiers) if isinstance(modifiers, list) else modifiers
+            check["parameter_types"] = check.get(
+                "parameter_types", check.get("param_types", []))
+            modifiers = check.get(
+                "modifier", check.get("expected_modifiers", []))
+            check["modifier"] = " ".join(modifiers) if isinstance(
+                modifiers, list) else modifiers
             check.pop("param_types", None)
             check.pop("expected_modifiers", None)
         elif kind == "method":
             check["name"] = check.get("name", check.get("method_name"))
-            check["return_type"] = check.get("return_type", check.get("expected_return_type"))
-            check["parameter_types"] = check.get("parameter_types", check.get("param_types", []))
-            modifiers = check.get("modifier", check.get("expected_modifiers", []))
-            check["modifier"] = " ".join(modifiers) if isinstance(modifiers, list) else modifiers
+            check["return_type"] = check.get(
+                "return_type", check.get("expected_return_type"))
+            check["parameter_types"] = check.get(
+                "parameter_types", check.get("param_types", []))
+            modifiers = check.get(
+                "modifier", check.get("expected_modifiers", []))
+            check["modifier"] = " ".join(modifiers) if isinstance(
+                modifiers, list) else modifiers
             for key in ("method_name", "expected_return_type", "param_types", "expected_modifiers"):
                 check.pop(key, None)
         elif kind == "implements":
-            check["interface"] = check.get("interface", check.get("expected_interface"))
+            check["interface"] = check.get(
+                "interface", check.get("expected_interface"))
             check.pop("expected_interface", None)
         elif kind == "behavior":
             setup = check.get("setup")
             invoke = check.get("invoke")
             if isinstance(setup, Mapping):
                 check["constructor_parameter_types"] = setup.get(
-                    "constructor_parameter_types", setup.get("constructor_param_types", [])
+                    "constructor_parameter_types", setup.get(
+                        "constructor_param_types", [])
                 )
                 check["constructor_args"] = setup.get("constructor_args", [])
                 check["setup"] = []
             if isinstance(invoke, Mapping):
                 check["method"] = check.get("method", invoke.get("method"))
                 check["parameter_types"] = check.get(
-                    "parameter_types", invoke.get("parameter_types", invoke.get("param_types", []))
+                    "parameter_types", invoke.get(
+                        "parameter_types", invoke.get("param_types", []))
                 )
                 check["args"] = check.get("args", invoke.get("args", []))
                 check.pop("invoke", None)
@@ -551,25 +596,31 @@ def _reflection_judge_checks(checks: list[Mapping]) -> list[dict]:
                 getter, value = next(iter(state.items()), ("", None))
                 check["expect_state"] = {"getter": getter, "value": value}
         elif kind == "toString":
-            check["template"] = check.get("template", check.get("expected_template", ""))
+            check["template"] = check.get(
+                "template", check.get("expected_template", ""))
             check.pop("expected_template", None)
             setup = check.get("setup")
             if isinstance(setup, Mapping):
                 check["constructor_parameter_types"] = setup.get(
-                    "constructor_parameter_types", setup.get("constructor_param_types", [])
+                    "constructor_parameter_types", setup.get(
+                        "constructor_param_types", [])
                 )
                 check["constructor_args"] = setup.get("constructor_args", [])
                 check["setup"] = []
         elif kind == "comparable" and isinstance(check.get("cases"), list):
-            parameter_types = check.get("constructor_parameter_types", check.get("constructor_param_types", []))
+            parameter_types = check.get(
+                "constructor_parameter_types", check.get("constructor_param_types", []))
             instances = []
             comparisons = []
             for case in check["cases"]:
                 left = len(instances)
-                instances.append({"constructor_parameter_types": parameter_types, "constructor_args": case.get("a", [])})
+                instances.append(
+                    {"constructor_parameter_types": parameter_types, "constructor_args": case.get("a", [])})
                 right = len(instances)
-                instances.append({"constructor_parameter_types": parameter_types, "constructor_args": case.get("b", [])})
-                comparisons.append({"left": left, "right": right, "expected_sign": case.get("expected_sign")})
+                instances.append(
+                    {"constructor_parameter_types": parameter_types, "constructor_args": case.get("b", [])})
+                comparisons.append(
+                    {"left": left, "right": right, "expected_sign": case.get("expected_sign")})
             check["instances"] = instances
             check["comparisons"] = comparisons
             check.pop("cases", None)
@@ -586,9 +637,11 @@ def execute_question(
         checks = _reflection_judge_checks(question["checks"])
         total_points = question["total_points"]
         if visible_only:
-            checks = [check for check in checks if check.get("is_visible") is True]
+            checks = [check for check in checks if check.get(
+                "is_visible") is True]
             visible_total = sum(
-                (Decimal(str(check["points"])) for check in checks), Decimal("0")
+                (Decimal(str(check["points"]))
+                 for check in checks), Decimal("0")
             )
             total_points = (
                 int(visible_total)
@@ -608,8 +661,10 @@ def execute_question(
             source_code,
             question["language"],
             question["tests"],
-            target_class=question.get("target_class") if question["language"] == "java" else None,
-            target_package=question.get("target_package") if question["language"] == "java" else None,
+            target_class=question.get(
+                "target_class") if question["language"] == "java" else None,
+            target_package=question.get(
+                "target_package") if question["language"] == "java" else None,
             target_file=question.get("target_file"),
             timeout_seconds=question["time_limit_seconds"],
             max_output_bytes=question["max_output_bytes"],
@@ -624,7 +679,8 @@ def _normalized_results(
 ) -> list[dict]:
     reflection = question["grading_mode"] == "reflection"
     source_items = question["checks"] if reflection else question["tests"]
-    visibility = {item["id"]: item.get("is_visible") is True for item in source_items}
+    visibility = {item["id"]: item.get(
+        "is_visible") is True for item in source_items}
     result_items = execution.get("checks" if reflection else "tests", [])
     normalized = []
     for raw in result_items:
@@ -643,7 +699,8 @@ def _normalized_results(
         if include_points:
             row["points_earned"] = raw.get("points_earned", 0)
         if reflection:
-            row.update({"expected": raw.get("expected"), "actual": raw.get("actual")})
+            row.update({"expected": raw.get("expected"),
+                       "actual": raw.get("actual")})
         else:
             row.update(
                 {
@@ -686,9 +743,11 @@ def _pretest_reservation(student_id: str, exam: dict, question: dict, source_has
             and item.get("question_id") == question.get("question_id")
         ]
         if len(matching) >= max_runs:
-            raise CodeExamError("Pretest limit for this question has been reached", 429)
+            raise CodeExamError(
+                "Pretest limit for this question has been reached", 429)
         if matching and started_epoch - float(matching[-1].get("started_epoch", 0)) < cooldown:
-            raise CodeExamError("Please wait before running this question again", 429)
+            raise CodeExamError(
+                "Please wait before running this question again", 429)
         records.append(
             {
                 "run_id": run_id,
@@ -731,11 +790,14 @@ def run_pretest(student_id: str, question_id: str, source_code: str, ip: str) ->
     _, _, exam = _active_context(student_id)
     question = _question_snapshot(exam, question_id)
     if not exam.get("allow_pretest", True) or not question.get("allow_pretest", True):
-        raise CodeExamError("Pretest is disabled for this question or exam", 403)
+        raise CodeExamError(
+            "Pretest is disabled for this question or exam", 403)
     run_id = _pretest_reservation(student_id, exam, question, source_hash)
     if not _RUN_SLOTS.acquire(blocking=False):
-        _finish_pretest(run_id, {"verdict": "JUDGE_INFRA_ERROR", "duration_ms": 0})
-        raise CodeExamError("Code execution capacity is busy; retry shortly", 429)
+        _finish_pretest(
+            run_id, {"verdict": "JUDGE_INFRA_ERROR", "duration_ms": 0})
+        raise CodeExamError(
+            "Code execution capacity is busy; retry shortly", 429)
     try:
         execution = execute_question(question, source_code, visible_only=True)
     except Exception as exc:
@@ -756,7 +818,8 @@ def run_pretest(student_id: str, question_id: str, source_code: str, ip: str) ->
         "code.pretest",
         student_id,
         ip,
-        {"exam_id": exam["id"], "question_id": question_id, "run_id": run_id, "source_sha256": source_hash, "verdict": execution.get("verdict")},
+        {"exam_id": exam["id"], "question_id": question_id, "run_id": run_id,
+            "source_sha256": source_hash, "verdict": execution.get("verdict")},
     )
     return {
         "run_id": run_id,
@@ -796,9 +859,11 @@ def _reserve_submission(student_id: str, exam: dict, question: dict, source_code
             and item.get("question_id") == question["question_id"]
         ]
         attempts = len(matching)
-        max_allowed = 1 if exam.get("submission_policy") == "once" else int(exam.get("max_submissions", 1))
+        max_allowed = 1 if exam.get("submission_policy") == "once" else int(
+            exam.get("max_submissions", 1))
         if attempts >= max_allowed:
-            raise CodeExamError("Submission limit for this question has been reached", 409)
+            raise CodeExamError(
+                "Submission limit for this question has been reached", 409)
         record["attempt"] = attempts + 1
         student_records.append(record)
 
@@ -807,7 +872,8 @@ def _reserve_submission(student_id: str, exam: dict, question: dict, source_code
         "code.submit",
         student_id,
         ip,
-        {"submission_id": submission_id, "exam_id": exam["id"], "question_id": question["question_id"], "release_id": exam["release_id"], "source_sha256": source_hash, "attempt": record["attempt"]},
+        {"submission_id": submission_id, "exam_id": exam["id"], "question_id": question["question_id"],
+            "release_id": exam["release_id"], "source_sha256": source_hash, "attempt": record["attempt"]},
     )
     return record
 
@@ -824,11 +890,13 @@ def _complete_submission(
     preserve_history: bool = False,
 ) -> dict:
     verdict = execution.get("verdict", "JUDGE_INFRA_ERROR")
-    infrastructure = verdict in {"INVALID_REQUEST", "JDK_NOT_FOUND", "JUDGE_INFRA_ERROR", "PROTOCOL_ERROR"}
+    infrastructure = verdict in {
+        "INVALID_REQUEST", "JDK_NOT_FOUND", "JUDGE_INFRA_ERROR", "PROTOCOL_ERROR"}
     if verdict not in {"AC", "WA", "CE", "TLE", "MLE", "RE", "OLE", "INVALID_REQUEST", "JDK_NOT_FOUND", "JUDGE_INFRA_ERROR", "PROTOCOL_ERROR"}:
         verdict = "PROTOCOL_ERROR"
         infrastructure = True
-        execution = {**dict(execution), "error": "Runner returned an unknown verdict", "error_category": "PROTOCOL_ERROR"}
+        execution = {**dict(execution), "error": "Runner returned an unknown verdict",
+                     "error_category": "PROTOCOL_ERROR"}
     score = 0
     if not infrastructure:
         try:
@@ -852,11 +920,14 @@ def _complete_submission(
                 )
             score = checked.score
             if _decimal(execution.get("total_points"), "reported total_points") != _decimal(question["total_points"], "total_points"):
-                raise GradingError("Runner total_points do not match the question snapshot", "JUDGE_INFRA_ERROR")
+                raise GradingError(
+                    "Runner total_points do not match the question snapshot", "JUDGE_INFRA_ERROR")
             if _decimal(execution.get("score"), "reported score") != _decimal(score, "normalized score"):
-                raise GradingError("Runner score does not match validated result points", "JUDGE_INFRA_ERROR")
+                raise GradingError(
+                    "Runner score does not match validated result points", "JUDGE_INFRA_ERROR")
             if verdict in {"AC", "WA"}:
-                verdict = "AC" if all(item.get("passed") is True for item in checked.results) else "WA"
+                verdict = "AC" if all(
+                    item.get("passed") is True for item in checked.results) else "WA"
             execution = {
                 **dict(execution),
                 "checks" if question["grading_mode"] == "reflection" else "tests": checked.results,
@@ -866,11 +937,13 @@ def _complete_submission(
         except CodeExamError as exc:
             verdict = "JUDGE_INFRA_ERROR"
             infrastructure = True
-            execution = {**dict(execution), "error": str(exc), "error_category": "JUDGE_INFRA_ERROR"}
+            execution = {**dict(execution), "error": str(exc),
+                         "error_category": "JUDGE_INFRA_ERROR"}
         except GradingError as exc:
             verdict = exc.category
             infrastructure = True
-            execution = {**dict(execution), "error": str(exc), "error_category": exc.category}
+            execution = {**dict(execution), "error": str(exc),
+                         "error_category": exc.category}
     results = _normalized_results(question, execution, visible_only=False)
     updated = None
     regrade_failure = None
@@ -949,7 +1022,8 @@ def _complete_submission(
         audit_event,
         audit_actor or student_id,
         ip,
-        {"submission_id": submission_id, "question_id": question["question_id"], "verdict": verdict, "score": updated["score"], "total_points": updated["total_points"], "error_category": execution.get("error_category")},
+        {"submission_id": submission_id, "question_id": question["question_id"], "verdict": verdict, "score": updated[
+            "score"], "total_points": updated["total_points"], "error_category": execution.get("error_category")},
     )
     return _refresh_exam_score(student_id, updated)
 
@@ -959,7 +1033,8 @@ def _refresh_exam_score(student_id: str, submission: dict) -> dict:
     if not exam:
         return submission
     assignment = read_json("assignments.json").get(student_id) or {}
-    terminated = proctoring.is_terminated(assignment) and assignment.get("release_id") == exam.get("release_id")
+    terminated = proctoring.is_terminated(assignment) and assignment.get(
+        "release_id") == exam.get("release_id")
     student_records = read_json("code_submissions.json").get(student_id, [])
     latest_graded = {}
     for item in student_records:
@@ -982,7 +1057,8 @@ def _refresh_exam_score(student_id: str, submission: dict) -> dict:
     try:
         exam_score = grade_exam(question_scores)
     except GradingError as exc:
-        raise CodeExamError(f"Could not aggregate the code exam score: {exc}", 503) from exc
+        raise CodeExamError(
+            f"Could not aggregate the code exam score: {exc}", 503) from exc
     submission.update(
         {
             "exam_score": exam_score.score,
@@ -992,7 +1068,7 @@ def _refresh_exam_score(student_id: str, submission: dict) -> dict:
         }
     )
     if terminated:
-        submission.update({"exam_score": 0, "proctoring_terminated": True})
+        submission.update({"exam_score": 0})
 
     def persist(submissions):
         for item in submissions.get(student_id, []):
@@ -1003,7 +1079,6 @@ def _refresh_exam_score(student_id: str, submission: dict) -> dict:
                         "exam_total_points": submission["exam_total_points"],
                         "all_questions_submitted": all_questions_submitted,
                         "exam_ended": submission["exam_ended"],
-                        **({"proctoring_terminated": True} if terminated else {}),
                     }
                 )
                 break
@@ -1020,7 +1095,8 @@ def _refresh_exam_score(student_id: str, submission: dict) -> dict:
                 and not assignment.get("forced_submit")
                 and not terminated
             ):
-                assignment.update({"status": "submitted", "submitted_at": utc_now()})
+                assignment.update(
+                    {"status": "submitted", "submitted_at": utc_now()})
 
         update_json("assignments.json", finish_code_only_assignment)
     return submission
@@ -1064,9 +1140,11 @@ def submit_code(student_id: str, question_id: str, source_code: str, ip: str) ->
     _, _, exam = _active_context(student_id)
     question = _question_snapshot(exam, question_id)
     if not _RUN_SLOTS.acquire(blocking=False):
-        raise CodeExamError("Code execution capacity is busy; retry shortly", 429)
+        raise CodeExamError(
+            "Code execution capacity is busy; retry shortly", 429)
     try:
-        record = _reserve_submission(student_id, exam, question, source_code, source_hash, ip)
+        record = _reserve_submission(
+            student_id, exam, question, source_code, source_hash, ip)
     except Exception:
         _RUN_SLOTS.release()
         raise
@@ -1086,7 +1164,8 @@ def submit_code(student_id: str, question_id: str, source_code: str, ip: str) ->
     finally:
         _RUN_SLOTS.release()
 
-    completed = _complete_submission(student_id, record["id"], question, execution, ip)
+    completed = _complete_submission(
+        student_id, record["id"], question, execution, ip)
     reveal = exam.get("show_final_score_immediately", False)
     reveal_exam = reveal and completed.get("all_questions_submitted")
     return _public_submission(completed, reveal_score=reveal, reveal_exam_score=reveal_exam), completed["status"] != "error"
@@ -1104,13 +1183,17 @@ def submit_code_exam(student_id: str, answers: Mapping, ip: str) -> dict:
 
     _, _, exam = _active_context(student_id)
     questions = exam.get("questions", [])
-    question_by_id = {question["question_id"]: question for question in questions}
-    unknown = [key for key in answers if not isinstance(key, str) or key not in question_by_id]
+    question_by_id = {question["question_id"]                      : question for question in questions}
+    unknown = [key for key in answers if not isinstance(
+        key, str) or key not in question_by_id]
     if unknown:
-        raise CodeExamError("answers contains question ids that are not part of this exam", 400)
-    missing = [question_id for question_id in question_by_id if question_id not in answers]
+        raise CodeExamError(
+            "answers contains question ids that are not part of this exam", 400)
+    missing = [
+        question_id for question_id in question_by_id if question_id not in answers]
     if missing:
-        raise CodeExamError("answers must include every question in the exam", 400)
+        raise CodeExamError(
+            "answers must include every question in the exam", 400)
 
     records = read_json("code_submissions.json").get(student_id, [])
     counts: dict[str, int] = {}
@@ -1122,7 +1205,8 @@ def submit_code_exam(student_id: str, answers: Mapping, ip: str) -> dict:
         counts[question_id] = counts.get(question_id, 0) + 1
         latest_by_question[question_id] = item
 
-    max_allowed = 1 if exam.get("submission_policy") == "once" else int(exam.get("max_submissions", 1))
+    max_allowed = 1 if exam.get("submission_policy") == "once" else int(
+        exam.get("max_submissions", 1))
     pending: list[dict] = []
     skipped: list[str] = []
     for question in questions:
@@ -1142,7 +1226,8 @@ def submit_code_exam(student_id: str, answers: Mapping, ip: str) -> dict:
     for question in pending:
         question_id = question["question_id"]
         try:
-            public, _graded = submit_code(student_id, question_id, answers[question_id], ip)
+            public, _graded = submit_code(
+                student_id, question_id, answers[question_id], ip)
         except CodeExamError as exc:
             if exc.status == 409 and "Submission limit" in str(exc):
                 skipped.append(question_id)
@@ -1157,7 +1242,8 @@ def submit_code_exam(student_id: str, answers: Mapping, ip: str) -> dict:
             continue
         if item.get("status") == "graded":
             latest_graded[item.get("question_id")] = item
-    all_submitted = all(question["question_id"] in latest_graded for question in questions)
+    all_submitted = all(question["question_id"]
+                        in latest_graded for question in questions)
     summary = get_student_code_exam(student_id)
     result = {
         "ok": all_submitted,
@@ -1201,13 +1287,15 @@ def get_student_submission(student_id: str, question_id: str) -> dict:
     if not matching:
         raise CodeExamError("No submission was found for this question", 404)
     latest = matching[-1]
-    reveal = exam.get("show_final_score_immediately", False) or exam.get("status") == "ended"
+    reveal = exam.get("show_final_score_immediately",
+                      False) or exam.get("status") == "ended"
     reveal_exam = reveal and (
         latest.get("all_questions_submitted") or exam.get("status") == "ended"
     )
-    result = _public_submission(latest, reveal_score=reveal, reveal_exam_score=reveal_exam)
+    result = _public_submission(
+        latest, reveal_score=reveal, reveal_exam_score=reveal_exam)
     if proctoring.is_terminated(assignment):
-        result.update({"score": 0, "exam_score": 0, "proctoring_terminated": True})
+        result.update({"score": 0, "exam_score": 0})
     return result
 
 
@@ -1225,7 +1313,8 @@ def release_student_exam_scores(release_id: str) -> None:
     def update_scores(submissions):
         for student_id, records in submissions.items():
             student_assignment = assignments.get(student_id) or {}
-            terminated = proctoring.is_terminated(student_assignment) and student_assignment.get("release_id") == release_id
+            terminated = proctoring.is_terminated(
+                student_assignment) and student_assignment.get("release_id") == release_id
             latest_by_question = {}
             for item in records:
                 if (
@@ -1253,14 +1342,14 @@ def release_student_exam_scores(release_id: str) -> None:
                 try:
                     total = grade_exam(question_scores)
                 except GradingError as exc:
-                    raise CodeExamError(f"Could not aggregate the code exam score: {exc}", 503) from exc
+                    raise CodeExamError(
+                        f"Could not aggregate the code exam score: {exc}", 503) from exc
                 record.update(
                     {
                         "exam_score": 0 if terminated else total.score,
                         "exam_total_points": total.total_points,
                         "all_questions_submitted": all_submitted,
                         "exam_ended": True,
-                        **({"proctoring_terminated": True} if terminated else {}),
                     }
                 )
 
@@ -1293,17 +1382,17 @@ def get_admin_code_results(
             if question_id is not None and record.get("question_id") != question_id:
                 continue
             row = {"student_id": owner_id, **deepcopy(record)}
-            if owner_id in terminated_ids:
-                row["proctoring_terminated"] = True
             rows.append(row)
-    rows.sort(key=lambda item: (item.get("submitted_at", ""), item["student_id"], item.get("attempt", 0)))
+    rows.sort(key=lambda item: (item.get("submitted_at", ""),
+              item["student_id"], item.get("attempt", 0)))
     return {
         "exam_id": exam_id,
         "release_id": exam.get("release_id"),
         "status": exam.get("status"),
         "title": exam.get("title"),
         "questions": [
-            {"question_id": q["question_id"], "title": q.get("title", ""), "total_points": q["total_points"], "language": q.get("language"), "grading_mode": q.get("grading_mode")}
+            {"question_id": q["question_id"], "title": q.get("title", ""), "total_points": q["total_points"], "language": q.get(
+                "language"), "grading_mode": q.get("grading_mode")}
             for q in exam.get("questions", [])
         ],
         "matrix": _results_matrix(exam, submissions, student_id),
@@ -1313,17 +1402,20 @@ def get_admin_code_results(
 
 def _results_matrix(exam: dict, submissions: Mapping, only_student: str | None) -> list[dict]:
     """One row per student, one cell per question in exam order; scores follow the latest graded submission."""
-    names = {sid: item.get("full_name", "") for sid, item in read_json("students.json").items()}
+    names = {sid: item.get("full_name", "")
+             for sid, item in read_json("students.json").items()}
     assignments = read_json("assignments.json")
     matrix = []
     for owner_id, records in submissions.items():
         if only_student is not None and owner_id != only_student:
             continue
-        mine = [r for r in records if r.get("exam_id") == exam["id"] and r.get("release_id") == exam.get("release_id")]
+        mine = [r for r in records if r.get("exam_id") == exam["id"] and r.get(
+            "release_id") == exam.get("release_id")]
         if not mine:
             continue
         student_assignment = assignments.get(owner_id) or {}
-        terminated = proctoring.is_terminated(student_assignment) and student_assignment.get("release_id") == exam.get("release_id")
+        terminated = proctoring.is_terminated(student_assignment) and student_assignment.get(
+            "release_id") == exam.get("release_id")
         cells, scores = [], []
         for question in exam.get("questions", []):
             qid = question["question_id"]
@@ -1333,7 +1425,8 @@ def _results_matrix(exam: dict, submissions: Mapping, only_student: str | None) 
             score = graded[-1].get("score", 0) if graded else 0
             if terminated:
                 score = 0
-            scores.append({"question_id": qid, "score": score, "total_points": question["total_points"]})
+            scores.append({"question_id": qid, "score": score,
+                          "total_points": question["total_points"]})
             cells.append(
                 {
                     "question_id": qid,
@@ -1348,12 +1441,12 @@ def _results_matrix(exam: dict, submissions: Mapping, only_student: str | None) 
             )
         try:
             total = grade_exam(scores)
-            total_score, total_points = (0 if terminated else total.score), total.total_points
+            total_score, total_points = (
+                0 if terminated else total.score), total.total_points
         except GradingError:
             total_score, total_points = None, None
-        row = {"student_id": owner_id, "full_name": names.get(owner_id, ""), "cells": cells, "total_score": total_score, "total_points": total_points}
-        if terminated:
-            row["proctoring_terminated"] = True
+        row = {"student_id": owner_id, "full_name": names.get(
+            owner_id, ""), "cells": cells, "total_score": total_score, "total_points": total_points}
         matrix.append(row)
     matrix.sort(key=lambda item: item["student_id"])
     return matrix
@@ -1387,19 +1480,25 @@ def regrade_student_exam(
         if item.get("exam_id") == exam_id and item.get("release_id") == exam.get("release_id")
     ]
     if not records:
-        raise CodeExamError("This student has no submissions for this code exam", 404)
+        raise CodeExamError(
+            "This student has no submissions for this code exam", 404)
     regraded, failed, skipped = [], [], []
     for qid in question_ids:
-        done = [item for item in records if item.get("question_id") == qid and item.get("status") in {"graded", "error"}]
+        done = [item for item in records if item.get(
+            "question_id") == qid and item.get("status") in {"graded", "error"}]
         if not done:
-            skipped.append({"question_id": qid, "reason": "Chưa có bài nộp đã chấm."})
+            skipped.append(
+                {"question_id": qid, "reason": "Chưa có bài nộp đã chấm."})
             continue
         target = done[-1]
         try:
-            updated = regrade_submission(exam_id, target["id"], actor, ip, use_latest_spec=use_latest_spec)
-            regraded.append({"question_id": qid, "submission_id": target["id"], "verdict": updated.get("verdict"), "score": updated.get("score")})
+            updated = regrade_submission(
+                exam_id, target["id"], actor, ip, use_latest_spec=use_latest_spec)
+            regraded.append({"question_id": qid, "submission_id": target["id"], "verdict": updated.get(
+                "verdict"), "score": updated.get("score")})
         except CodeExamError as exc:
-            failed.append({"question_id": qid, "submission_id": target["id"], "error": str(exc), "status": exc.status})
+            failed.append({"question_id": qid, "submission_id": target["id"], "error": str(
+                exc), "status": exc.status})
     if regraded:
         release_student_exam_scores(exam["release_id"])
     audit(
@@ -1453,14 +1552,16 @@ def regrade_submission(
         raise CodeExamError("Only completed submissions can be regraded", 409)
     source_code = record.get("source_code")
     if not isinstance(source_code, str):
-        raise CodeExamError("Submission source is unavailable for regrading", 409)
+        raise CodeExamError(
+            "Submission source is unavailable for regrading", 409)
 
     question_id = record.get("question_id")
     question = _question_snapshot(exam, question_id)
     if use_latest_spec:
         latest = get_question(question_id)
         if not latest or latest.get("status") != "published":
-            raise CodeExamError("A published question version is required for regrading", 409)
+            raise CodeExamError(
+                "A published question version is required for regrading", 409)
         question = {
             **deepcopy(latest),
             "question_id": question_id,
@@ -1469,7 +1570,8 @@ def regrade_submission(
 
     _validate_source(source_code)
     if not _RUN_SLOTS.acquire(blocking=False):
-        raise CodeExamError("Code execution capacity is busy; retry shortly", 429)
+        raise CodeExamError(
+            "Code execution capacity is busy; retry shortly", 429)
     try:
         try:
             execution = execute_question(question, source_code)
@@ -1507,15 +1609,18 @@ def _sample_passes(question: Mapping, execution: Mapping) -> tuple[bool, str | N
         if reflection:
             verified = grade_reflection(
                 question["checks"],
-                {"score": execution.get("score"), "total_points": execution.get("total_points"), "checks": returned},
+                {"score": execution.get("score"), "total_points": execution.get(
+                    "total_points"), "checks": returned},
                 question["total_points"],
                 verdict=execution.get("verdict"),
             )
         else:
-            verified = grade_stdio(question["tests"], returned, question["total_points"], verdict=execution.get("verdict"))
+            verified = grade_stdio(
+                question["tests"], returned, question["total_points"], verdict=execution.get("verdict"))
     except GradingError as exc:
         return False, f"Sample solution returned an invalid result: {exc}"
-    all_checks_passed = len(returned) == len(configured) and all(item.get("passed") is True for item in returned)
+    all_checks_passed = len(returned) == len(configured) and all(
+        item.get("passed") is True for item in returned)
     if (
         execution.get("verdict") != "AC"
         or not all_checks_passed
@@ -1525,10 +1630,12 @@ def _sample_passes(question: Mapping, execution: Mapping) -> tuple[bool, str | N
     return True, None
 
 
-_INFRA_CATEGORIES = {"INVALID_REQUEST", "JDK_NOT_FOUND", "JUDGE_INFRA_ERROR", "PROTOCOL_ERROR"}
+_INFRA_CATEGORIES = {"INVALID_REQUEST", "JDK_NOT_FOUND",
+                     "JUDGE_INFRA_ERROR", "PROTOCOL_ERROR"}
 
 # Characters that browsers/editors add when code is pasted and that javac/python reject as "illegal character".
-_PASTE_ARTIFACTS = {"\ufeff": "", "\u200b": "", "\u200c": "", "\u200d": "", "\u2060": "", "\u00a0": " ", "\u2007": " ", "\u202f": " "}
+_PASTE_ARTIFACTS = {"\ufeff": "", "\u200b": "", "\u200c": "",
+                    "\u200d": "", "\u2060": "", "\u00a0": " ", "\u2007": " ", "\u202f": " "}
 
 
 def _clean_sample_source(sample_source):
@@ -1547,12 +1654,14 @@ def validate_question_sample(question_id: str, sample_source: str, actor: str, i
     if not question:
         raise QuestionError("question not found", 404)
     if question.get("status") != "draft":
-        raise QuestionError("Only draft questions can be validated", 409, "QUESTION_NOT_DRAFT")
+        raise QuestionError(
+            "Only draft questions can be validated", 409, "QUESTION_NOT_DRAFT")
     source_hash = _validate_source(sample_source)
     sample_source = _clean_sample_source(sample_source)
     spec_hash = compute_spec_hash(question)
     if not _RUN_SLOTS.acquire(blocking=False):
-        raise QuestionError("Code execution capacity is busy; retry shortly", 429)
+        raise QuestionError(
+            "Code execution capacity is busy; retry shortly", 429)
     try:
         try:
             execution = execute_question(question, sample_source)
@@ -1571,7 +1680,8 @@ def validate_question_sample(question_id: str, sample_source: str, actor: str, i
         _RUN_SLOTS.release()
 
     infra_error = execution.get("error_category") in _INFRA_CATEGORIES
-    passed, reason = (False, execution.get("error")) if infra_error else _sample_passes(question, execution)
+    passed, reason = (False, execution.get("error")
+                      ) if infra_error else _sample_passes(question, execution)
     record = {
         "spec_hash": spec_hash,
         "passed": passed,
@@ -1612,7 +1722,8 @@ def validate_question_sample(question_id: str, sample_source: str, actor: str, i
         "code.question_validated",
         actor,
         ip,
-        {"question_id": question_id, "spec_hash": spec_hash, "passed": passed, "stale": state["stale"], "sample_sha256": source_hash},
+        {"question_id": question_id, "spec_hash": spec_hash, "passed": passed,
+            "stale": state["stale"], "sample_sha256": source_hash},
     )
     return {
         "validation": {**record, "current": passed and not state["stale"], "stale": state["stale"], "reason": reason},
@@ -1638,16 +1749,20 @@ def update_published_question(question_id: str, payload: Mapping, sample_source:
     if not current:
         raise QuestionError("Không tìm thấy câu hỏi.", 404)
     if current.get("status") != "published":
-        raise QuestionError("Chỉ câu hỏi đã xuất bản mới dùng luồng này.", 409, "QUESTION_NOT_PUBLISHED")
+        raise QuestionError(
+            "Chỉ câu hỏi đã xuất bản mới dùng luồng này.", 409, "QUESTION_NOT_PUBLISHED")
     if not isinstance(sample_source, str) or not sample_source.strip():
-        raise QuestionError("Cần nhập mã nguồn đáp án mẫu để xác thực trước khi lưu thay đổi.", 400, "SAMPLE_REQUIRED")
+        raise QuestionError(
+            "Cần nhập mã nguồn đáp án mẫu để xác thực trước khi lưu thay đổi.", 400, "SAMPLE_REQUIRED")
     base_version = current.get("version")
-    candidate = _validate_question(payload, question_id=question_id, actor=actor)
+    candidate = _validate_question(
+        payload, question_id=question_id, actor=actor)
     source_hash = _validate_source(sample_source)
     sample_source = _clean_sample_source(sample_source)
     spec_hash = compute_spec_hash(candidate)
     if not _RUN_SLOTS.acquire(blocking=False):
-        raise QuestionError("Hệ thống chấm đang bận, hãy thử lại sau giây lát.", 429)
+        raise QuestionError(
+            "Hệ thống chấm đang bận, hãy thử lại sau giây lát.", 429)
     try:
         try:
             execution = execute_question(candidate, sample_source)
@@ -1660,7 +1775,8 @@ def update_published_question(question_id: str, payload: Mapping, sample_source:
         _RUN_SLOTS.release()
 
     if execution.get("error_category") in _INFRA_CATEGORIES:
-        raise QuestionError("Hệ thống chấm gặp lỗi hạ tầng (không phải lỗi câu hỏi); thay đổi chưa được lưu.", 503, "JUDGE_INFRA_ERROR")
+        raise QuestionError(
+            "Hệ thống chấm gặp lỗi hạ tầng (không phải lỗi câu hỏi); thay đổi chưa được lưu.", 503, "JUDGE_INFRA_ERROR")
     passed, reason = _sample_passes(candidate, execution)
     record = {
         "spec_hash": spec_hash,
@@ -1685,13 +1801,15 @@ def update_published_question(question_id: str, payload: Mapping, sample_source:
         "results": _normalized_results(candidate, execution, visible_only=False),
     }
     if not passed:
-        audit("code.question_edit_rejected", actor, ip, {"question_id": question_id, "spec_hash": spec_hash, "sample_sha256": source_hash})
+        audit("code.question_edit_rejected", actor, ip, {
+              "question_id": question_id, "spec_hash": spec_hash, "sample_sha256": source_hash})
         return result
 
     def commit(questions):
         stored = questions.get(question_id)
         if not stored or stored.get("status") != "published" or stored.get("version") != base_version:
-            raise QuestionError("Câu hỏi đã bị thay đổi trong lúc xác thực; hãy tải lại và thử lại.", 409, "QUESTION_CHANGED")
+            raise QuestionError(
+                "Câu hỏi đã bị thay đổi trong lúc xác thực; hãy tải lại và thử lại.", 409, "QUESTION_CHANGED")
         candidate.update(
             {
                 "status": "published",
@@ -1705,7 +1823,8 @@ def update_published_question(question_id: str, payload: Mapping, sample_source:
         return deepcopy(candidate)
 
     saved = update_json("questions.json", commit)
-    audit("code.question_updated", actor, ip, {"question_id": question_id, "version": saved["version"], "spec_hash": spec_hash, "published": True})
+    audit("code.question_updated", actor, ip, {
+          "question_id": question_id, "version": saved["version"], "spec_hash": spec_hash, "published": True})
     return {**result, "saved": True, "question": saved}
 
 
@@ -1717,18 +1836,24 @@ def publish_question(question_id: str, actor: str, ip: str) -> dict:
         if not question:
             raise QuestionError("question not found", 404)
         if question.get("status") == "published":
-            raise QuestionError("question is already published", 409, "ALREADY_PUBLISHED")
+            raise QuestionError(
+                "question is already published", 409, "ALREADY_PUBLISHED")
         if question.get("status") != "draft":
-            raise QuestionError("Only draft questions can be published", 409, "QUESTION_NOT_DRAFT")
+            raise QuestionError(
+                "Only draft questions can be published", 409, "QUESTION_NOT_DRAFT")
         record = question.get("validation")
         if not isinstance(record, Mapping):
-            raise QuestionError("The question must pass sample validation before publishing", 409, "VALIDATION_REQUIRED")
+            raise QuestionError(
+                "The question must pass sample validation before publishing", 409, "VALIDATION_REQUIRED")
         if record.get("spec_hash") != compute_spec_hash(question):
-            raise QuestionError("The question changed after its last validation; validate it again", 409, "VALIDATION_OUTDATED")
+            raise QuestionError(
+                "The question changed after its last validation; validate it again", 409, "VALIDATION_OUTDATED")
         if record.get("passed") is not True:
-            raise QuestionError("The last sample validation failed; fix the question and validate again", 409, "VALIDATION_FAILED")
+            raise QuestionError(
+                "The last sample validation failed; fix the question and validate again", 409, "VALIDATION_FAILED")
         question["status"] = "published"
-        question.setdefault("source", {}).update({"updated_by": actor, "updated_at": utc_now()})
+        question.setdefault("source", {}).update(
+            {"updated_by": actor, "updated_at": utc_now()})
         question["version"] = int(question.get("version", 1)) + 1
         return deepcopy(question)
 
@@ -1737,6 +1862,7 @@ def publish_question(question_id: str, actor: str, ip: str) -> dict:
         "code.question_published",
         actor,
         ip,
-        {"question_id": question_id, "spec_hash": question["validation"]["spec_hash"], "version": question["version"]},
+        {"question_id": question_id,
+            "spec_hash": question["validation"]["spec_hash"], "version": question["version"]},
     )
     return question

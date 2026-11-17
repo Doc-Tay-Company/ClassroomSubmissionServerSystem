@@ -39,7 +39,7 @@
     const body = $("monitor-body");
     if (!body) return;
     const query = ($("monitor-search")?.value || "").toLowerCase();
-    const labels = { tab_hidden: "Tab bị ẩn", window_unfocused: "Mất focus", multiple_tabs: "Nhiều tab", proctoring_violation: "Vi phạm giám sát", proctoring_pending: "Chờ xác nhận vi phạm", proctoring_terminated: "Đình chỉ · 0 điểm" };
+    const labels = { tab_hidden: "Tab bị ẩn", window_unfocused: "Mất focus", multiple_tabs: "Nhiều tab", proctoring_violation: "Vi phạm giám sát", proctoring_pending: "Chờ xác nhận vi phạm" };
     const rows = monitorRows.filter((row) => [row.student_id, row.full_name, row.ip].join(" ").toLowerCase().includes(query));
     body.innerHTML = rows.map((row) => {
       const proctor = row.proctoring || {};
@@ -50,7 +50,10 @@
           : proctor.violation_count
             ? `<span class="status-pill status-amber">Vi phạm ${proctor.violation_count}/${proctor.max_warnings || 3}</span>`
             : "";
-      const alerts = (row.alerts || []).map((alert) => `<span class="status-pill status-red">${labels[alert] || escape(alert)}</span>`).join("");
+      const alerts = (row.alerts || [])
+        .filter((alert) => alert !== "proctoring_terminated")
+        .map((alert) => `<span class="status-pill status-red">${labels[alert] || escape(alert)}</span>`)
+        .join("");
       const remaining = row.remaining_seconds == null ? "—" : `${Math.floor(row.remaining_seconds / 60)}:${String(row.remaining_seconds % 60).padStart(2, "0")}`;
       return `<tr class="${alerts || violation ? "row-warning" : ""}"><td><div class="cell-main">${escape(row.student_id)}</div><div class="cell-sub">${escape(row.full_name)}</div></td><td class="code-text">${escape(row.ip || "—")}</td><td>${row.logged_in ? '<span class="status-pill status-green">Đang đăng nhập</span>' : '<span class="status-pill status-gray">Ngoại tuyến / chưa đăng nhập</span>'}<div class="cell-sub">${escape(row.last_seen || "")}</div></td><td>${escape(row.exam_file || "—")}</td><td>${remaining}</td><td>${row.submission_count || 0} lần</td><td><div class="user-agent">${escape(row.user_agent || "—")}</div></td><td>${violation}${alerts || (!violation ? '<span class="muted">Bình thường</span>' : "")}</td><td><button class="btn btn-secondary btn-small" data-force="${escape(row.student_id)}">Ép nộp</button> <button class="btn btn-secondary btn-small" data-adjust="${escape(row.student_id)}">Điều chỉnh giờ</button></td></tr>`;
     }).join("") || '<tr><td colspan="9" class="empty-cell">Không có dữ liệu.</td></tr>';
@@ -257,5 +260,5 @@
   if ($("server-addresses")) pageLoads.push(loadServerInfo());
   if ($("distribution-mode")?.value === "custom") renderRemainderRules();
   Promise.all(pageLoads).catch(toastError);
-  window.setInterval(() => { if ($("monitor-body")) loadMonitor().catch(() => {}); }, 5000);
+  window.setInterval(() => { if ($("monitor-body")) loadMonitor().catch(() => { }); }, 5000);
 })();
