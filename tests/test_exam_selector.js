@@ -106,6 +106,10 @@ async function openEditor(existing = null, options = {}) {
       if (url === '/api/admin/questions') return { questions: [] };
       if (url === '/api/admin/papers') return { papers: options.papers || [] };
       if (url === '/api/admin/exam-records') return { exams: [] };
+      if (url === `/api/admin/exam-records/${existing?.id}/preview`) return { preview: options.preview || {
+        distribution_mode: 'common', paper_versions: [{ paper_id: 'paper-legacy-id', paper_version_id: 'paper-legacy-id:v4',
+          title: 'Legacy Instructor Paper', questions: [] }],
+      } };
       if (url === `/api/admin/exam-records/${existing.id}`) return { exam: existing };
       throw new Error(`Unexpected GET ${url}`);
     }
@@ -219,6 +223,8 @@ async function main() {
   const papers = [
     { id: 'paper-a', title: 'Paper A', schema_version: 2, status: 'published', question_count: 1 },
     { id: 'paper-b', title: 'Paper B', schema_version: 2, status: 'published', question_count: 1 },
+    { id: 'paper-legacy-id', title: 'Legacy Instructor Paper', status: 'published', revision: 18,
+      current_version_id: 'paper-legacy-id:v4', version_count: 4, question_count: 4 },
   ];
   const independentCode = {
     item_id: 'independent-code', type: 'code',
@@ -265,6 +271,38 @@ async function main() {
   await draftSelection.save();
   const draftPayload = JSON.parse(draftSelection.calls.filter((call) => call.options.method).at(-1).options.body);
   assert.deepStrictEqual(draftPayload.items[0].distribution.paper_versions, [{ paper_id: 'paper-b' }]);
+
+  const legacySelection = await openEditor(null, { papers });
+  await legacySelection.select('code');
+  const legacyChoice = legacySelection.paperChoice('Legacy Instructor Paper');
+  assert(legacyChoice, 'legacy Published Paper remains identifiable by its title');
+  legacyChoice.checked = true;
+  await legacyChoice.dispatch('change');
+  assert(legacySelection.panelText().includes('Legacy Instructor Paper'), 'Paper selection displays the teacher facing title');
+  assert(!legacySelection.panelText().includes('paper-legacy-id') && !legacySelection.panelText().includes('v4')
+    && !legacySelection.panelText().includes('18'), 'legacy selection hides Paper ID, version ID, and Paper revision');
+  assert(!legacySelection.root.findAll((node) => node.attrs['aria-label']).some((node) =>
+    /paper-legacy-id|v4|revision\s*18/i.test(node.attrs['aria-label'])), 'accessible labels do not expose Paper identifiers');
+  await legacySelection.fillBasics();
+  await legacySelection.save();
+  const legacyPayload = JSON.parse(legacySelection.calls.filter((call) => call.options.method).at(-1).options.body);
+  assert.deepStrictEqual(legacyPayload.items[0].distribution.paper_versions,
+    [{ paper_id: 'paper-legacy-id', paper_version_id: 'paper-legacy-id:v4' }], 'legacy internal Paper references remain in the Exam API payload');
+
+  const legacyExam = examRecord([{ ...independentCode,
+    distribution: { mode: 'common', paper_versions: [{ paper_id: 'paper-legacy-id', paper_version_id: 'paper-legacy-id:v3' }] },
+  }], { status: 'distributed' });
+  const legacyPreview = await openEditor(legacyExam, { papers, editMode: true });
+  const previewButton = legacyPreview.root.querySelectorAll('button').find((item) => item.textContent.includes('Xem trước Paper'));
+  assert(previewButton, 'Exam editing keeps the Paper preview action');
+  await previewButton.dispatch('click');
+  assert(legacyPreview.panelText().includes('Legacy Instructor Paper'), 'Paper preview remains identifiable by title');
+  assert(!legacyPreview.panelText().includes('paper-legacy-id') && !legacyPreview.panelText().includes('v4'),
+    'Exam Paper preview hides Paper ID and version ID');
+  await legacyPreview.saveChanges();
+  const legacyEditPayload = JSON.parse(legacyPreview.calls.filter((call) => call.options.method).at(-1).options.body);
+  assert.deepStrictEqual(legacyEditPayload.items[0].distribution.paper_versions,
+    [{ paper_id: 'paper-legacy-id', paper_version_id: 'paper-legacy-id:v3' }], 'editing a historical Exam preserves its original Paper version reference');
 
   const published = examRecord([independentCode], { status: 'distributed', revision: 7, release: { release_id: 'release-1', applied: true } });
   const publishedEdit = await openEditor(published, { papers, editMode: true });

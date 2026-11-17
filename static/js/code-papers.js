@@ -11,6 +11,8 @@
   const supported = (q) =>
     (q.language === "java" && ["reflection", "stdio"].includes(q.grading_mode)) ||
     (q.language === "python" && q.grading_mode === "stdio");
+  const uniqueQuestionIds = (ids) => [...new Set((Array.isArray(ids) ? ids : [])
+    .filter((id) => typeof id === "string" && id.length > 0))];
   function paperErrorText(error) {
     const body = error?.body || {};
     if (error?.code === "QUESTION_LIMIT_MISMATCH") {
@@ -41,7 +43,6 @@
   const editorTabId = window.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`;
   let viewGeneration = 0;
   let listGeneration = 0;
-  let autosaveTimer = null;
   let leaveEditorGuard = null;
   let beforeUnloadHandler = null;
 
@@ -51,8 +52,6 @@
     if (beforeUnloadHandler) window.removeEventListener?.("beforeunload", beforeUnloadHandler);
     beforeUnloadHandler = null;
     viewGeneration += 1;
-    if (autosaveTimer !== null) clearTimeout(autosaveTimer);
-    autosaveTimer = null;
     busy = false;
     editorOperation = "";
     editorFeedback = "";
@@ -92,11 +91,10 @@
         type: "button", class: `btn btn-small ${cls}`, on: { click: (event) => { event.stopPropagation(); fn(); } },
       }, label);
       const actions = [];
-      if (paper.status === "archived" && !(paper.schema_version >= 2)) actions.push(action("Preview", () => openPaper(paper.id)));
-      else if (paper.status === "draft") actions.push(action("Chỉnh sửa", () => openEditor(paper.id)));
-      else if (paper.status !== "archived") actions.push(action("Mở", () => openPaper(paper.id)));
+      if (paper.status === "draft") actions.push(action("Chỉnh sửa", () => openEditor(paper.id)));
+      else if (paper.status === "published") actions.push(action("Mở", () => openPaper(paper.id)));
       if (paper.status === "archived") actions.push(action("Khôi phục", () => restore(paper)));
-      else if (paper.status === "published") actions.push(action("Chỉnh sửa", () => openEditor(paper.id)));
+      else if (paper.status === "published" && paper.has_draft) actions.push(action("Chỉnh sửa", () => openEditor(paper.id)));
       if (paper.status !== "archived") actions.push(action("Lưu trữ", () => archive(paper), "btn-ghost"));
       actions.push(action("Xóa", () => removePaper(paper), "btn-danger"));
       const metadata = Object.entries(paper.metadata || {})
@@ -104,11 +102,10 @@
         .join(" · ") || "—";
       return h("tr", {},
         h("td", {}, h("strong", {}, paper.title),
-          paper.schema_version >= 2 ? h("p", { class: "fine-print" }, `Paper ID ${paper.id} · Revision ${paper.revision}`) : null,
           paper.warnings?.length ? h("span", { class: "qb-change-badge", title: `${paper.warnings.length} câu hỏi nguồn cần lưu ý` }, "!") : null),
         h("td", {}, metadata),
         h("td", {}, paper.question_count),
-        h("td", {}, paper.schema_version >= 2 ? "—" : paper.version_count),
+        h("td", {}, paper.version_count ? paper.version_count : "\u2014"),
         h("td", {}, h("span", { class: `status-pill ${statusClass}` }, statusLabel)),
         h("td", {}, h("div", { class: "actions-inline" }, ...actions)));
     });
@@ -136,7 +133,7 @@
       if (!isCurrentView(generation) || paper?.id !== paperId) return;
       current = paper;
       isNew = false;
-      if (paper.schema_version >= 2 && paper.status === "published") {
+      if (paper.status === "published") {
         await preview(paperId);
         return;
       }
@@ -153,7 +150,9 @@
         h("div", { class: "panel-heading" }, h("div", {}, h("h2", {}, current.title), h("p", { class: "muted" }, `${current.status} · Paper ${current.id} · revision ${current.revision}`)),
           h("div", { class: "form-actions" },
             h("button", { type: "button", class: "btn btn-secondary", on: { click: backToList } }, "Back to Papers"),
-            current.status !== "archived" ? h("button", { type: "button", class: "btn btn-primary", on: { click: () => openEditor(current.id) } }, "Edit Paper") : null)),
+            current.status === "published"
+              ? h("button", { type: "button", class: "btn btn-primary", on: { click: () => openEditor(current.id, { createFromPublished: true }) } }, "\u0043h\u1ec9nh s\u1eeda b\u1ea3n m\u1edbi")
+              : current.status === "draft" ? h("button", { type: "button", class: "btn btn-primary", on: { click: () => openEditor(current.id) } }, "\u0043h\u1ec9nh s\u1eeda") : null)),
         current.preview ? renderPreview(current.preview) : h("p", { class: "muted" }, "No preview available."));
       return;
     }
@@ -231,11 +230,11 @@
       questions = allBankQuestions.filter((question) => question.status === "published" && supported(question));
       isNew = !paper;
       const activeVersion = paper?.versions?.[paper.current_version_id];
-      selected = [...(paper?.schema_version >= 2
+      selected = uniqueQuestionIds(paper?.schema_version >= 2
         ? (paper.question_ids || paper.questions?.map((q) => q.question_id) || [])
         : createFromPublished
           ? (activeVersion?.questions?.map((q) => q.question_id) || [])
-          : (paper?.draft?.question_ids || activeVersion?.questions?.map((q) => q.question_id) || []))];
+          : (paper?.draft?.question_ids || activeVersion?.questions?.map((q) => q.question_id) || []));
       renderEditor();
     } catch (error) {
       if (!isCurrentView(generation)) return;
@@ -323,7 +322,7 @@
         recoveredLocalDraft = true;
         titleInput.value = cached.title ?? titleInput.value;
         metadataInput.value = cached.metadata ?? metadataInput.value;
-        if (Array.isArray(cached.selected)) selected = cached.selected.filter((id) => typeof id === "string");
+        if (Array.isArray(cached.selected)) selected = uniqueQuestionIds(cached.selected);
         quantityInput.value = cached.quantity ?? quantityInput.value;
         for (const key of ["search", "category", "language", "grading_mode", "difficulty"]) {
           if (typeof cached.filters?.[key] === "string") filters[key] = cached.filters[key];
@@ -360,11 +359,9 @@
       on: { click: clearSelection } }, "Bỏ chọn tất cả");
     const selectionNotice = h("p", { class: "fine-print", role: "status", "data-role": "selection-status" });
     const previewHost = current?.preview ? renderPreview(current.preview) : h("div", {});
-    const saveButton = h("button", { type: "button", class: "btn btn-primary", disabled: !canEdit || busy, on: { click: save } }, independent && current?.status === "published" ? "Save Changes" : "Save Draft");
-    const previewButton = h("button", { type: "button", class: "btn btn-secondary", disabled: !canEdit || busy || isNew,
-      on: { click: previewSavedDraft } }, "Preview Draft · Xem trước bản nháp");
+    const saveButton = h("button", { type: "button", class: "btn btn-primary", disabled: !canEdit || busy, on: { click: save } }, independent && current?.status === "published" && createFromPublishedSourceId === null ? "Save Changes" : "Save Draft");
     const publishButton = h("button", { type: "button", class: "btn btn-primary", disabled: !canEdit || busy, on: { click: publish } }, independent ? "Publish Paper" : "Publish Version · Xuất bản version");
-    const saveDraftCopyButton = h("button", { type: "button", class: "btn btn-secondary", disabled: !canEdit || busy || !independent || current?.status !== "published", on: { click: saveDraftCopy } }, "Save Draft Copy");
+    const saveDraftCopyButton = h("button", { type: "button", class: "btn btn-secondary", disabled: !canEdit || busy || !independent || current?.status !== "published" || createFromPublishedSourceId !== null, on: { click: saveDraftCopy } }, "Save Draft Copy");
 
     function filteredQuestions() {
       const query = normalize(filters.search);
@@ -409,32 +406,6 @@
       question_ids: serverEditorState.selected, question_limit: serverEditorState.quantity,
       question_filters: serverEditorState.filters,
     });
-    const needsManualDraftSave = () => isNew || createFromPublishedSourceId !== null
-      || (current?.status === "published" && !current?.draft);
-    function scheduleAutosave() {
-      if (autosaveTimer !== null) clearTimeout(autosaveTimer);
-      autosaveTimer = null;
-      const saveFailed = editorFeedbackError
-        && (editorFeedback.startsWith("Lưu bản nháp thất bại:") || editorFeedback.startsWith("Tự lưu thất bại:"));
-      const invalidDraft = editorFeedbackError && editorFeedback.startsWith("Bản nháp cần");
-      if (busy || saveFailed || invalidDraft || stalePaperId || needsManualDraftSave() || !canEdit
-        || savedFingerprint === null || editorFingerprint() === savedFingerprint) return;
-      editorOperation = "save-pending";
-      operationStatus.textContent = "Có thay đổi · Đang chờ tự lưu…";
-      autosaveTimer = setTimeout(async () => {
-        autosaveTimer = null;
-        if (!isCurrentView(editorGeneration, current?.id) || needsManualDraftSave()) return;
-        await save({ deferRender: true, automatic: true });
-      }, 600);
-    }
-    function persistLocalDraft() {
-      if (staleLocalDraft) return;
-      try {
-        localStorage.setItem(cacheKey, JSON.stringify({ base_revision: current?.revision ?? null,
-          title: titleInput.value, metadata: metadataInput.value, selected, quantity: quantityInput.value,
-          filters: { ...filters, tags: [...filters.tags] }, tab_id: editorTabId, saved_at: Date.now() }));
-      } catch { /* Storage can be disabled or full; editing remains available in memory. */ }
-    }
     if (staleLocalDraft) {
       editorFeedback = "A local editing session exists for an older Paper revision. It was not restored; copy or discard it explicitly before continuing.";
       editorFeedbackError = true;
@@ -473,25 +444,17 @@
         } } }, "Tải lại bản mới nhất") : null,
       );
       operationStatus.textContent = editorOperation === "save" ? "Đang lưu bản nháp…"
-        : editorOperation === "save-pending" ? "Có thay đổi · Đang chờ tự lưu…"
-          : editorOperation === "publish" ? "Đang xuất bản version…" : "";
+        : editorOperation === "publish" ? "Đang xuất bản version…" : "";
       const hasDraftChanges = dirty || isNew;
       const unchangedPublished = independent && current?.status === "published" && !dirty;
       saveButton.disabled = !canEdit || busy || unchangedPublished || !titleInput.value.trim() || !draftSelectionIsValid(filteredQuestions());
       saveDraftCopyButton.disabled = !canEdit || busy || !independent || current?.status !== "published"
         || !titleInput.value.trim() || !draftSelectionIsValid(filteredQuestions());
-      previewButton.disabled = !canEdit || busy || isNew;
       publishButton.disabled = !canEdit || busy || !hasDraftChanges && current?.status === "published"
         || !titleInput.value.trim() || !quantityIsValid(filteredQuestions());
-      if (editorFeedbackError && (editorFeedback.startsWith("Lưu bản nháp thất bại:") || editorFeedback.startsWith("Tự lưu thất bại:"))) {
-        lifecycleStatus.append(h("button", { type: "button", class: "btn btn-small btn-secondary", "data-role": "retry-autosave",
-          on: { click: () => save({ deferRender: true, automatic: true }) } }, "Thử lưu lại"));
-      }
-      scheduleAutosave();
     }
 
     function renderQuestions() {
-      persistLocalDraft();
       const pool = filteredQuestions();
       quantityInput.max = String(questionBankMax);
       quantityInput.disabled = !canEdit || questionBankMax === 0;
@@ -671,12 +634,12 @@
         h("div", { class: "panel-heading" }, h("div", {}, h("h2", {}, creatingFromPublished ? `Tạo Paper từ ${activeVersion?.id || "Published Version"}` : isNew ? "Tạo Paper" : `Chỉnh sửa Paper: ${current.title}`), h("p", { class: "muted" }, "Danh sách đã chọn giữ nguyên thứ tự. Câu mới chỉ lấy từ câu hỏi Published.")),
         h("div", { class: "form-actions" },
           h("button", { type: "button", class: "btn btn-secondary", on: { click: backToList } }, "Cancel"),
-          saveButton, independent && current?.status === "published" ? saveDraftCopyButton : null,
-          !independent && previewButton, (!independent || current?.status === "draft") ? publishButton : null)),
+          saveButton, independent && current?.status === "published" && createFromPublishedSourceId === null ? saveDraftCopyButton : null,
+          (!independent || current?.status === "draft") ? publishButton : null)),
       lifecycleStatus, operationStatus,
       creatingPaper ? h("p", { class: "fine-print", role: "status" }, creatingFromPublished
         ? "Lưu thành bản nháp sẽ tạo Paper độc lập; Published Paper gốc không thay đổi."
-        : "Lưu thành bản nháp để tạo Paper ID; các thay đổi sau đó sẽ tự lưu.") : null,
+        : "Lưu thành bản nháp để tạo Paper ID; các thay đổi sau đó cần được lưu bằng nút Save.") : null,
       current?.status === "archived" ? h("div", { class: "alert alert-warning" }, "Paper đang lưu trữ. Khôi phục Paper trước khi chỉnh sửa.") : null,
       ...(!creatingFromPublished ? current?.draft?.warnings || [] : []).map((item) => h("div", { class: "alert alert-warning", role: "status" }, `${item.title || item.question_id}: ${item.warning}`)),
       h("div", { class: "stack-form" }, h("label", { for: "cp-title" }, "Tên Paper"), titleInput, h("label", { for: "cp-metadata" }, "Metadata dạng JSON"), metadataInput),
@@ -699,10 +662,8 @@
       previewHost,
       h("div", { id: "cp-editor-notice", class: "notice hidden" }));
 
-    async function save({ deferRender = false, automatic = false } = {}) {
+    async function save() {
       if (busy) return false;
-      if (autosaveTimer !== null) clearTimeout(autosaveTimer);
-      autosaveTimer = null;
       const sourcePaperId = createFromPublishedSourceId;
       const targetPaperId = sourcePaperId ? null : current?.id || null;
       const expectedRevision = current?.revision;
@@ -763,7 +724,6 @@
         editorFeedback = `Đã lưu bản nháp tại revision ${current.revision}.`;
         editorFeedbackError = false;
         stalePaperId = null;
-        saveButton.hidden = !needsManualDraftSave();
         await loadList();
         if (!ownsEditor()) return false;
         saved = true;
@@ -774,7 +734,7 @@
         if (["QUESTION_LIMIT_MISMATCH", "INVALID_QUESTION_LIMIT"].includes(error.code)) editorFeedback = paperErrorText(error);
         editorFeedback = stale
           ? `Không lưu được vì Paper đã thay đổi ở nơi khác. Các chỉnh sửa hiện tại vẫn được giữ. ${errorText(error)}`
-          : `${automatic ? "Tự lưu" : "Lưu bản nháp"} thất bại: ${errorText(error)}`;
+          : `Lưu bản nháp thất bại: ${errorText(error)}`;
         editorFeedbackError = true;
         if (["QUESTION_LIMIT_MISMATCH", "INVALID_QUESTION_LIMIT"].includes(error.code)) editorFeedback = paperErrorText(error);
       } finally {
@@ -825,7 +785,7 @@
       const generation = editorGeneration;
       let attempts = 0;
       while (savedFingerprint === null || editorFingerprint() !== savedFingerprint) {
-        if (attempts++ >= 3 || !(await save({ deferRender: true }))) return;
+        if (attempts++ >= 3 || !(await save())) return;
       }
       if (!isCurrentView(generation)) return;
       if (!current || isNew || (!current.draft && current.schema_version < 2)) return;
@@ -874,54 +834,7 @@
       if (!published) renderEditor();
     }
 
-    async function previewSavedDraft() {
-      if (busy) return;
-      const generation = editorGeneration;
-      if (isNew || !current?.id) {
-        editorFeedback = "Lưu bản nháp để có Paper ID và mở Draft Preview.";
-        editorFeedbackError = false;
-        updateLifecycleStatus();
-        return;
-      }
-      const paperId = current.id;
-      if (savedFingerprint === null || editorFingerprint() !== savedFingerprint) {
-        if (!(await save({ deferRender: true }))) return;
-      }
-      if (!isCurrentView(generation, paperId) || isNew) return;
-      const expectedRevision = current.revision;
-      busy = true;
-      editorOperation = "preview";
-      editorFeedback = "";
-      editorFeedbackError = false;
-      updateLifecycleStatus();
-      try {
-        const latest = await loadPaper(paperId);
-        if (!isCurrentView(generation, paperId)) return;
-        if (latest.revision !== expectedRevision || current.revision !== expectedRevision) {
-          const conflict = new Error("Paper đã thay đổi ở nơi khác; tải lại trước khi preview.");
-          conflict.status = 409;
-          conflict.code = "PAPER_CHANGED";
-          throw conflict;
-        }
-        const data = await request(`/api/admin/papers/${encodeURIComponent(paperId)}/preview?draft=1`);
-        if (!isCurrentView(generation, paperId)) return;
-        current = { ...current, preview: data.preview };
-        editorFeedback = `Draft Preview được tạo từ revision ${current.revision}; không xuất bản version.`;
-        editorFeedbackError = false;
-      } catch (error) {
-        if (!isCurrentView(generation, paperId)) return;
-        const stale = error.status === 409 && error.code === "PAPER_CHANGED";
-        stalePaperId = stale ? paperId : null;
-        editorFeedback = `Draft Preview thất bại: ${errorText(error)}`;
-        editorFeedbackError = true;
-      } finally {
-        if (generation === viewGeneration) {
-          busy = false;
-          editorOperation = "";
-        }
-      }
-      if (isCurrentView(generation, paperId)) renderEditor();
-    }
+
 
   }
 

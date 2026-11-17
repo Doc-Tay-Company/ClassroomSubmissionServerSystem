@@ -235,6 +235,7 @@ def list_papers() -> list[dict]:
                 "id": paper["id"], "title": paper.get("title", ""),
                 "metadata": deepcopy(paper.get("metadata", {})), "status": paper.get("status", "draft"),
                 "revision": paper.get("revision", 1), "question_count": len(questions) or len(paper.get("question_ids", [])),
+                "has_draft": False, "current_version_id": None, "version_count": 0,
                 "source_status": source_status, "warnings": [item for item in source_status if item["warning"]],
                 "updated_at": paper.get("updated_at"), "schema_version": 2,
             })
@@ -449,6 +450,11 @@ def update_paper(paper_id: str, payload: Mapping, actor: str, ip: str) -> dict:
         _require_revision(paper, payload)
         if paper.get("status") == "archived":
             raise PaperError("Archived papers cannot be edited; restore the paper first", 409)
+        if paper.get("schema_version", 1) >= 2 and paper.get("status") == "published":
+            raise PaperError(
+                "Published Papers are immutable; create an independent Paper to make changes",
+                409, "PAPER_PUBLISHED_IMMUTABLE",
+            )
         if paper.get("schema_version", 1) >= 2:
             title = _validate_title(payload.get("title", paper.get("title")))
             metadata = _validate_metadata(payload.get("metadata", paper.get("metadata", {})))

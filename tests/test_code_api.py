@@ -338,7 +338,12 @@ class CodeApiTests(unittest.TestCase):
                 "id": "paper-1", "schema_version": 1, "status": "published",
                 "versions": {"paper-1:v1": {"id": "paper-1:v1", "title": "Legacy Paper",
                     "questions": [{"question_id": "q-1", "order": 0, "total_points": 10}]}},
-            }
+            },
+            "paper-2": {
+                "id": "paper-2", "schema_version": 1, "status": "published",
+                "versions": {"paper-2:v2": {"id": "paper-2:v2", "title": "Second Legacy Paper",
+                    "questions": [{"question_id": "q-2", "order": 0, "total_points": 10}]}},
+            },
         })
         item_cases = (
             {
