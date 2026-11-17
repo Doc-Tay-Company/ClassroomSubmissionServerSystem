@@ -144,6 +144,7 @@ async function openEditor(existing = null, options = {}) {
     radio(value) { return root.querySelector(`input[name="exam-item-type"][value="${value}"]`); },
     select: async (value) => { const radio = root.querySelector(`input[name="exam-item-type"][value="${value}"]`); assert(radio, `missing radio ${value}`); radio.checked = true; await radio.dispatch('change'); },
     async fillBasics() {
+      assert(root.querySelector('.exam-search-field'), 'create/edit participant search uses the shared labeled filter control');
       const title = root.findAll((node) => node.tagName === 'INPUT' && String(node.attrs.placeholder || '').startsWith('Ví dụ:'))[0];
       assert(title, 'missing exam title input'); title.value = 'New Exam'; await title.dispatch('input');
       const duration = root.findAll((node) => node.tagName === 'INPUT' && node.attrs.min === 1 && node.attrs.max === 1440)[0];
@@ -158,6 +159,37 @@ async function openEditor(existing = null, options = {}) {
     async saveChanges() { const button = root.querySelectorAll('button').find((item) => item.textContent.includes('Lưu thay đổi')); assert(button, 'missing Save Changes button'); await button.dispatch('click'); },
     panelText() { return root.textContent; },
   };
+}
+
+async function testExamListFilters() {
+  const root = new Element('main');
+  const records = [
+    { id: 'exam-midterm', title: 'Midterm Gamma', tag: 'midterm', status: 'draft', config: config(), items: [] },
+    { id: 'exam-final', title: 'Final Beta', tag: 'final', status: 'ended', config: config(), items: [] },
+  ];
+  const document = { getElementById: (id) => id === 'exams-root' ? root : null };
+  const window = {
+    cssUi: { h, errorBox: (error) => h('div', {}, error.message), errorText: (error) => error.message, setNotice() {} },
+    cssRequest: async (url) => { assert.strictEqual(url, '/api/admin/exam-records'); return { exams: records }; },
+    addEventListener() {},
+  };
+  const context = { window, document, URLSearchParams, history: { replaceState() {} }, location: { search: '?section=exams', href: '' },
+    setTimeout, clearTimeout, console, Set, Map, Date, Number, String, Boolean, Math, Promise };
+  vm.createContext(context);
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '../static/js/exams.js'), 'utf8'), context);
+  await new Promise((resolve) => setImmediate(resolve));
+  const fields = root.querySelectorAll('.exam-filter-field');
+  assert.strictEqual(fields.length, 3, 'exam list has labeled search, tag and status filters');
+  const search = root.findAll((node) => node.tagName === 'INPUT' && node.type === 'search')[0];
+  const selects = root.findAll((node) => node.tagName === 'SELECT');
+  assert(search && selects.length === 2, 'all existing Exam list controls render');
+  search.value = 'Beta'; await search.dispatch('input');
+  selects[0].value = 'final'; await selects[0].dispatch('change');
+  selects[1].value = 'ended'; await selects[1].dispatch('change');
+  const cards = root.findAll((node) => node.tagName === 'ARTICLE');
+  assert.strictEqual(cards.length, 1, 'existing search, tag and status filters combine');
+  assert(cards[0].textContent.includes('Final Beta'), 'combined filters return the matching Exam');
+  console.log('PASS Exam list filters and shared labeled controls');
 }
 
 async function main() {
@@ -320,6 +352,7 @@ async function main() {
   assert(startedPaper && startedPaper.disabled, 'Started Exam keeps Paper controls locked');
   assert(!started.root.querySelectorAll('button').some((item) => item.textContent.includes('Lưu thay đổi')), 'Started Exam has no Save Changes action');
 
+  await testExamListFilters();
   console.log('PASS Draft and Published Paper selection editing; Started Exam remains locked');
   console.log('PASS Exam Code/ZIP selector UI state regressions');
 }

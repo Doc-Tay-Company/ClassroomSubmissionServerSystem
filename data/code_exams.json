@@ -1724,7 +1724,7 @@
   "018bb39c9af1439aabf9335c9593691b": {
     "id": "018bb39c9af1439aabf9335c9593691b",
     "schema_version": 2,
-    "status": "distributed",
+    "status": "started",
     "release_id": "757f89866a0a4fe99fc6fd5de8b6bc72",
     "general_exam_id": "e65923829bad4cbb83aec4fe50569db7",
     "paper_ref": {
@@ -1733,7 +1733,7 @@
     },
     "created_by": "admin-1",
     "created_at": "2026-11-15T05:27:27+00:00",
-    "updated_at": "2026-11-15T05:27:27+00:00",
+    "updated_at": "2026-11-17T04:05:29+00:00",
     "title": "HHS",
     "show_final_score_immediately": true,
     "allow_pretest": true,
@@ -1741,12 +1741,13 @@
     "pretest_cooldown_seconds": 2.0,
     "submission_policy": "once",
     "max_submissions": 1,
-    "distributed_at": "2026-11-15T05:27:27+00:00"
+    "distributed_at": "2026-11-15T05:27:27+00:00",
+    "started_at": "2026-11-17T04:05:29+00:00"
   },
   "90c3ee17eacb48aba94ff3fc1188f3e0": {
     "id": "90c3ee17eacb48aba94ff3fc1188f3e0",
     "schema_version": 2,
-    "status": "distributed",
+    "status": "started",
     "release_id": "757f89866a0a4fe99fc6fd5de8b6bc72",
     "general_exam_id": "e65923829bad4cbb83aec4fe50569db7",
     "paper_ref": {
@@ -1755,7 +1756,7 @@
     },
     "created_by": "admin-1",
     "created_at": "2026-11-15T05:27:27+00:00",
-    "updated_at": "2026-11-15T05:27:27+00:00",
+    "updated_at": "2026-11-17T04:05:29+00:00",
     "title": "HHS",
     "show_final_score_immediately": true,
     "allow_pretest": true,
@@ -1763,6 +1764,7 @@
     "pretest_cooldown_seconds": 2.0,
     "submission_policy": "once",
     "max_submissions": 1,
-    "distributed_at": "2026-11-15T05:27:27+00:00"
+    "distributed_at": "2026-11-15T05:27:27+00:00",
+    "started_at": "2026-11-17T04:05:29+00:00"
   }
 }

@@ -88,6 +88,7 @@ async function main() {
   const storedCopies = new Map();
   let copySequence = 0;
   let failNextPublish = false;
+  let createSaveGate = null;
   let failNextUpdate = false;
   const windowListeners = new Map();
   const clone = (value) => JSON.parse(JSON.stringify(value));
@@ -107,6 +108,7 @@ async function main() {
       return { paper: clone(storedPaper) };
     }
     if (url === '/api/admin/papers/independent' && options.method === 'POST') {
+      if (createSaveGate) { const gate = createSaveGate; createSaveGate = null; await gate.promise; }
       const payload = JSON.parse(options.body);
       const isIndependentCopy = storedPaper?.status === 'published';
       const paper = { id: isIndependentCopy ? `paper-copy-${++copySequence}` : 'paper-lifecycle', schema_version: 2,
@@ -157,6 +159,14 @@ async function main() {
   const control = (name) => { const node = editor.querySelector(`[data-filter="${name}"]`); assert(node, `missing ${name} filter`); return node; };
   const available = () => editor.querySelector('.qb-picker-list').textContent;
   const selected = () => editor.querySelector('.qb-selected-list').textContent;
+  const selectedTitles = () => editor.querySelectorAll('.qb-selected').map((row) => row.children[1].children[0].textContent);
+  const questionFilters = editor.querySelector('.qb-question-filters');
+  const reset = editor.querySelector('[data-role="clear-question-filters"]');
+  assert(questionFilters && questionFilters.attrs.role === 'search', 'Question filters render in a labeled search group');
+  assert.strictEqual(questionFilters.querySelectorAll('.paper-question-filter-field').length, 5, 'keyword and existing select filters each have a visible label');
+  assert.strictEqual(editor.querySelector('.qb-filter-tags').attrs.role, 'group', 'Tag choices are exposed as a named group');
+  assert(editor.querySelectorAll('.qb-tag-option').length >= 3, 'Tags render as individually labeled choices');
+  assert(reset.disabled, 'clear filters is disabled when no filter is active');
   assert(available().includes('Loops Intro') && available().includes('Array Basics'), 'all eligible questions initially visible');
 
   control('language').value = 'python'; await control('language').dispatch('change');
@@ -184,7 +194,7 @@ async function main() {
   const tag = editor.querySelector('[data-filter-tag="loops"]');
   tag.checked = true; await tag.dispatch('change');
   assert(available().includes('Loops Intro'), 'tag filter matches selected tag');
-  const reset = editor.querySelectorAll('button').find((button) => button.textContent.includes('Xóa bộ lọc'));
+  assert(!reset.disabled, 'clear filters is enabled after a filter is applied');
   await reset.dispatch('click');
   assert(available().includes('Array Basics'), 'reset restores complete eligible pool');
   editor.querySelector('[data-filter-tag="loops"]').checked = true;
@@ -192,6 +202,8 @@ async function main() {
   editor.querySelector('[data-filter-tag="advanced"]').checked = true;
   await editor.querySelector('[data-filter-tag="advanced"]').dispatch('change');
   assert(available().includes('Loops Intro') && available().includes('Loops Advanced'), 'multiple tags combine with OR');
+  assert(editor.querySelectorAll('.qb-tag-option').filter((option) => option.classList.contains('is-selected')).length === 2,
+    'selected Tags have a distinct selected-chip state');
   await reset.dispatch('click');
 
   quantity.value = '2'; await quantity.dispatch('input');
@@ -219,6 +231,12 @@ async function main() {
   await addAdvancedButton.dispatch('click');
   assert(selected().includes('Loops Intro') && selected().includes('Loops Advanced'), 'manual Add across Tags preserves both selections');
   assert.strictEqual(editor.querySelectorAll('.qb-selected').length, 2, 'repeated Add for one ID never creates a duplicate');
+  const orderBeforeFilterReset = selectedTitles();
+  await reset.dispatch('click');
+  assert.deepStrictEqual(selectedTitles(), orderBeforeFilterReset, 'clearing filters leaves the selected IDs and their order unchanged');
+  assert.strictEqual(editor.querySelectorAll('.qb-tag-option').filter((option) => option.classList.contains('is-selected')).length, 0,
+    'clearing filters clears selected Tag states');
+  assert(reset.disabled, 'clear filters becomes disabled after reset');
   await setTag('advanced', false);
   await setTag('intro', true);
   assert(selected().includes('Loops Advanced'), 'changing back to Tag A retains the Tag B question');
@@ -344,9 +362,13 @@ async function main() {
   }
   await reset.dispatch('click');
 
+  const status = editor.querySelector('[data-role="paper-lifecycle"]');
+  assert.strictEqual(status.querySelector('.paper-save-status-primary').dataset.status, 'unsaved', 'new Paper shows an unsaved primary status');
+  assert(status.textContent.includes('Ch\u01b0a c\u00f3 phi\u00ean b\u1ea3n xu\u1ea5t b\u1ea3n'), 'new Paper explains that no Published Version exists');
+  assert(!/\b(null|undefined)\b/i.test(status.textContent), 'new Paper status omits null and undefined values');
   const title = editor.querySelector('#cp-title');
   title.value = 'Lifecycle Paper'; await title.dispatch('input');
-  assert(editor.querySelector('[data-role="paper-lifecycle"]').textContent.includes('Unsaved Changes'), 'editor shows unsaved changes');
+  assert.strictEqual(status.querySelector('.paper-save-status-primary').dataset.status, 'unsaved', 'new Paper remains explicitly unsaved before first Save');
   const createCallsBeforeSave = requests.filter((request) => request.url === '/api/admin/papers/independent' && request.method === 'POST').length;
   assert.strictEqual(createCallsBeforeSave, 0, 'typing and selecting questions do not create a Paper before explicit Save');
   assert.strictEqual(timers.size, 0, 'editing does not schedule a delayed Paper save');
@@ -355,8 +377,13 @@ async function main() {
     'waiting after edits does not persist a new Paper');
   const saveButton = () => editor.querySelectorAll('button').find((button) => button.textContent.includes('Save Draft'));
   const saveCallsBefore = requests.filter((request) => request.url === '/api/admin/papers/independent' && request.method === 'POST').length;
+  const saveGate = deferred();
+  createSaveGate = saveGate;
   const firstSave = saveButton().dispatch('click');
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.strictEqual(status.querySelector('.paper-save-status-primary').dataset.status, 'saving', 'pending API save is shown as Saving');
   await saveButton().dispatch('click');
+  saveGate.resolve();
   await firstSave;
   assert.strictEqual(requests.filter((request) => request.url === '/api/admin/papers/independent' && request.method === 'POST').length - saveCallsBefore, 1, 'duplicate save clicks create only one Paper');
   const savePayload = JSON.parse(requests.find((request) => request.url === '/api/admin/papers/independent' && request.method === 'POST').body);
@@ -366,7 +393,11 @@ async function main() {
   assert(list.textContent.includes('Lifecycle Paper'), 'saved Draft appears in the Paper list');
   await list.querySelectorAll('button').find((button) => button.textContent.includes('Chỉnh sửa')).dispatch('click');
   await new Promise((resolve) => setImmediate(resolve));
-  assert(editor.querySelector('[data-role="paper-lifecycle"]').textContent.includes('draft revision 1'), 'saved state shows server revision');
+  const savedStatus = editor.querySelector('[data-role="paper-lifecycle"]');
+  assert.strictEqual(savedStatus.querySelector('.paper-save-status-primary').dataset.status, 'saved', 'backend confirmation changes status to Saved');
+  assert(savedStatus.textContent.includes('L\u1ea7n ch\u1ec9nh s\u1eeda 1'), 'saved status shows the valid revision');
+  assert(savedStatus.textContent.includes('Ch\u01b0a c\u00f3 phi\u00ean b\u1ea3n xu\u1ea5t b\u1ea3n'), 'Draft without publication shows a clear message');
+  assert(!/\b(null|undefined)\b/i.test(savedStatus.textContent), 'saved Draft status omits invalid optional values');
   const restoredSelection = editor.querySelectorAll('.qb-selected').map((row) => row.textContent).join('|');
   assert(restoredSelection.indexOf('Loops Intro') < restoredSelection.indexOf('Loops Advanced'), 'Edit Mode restores saved question IDs in their original order');
 
@@ -382,6 +413,7 @@ async function main() {
 
   const titleForDraftSave = editor.querySelector('#cp-title');
   titleForDraftSave.value = 'Explicit Draft Save'; await titleForDraftSave.dispatch('input');
+  assert.strictEqual(editor.querySelector('[data-role="paper-lifecycle"]').querySelector('.paper-save-status-primary').dataset.status, 'dirty', 'editing a saved Draft shows unsaved changes');
   const searchForDraftSave = editor.querySelector('[data-filter="search"]');
   searchForDraftSave.value = 'Loops Intro'; await searchForDraftSave.dispatch('input');
   const filteredSelectionForDraftSave = editor.querySelector('[data-role="filtered-selection"]');
@@ -412,7 +444,7 @@ async function main() {
   assert.deepStrictEqual(editor.querySelectorAll('.qb-selected').map((row) => row.textContent), selectionBeforeFailedSave,
     'failed Save retains the selected question state and order');
   assert.strictEqual(storedPaper.title, 'Lifecycle Paper', 'failed Save does not change server content');
-  assert(editor.querySelector('[data-role="paper-lifecycle"]').textContent.includes('Unsaved Changes'), 'failed Save keeps the editor dirty');
+  assert.strictEqual(editor.querySelector('[data-role="paper-lifecycle"]').querySelector('.paper-save-status-primary').dataset.status, 'error', 'failed Save shows an error status');
   assert(editor.querySelector('[data-role="paper-lifecycle"]').textContent.includes('temporary network failure'), 'failed Save displays failure feedback');
   await saveButton().dispatch('click');
   assert.strictEqual(storedPaper.id, 'paper-lifecycle', 'saving an existing Draft updates the same Paper ID');
@@ -425,6 +457,11 @@ async function main() {
   const publishButton = () => editor.querySelectorAll('button').find((button) => button.textContent.includes('Publish Paper'));
   const titleForPublish = editor.querySelector('#cp-title');
   titleForPublish.value = 'Published without preview'; await titleForPublish.dispatch('input');
+  failNextPublish = true;
+  await publishButton().dispatch('click');
+  assert.strictEqual(storedPaper.status, 'draft', 'failed publish does not change the server lifecycle');
+  assert.strictEqual(editor.querySelector('[data-role="paper-lifecycle"]').querySelector('.paper-save-status-primary').dataset.status, 'saved', 'a failed Publish after a confirmed save still reports Saved');
+  assert(editor.querySelector('[data-role="paper-lifecycle"]').textContent.includes('publishing failed'), 'publish failure remains visible as a separate message');
   await publishButton().dispatch('click');
   assert.strictEqual(storedPaper.status, 'published', 'Paper publish changes status without creating a nested version');
   assert.strictEqual(requests.filter((request) => request.url.includes('/preview')).length, 1,
@@ -874,6 +911,11 @@ async function testPublishedPaperForkAndStatusRendering() {
   await forkButton.dispatch('click');
   await new Promise((resolve) => setImmediate(resolve));
   assert.strictEqual(editor.querySelector('#cp-title').value, 'Published title', 'copy starts from the published version title');
+  const copyStatus = editor.querySelector('[data-role="paper-lifecycle"]');
+  assert(copyStatus.querySelector('.paper-id').textContent.startsWith('Paper legacy-s'), 'legacy Paper status shows a shortened Paper ID');
+  assert.strictEqual(copyStatus.querySelector('.paper-id').attrs.title, 'legacy-source', 'the full Paper ID remains available as a tooltip');
+  assert(copyStatus.querySelector('.paper-publication-status').textContent.includes('Phi\u00ean b\u1ea3n 2'), 'legacy Paper status shows its latest Published Version');
+  assert(!/\b(null|undefined)\b/i.test(copyStatus.textContent), 'legacy Paper status omits null and undefined values');
   assert(editor.querySelector('#cp-metadata').value.includes('"version": 2'), 'copy starts from published version metadata');
   assert(editor.querySelector('.qb-selected-list').textContent.includes('Loops Intro'), 'copy retains published ordered question selection');
   assert(!editor.querySelector('.qb-selected-list').textContent.includes('Array Basics'), 'source mutable Draft selection is excluded');

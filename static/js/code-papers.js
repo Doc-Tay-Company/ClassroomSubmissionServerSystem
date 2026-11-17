@@ -299,14 +299,16 @@
     const difficultyFilter = h("select", { value: filters.difficulty, "data-filter": "difficulty" },
       ...optionList(difficulties, filters.difficulty, "Mọi độ khó"));
     const tagFilters = new Map();
-    const tagFilterHost = h("div", { class: "qb-filter-tags", "aria-label": "Lọc theo tags" }, ...availableTags.map((tag) => {
+    const tagFilterHost = h("div", { class: "qb-filter-tags", role: "group", "aria-label": "Lọc theo Tags" }, ...availableTags.map((tag) => {
       const checkbox = h("input", { type: "checkbox", checked: filters.tags.has(tag), "data-filter-tag": tag });
-      tagFilters.set(tag, checkbox);
+      const option = h("label", { class: `qb-tag-option${checkbox.checked ? " is-selected" : ""}` }, checkbox, h("span", {}, tag));
+      tagFilters.set(tag, { checkbox, option });
       checkbox.addEventListener("change", (event) => {
         if (event.target.checked) filters.tags.add(tag); else filters.tags.delete(tag);
+        option.classList.toggle("is-selected", event.target.checked);
         refreshFilterResults();
       });
-      return h("label", { class: "checkbox-row" }, checkbox, ` ${tag}`);
+      return option;
     }));
     const quantityInput = h("input", {
       type: "number", min: 1, max: questionBankMax || undefined, step: "any", value: initialQuantity, "data-field": "question-limit",
@@ -335,17 +337,20 @@
     languageFilter.value = filters.language;
     typeFilter.value = filters.grading_mode;
     difficultyFilter.value = filters.difficulty;
-    tagFilters.forEach((checkbox, tag) => { checkbox.checked = filters.tags.has(tag); });
+    tagFilters.forEach(({ checkbox, option }, tag) => {
+      checkbox.checked = filters.tags.has(tag);
+      option.classList.toggle("is-selected", checkbox.checked);
+    });
     const counts = h("p", { class: "fine-print", "data-role": "question-counts" });
     const quantityNotice = h("p", { class: "fine-print", role: "status", "data-role": "question-limit-status" });
     const lifecycleStatus = h("div", { class: "alert", role: "status", "data-role": "paper-lifecycle" });
     const operationStatus = h("p", { class: "fine-print", role: "status", "data-role": "paper-operation" });
-    const resetFilters = h("button", { type: "button", class: "btn btn-small btn-ghost", on: { click: () => {
+    const resetFilters = h("button", { type: "button", class: "btn btn-small btn-secondary", disabled: true, "data-role": "clear-question-filters", on: { click: () => {
       filters.search = ""; filters.category = ""; filters.language = ""; filters.grading_mode = ""; filters.difficulty = ""; filters.tags.clear();
       search.value = ""; categoryFilter.value = ""; languageFilter.value = ""; typeFilter.value = ""; difficultyFilter.value = "";
-      tagFilters.forEach((checkbox) => { checkbox.checked = false; });
+      tagFilters.forEach(({ checkbox, option }) => { checkbox.checked = false; option.classList.remove("is-selected"); });
       refreshFilterResults();
-    } } }, "Xóa bộ lọc");
+    } } }, "Xóa bộ lọc câu hỏi");
     const availableHost = h("div", { class: "qb-picker-list" });
     const selectedHost = h("ol", { class: "qb-selected-list" });
     const canEdit = current?.status !== "archived";
@@ -426,25 +431,62 @@
     };
     window.addEventListener?.("storage", editorStorageHandler);
     function updateLifecycleStatus() {
-      const latest = Object.values(current?.versions || {}).sort((a, b) => b.version - a.version)[0];
+      const versions = Object.values(current?.versions || {})
+        .filter((version) => version && typeof version === "object")
+        .sort((a, b) => (Number.isFinite(Number(b.version)) ? Number(b.version) : -1)
+          - (Number.isFinite(Number(a.version)) ? Number(a.version) : -1));
+      const latest = versions[0] || null;
       const dirty = savedFingerprint === null || editorFingerprint() !== savedFingerprint;
-      if (editorFeedbackError && editorFeedback.startsWith("Bản nháp cần")
+      if (editorFeedbackError && editorFeedback.startsWith("B\u1ea3n nh\u00e1p c\u1ea7n")
         && titleInput.value.trim() && draftSelectionIsValid(filteredQuestions())) {
         editorFeedback = "";
         editorFeedbackError = false;
       }
       if (dirty && editorFeedback && !editorFeedbackError && !busy) editorFeedback = "";
-      const state = creatingPaper ? "Chưa lưu · Unsaved Changes" : dirty ? "Có thay đổi chưa lưu · Unsaved Changes" : "Đã lưu · Saved";
-      lifecycleStatus.className = `alert${editorFeedbackError ? " alert-error" : ""}`;
+      const publicationFailedAfterSave = /publishing failed|xu\u1ea5t b\u1ea3n th\u1ea5t b\u1ea1i/i.test(editorFeedback);
+      const saveFailed = editorFeedbackError && !publicationFailedAfterSave
+        && !editorFeedback.startsWith("B\u1ea3n nh\u00e1p c\u1ea7n");
+      const saving = busy && editorOperation === "save";
+      const state = saving ? { key: "saving", label: "\u0110ang l\u01b0u", icon: "fa-circle-o-notch fa-spin" }
+        : saveFailed ? { key: "error", label: "Kh\u00f4ng l\u01b0u \u0111\u01b0\u1ee3c", icon: "fa-exclamation-circle" }
+          : creatingPaper ? { key: "unsaved", label: "Ch\u01b0a l\u01b0u", icon: "fa-circle-o" }
+            : dirty ? { key: "dirty", label: "C\u00f3 thay \u0111\u1ed5i ch\u01b0a l\u01b0u", icon: "fa-exclamation-circle" }
+              : { key: "saved", label: "\u0110\u00e3 l\u01b0u", icon: "fa-check-circle" };
+      const metadata = [];
+      const paperStatus = current?.status === "published" ? "\u0110\u00e3 xu\u1ea5t b\u1ea3n"
+        : current?.status === "archived" ? "L\u01b0u tr\u1eef" : "Nh\u00e1p";
+      if (current?.status) metadata.push(h("span", { class: "paper-status-badge", "data-status": current.status }, paperStatus));
+      if (current?.revision !== null && current?.revision !== undefined && current?.revision !== ""
+        && Number.isFinite(Number(current.revision))) {
+        metadata.push(h("span", { class: "paper-status-meta" }, `L\u1ea7n ch\u1ec9nh s\u1eeda ${current.revision}`));
+      }
+      const fullPaperId = typeof current?.id === "string" && !/^(null|undefined)$/i.test(current.id.trim()) ? current.id.trim() : "";
+      if (fullPaperId) {
+        const shortPaperId = fullPaperId.length > 12 ? `${fullPaperId.slice(0, 8)}\u2026${fullPaperId.slice(-3)}` : fullPaperId;
+        metadata.push(h("span", { class: "paper-status-meta paper-id", title: fullPaperId, "aria-label": `Paper ID ${fullPaperId}` }, `Paper ${shortPaperId}`));
+      }
+      const publicationParts = [];
+      if (latest?.version !== null && latest?.version !== undefined && latest?.version !== ""
+        && Number.isFinite(Number(latest.version))) publicationParts.push(`Phi\u00ean b\u1ea3n ${latest.version}`);
+      const latestId = typeof latest?.id === "string" && !/^(null|undefined)$/i.test(latest.id.trim()) ? latest.id.trim() : "";
+      if (latestId) publicationParts.push(latestId.length > 12 ? `${latestId.slice(0, 8)}\u2026${latestId.slice(-3)}` : latestId);
+      const publicationText = latest
+        ? (publicationParts.length ? `B\u1ea3n xu\u1ea5t b\u1ea3n m\u1edbi nh\u1ea5t: ${publicationParts.join(" \u00b7 ")}` : "\u0110\u00e3 c\u00f3 phi\u00ean b\u1ea3n xu\u1ea5t b\u1ea3n")
+        : current?.schema_version >= 2 && current?.status === "published"
+          ? "Paper hi\u1ec7n \u0111ang \u0111\u01b0\u1ee3c xu\u1ea5t b\u1ea3n" : "Ch\u01b0a c\u00f3 phi\u00ean b\u1ea3n xu\u1ea5t b\u1ea3n";
+      lifecycleStatus.className = `paper-save-status paper-save-status-${state.key}${editorFeedbackError ? " has-feedback-error" : ""}`;
       lifecycleStatus.replaceChildren(
-        h("span", {}, `${state} · ${creatingFromPublished ? `Paper mới từ ${createFromPublishedSourceId} · chưa có ID` : `Paper ${current?.id || "chưa có ID"}`} · ${creatingPaper ? "draft revision chưa có" : `draft revision ${current?.revision ?? "chưa có"}`} · bản xuất bản mới nhất ${latest ? `v${latest.version} (${latest.id})` : "chưa có"}`),
+        h("div", { class: "paper-save-status-primary", "data-status": state.key },
+          h("i", { class: `fa ${state.icon}`, "aria-hidden": "true" }),
+          h("strong", {}, state.label)),
+        metadata.length ? h("div", { class: "paper-save-status-meta" }, ...metadata) : null,
+        h("p", { class: "paper-publication-status" }, publicationText),
         editorFeedback ? h("p", { class: editorFeedbackError ? "alert alert-error" : "fine-print" }, editorFeedback) : null,
         stalePaperId ? h("button", { type: "button", class: "btn btn-small btn-secondary", "data-role": "reload-stale-paper", on: { click: () => {
-          if (window.confirm("Tải lại bản mới nhất sẽ bỏ các thay đổi chưa lưu trên màn hình. Tiếp tục?")) openEditor(stalePaperId);
-        } } }, "Tải lại bản mới nhất") : null,
+          if (window.confirm("T\u1ea3i l\u1ea1i b\u1ea3n m\u1edbi nh\u1ea5t s\u1ebd b\u1ecf c\u00e1c thay \u0111\u1ed5i ch\u01b0a l\u01b0u tr\u00ean m\u00e0n h\u00ecnh. Ti\u1ebfp t\u1ee5c?")) openEditor(stalePaperId);
+        } } }, "T\u1ea3i l\u1ea1i b\u1ea3n m\u1edbi nh\u1ea5t") : null,
       );
-      operationStatus.textContent = editorOperation === "save" ? "Đang lưu bản nháp…"
-        : editorOperation === "publish" ? "Đang xuất bản version…" : "";
+      operationStatus.textContent = editorOperation === "publish" ? "\u0110ang xu\u1ea5t b\u1ea3n phi\u00ean b\u1ea3n\u2026" : "";
       const hasDraftChanges = dirty || isNew;
       const unchangedPublished = independent && current?.status === "published" && !dirty;
       saveButton.disabled = !canEdit || busy || unchangedPublished || !titleInput.value.trim() || !draftSelectionIsValid(filteredQuestions());
@@ -456,6 +498,9 @@
 
     function renderQuestions() {
       const pool = filteredQuestions();
+      const hasActiveFilters = Boolean(filters.search.trim() || filters.category || filters.language
+        || filters.grading_mode || filters.difficulty || filters.tags.size);
+      resetFilters.disabled = !hasActiveFilters;
       quantityInput.max = String(questionBankMax);
       quantityInput.disabled = !canEdit || questionBankMax === 0;
       const quantity = Number(quantityInput.value);
@@ -644,15 +689,17 @@
       ...(!creatingFromPublished ? current?.draft?.warnings || [] : []).map((item) => h("div", { class: "alert alert-warning", role: "status" }, `${item.title || item.question_id}: ${item.warning}`)),
       h("div", { class: "stack-form" }, h("label", { for: "cp-title" }, "Tên Paper"), titleInput, h("label", { for: "cp-metadata" }, "Metadata dạng JSON"), metadataInput),
       h("div", { class: "qb-question-tools" },
-        h("div", { class: "exam-rows" },
-          h("label", {}, "Từ khóa", search),
-          h("label", {}, "Danh mục", categoryFilter),
-          h("label", {}, "Ngôn ngữ", languageFilter),
-          h("label", {}, "Kiểu câu hỏi / chấm", typeFilter),
-          h("label", {}, "Độ khó", difficultyFilter),
-          h("div", {}, h("span", {}, "Tags (khớp bất kỳ)"), tagFilterHost)),
-        resetFilters),
-      quantityInput, counts, quantityNotice,
+        h("div", { class: "qb-question-filters", role: "search", "aria-label": "Bộ lọc câu hỏi trong Paper" },
+          h("label", { class: "paper-question-filter-field qb-search-filter" }, h("span", {}, "Tìm câu hỏi"), search),
+          h("label", { class: "paper-question-filter-field" }, h("span", {}, "Danh mục"), categoryFilter),
+          h("label", { class: "paper-question-filter-field" }, h("span", {}, "Ngôn ngữ"), languageFilter),
+          h("label", { class: "paper-question-filter-field" }, h("span", {}, "Kiểu câu hỏi / chấm"), typeFilter),
+          h("label", { class: "paper-question-filter-field" }, h("span", {}, "Độ khó"), difficultyFilter),
+          h("div", { class: "paper-tag-filter-field" }, h("span", {}, "Tags · khớp bất kỳ"), tagFilterHost)),
+        h("div", { class: "qb-filter-actions" }, resetFilters)),
+      h("div", { class: "qb-question-summary" },
+        h("label", { class: "paper-question-filter-field qb-question-limit-field" }, h("span", {}, "Question Limit"), quantityInput),
+        h("div", { class: "qb-question-count-summary" }, counts, quantityNotice)),
       h("div", { class: "qb-selection-tools" },
         h("label", { class: "checkbox-row" }, filteredSelection, " Chọn/bỏ chọn nhóm câu phù hợp (giữ câu ngoài bộ lọc)"),
         randomButton, selectAllButton, deselectAllButton, selectionNotice),

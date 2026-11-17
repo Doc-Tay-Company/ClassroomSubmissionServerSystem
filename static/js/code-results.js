@@ -7,6 +7,7 @@
   const examSelect = $("cr-exam");
   const studentSelect = $("cr-student");
   const questionSelect = $("cr-question");
+  const clearFiltersButton = $("cr-clear");
   const list = $("cr-list");
   const detail = $("cr-detail");
   const notice = $("cr-notice");
@@ -379,11 +380,18 @@
 
   examSelect.addEventListener("change", () => {
     selectedExam = exams.find((exam) => exam.id === examSelect.value);
+    clearFiltersButton.disabled = !examSelect.value;
     updateQuestionFilter();
     loadResults();
   });
   studentSelect.addEventListener("change", loadResults);
   questionSelect.addEventListener("change", loadResults);
   $("cr-refresh").addEventListener("click", loadResults);
+  clearFiltersButton.addEventListener("click", () => {
+    if (!examSelect.value) return;
+    studentSelect.value = "";
+    questionSelect.value = "";
+    loadResults();
+  });
   initialize();
 })();

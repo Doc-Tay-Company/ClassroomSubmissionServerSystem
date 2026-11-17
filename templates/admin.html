@@ -331,11 +331,14 @@
                 <div id="code-results-view">
                     <div class="panel-heading"><div><h2>Kết quả bài code</h2>
                         <p class="muted">Dữ liệu lấy từ bài nộp đã được máy chủ chấm; chi tiết quản trị có thể gồm check ẩn.</p></div></div>
-                    <div class="filter-row">
-                        <label for="cr-exam">Đề thi</label><select id="cr-exam"><option value="">Đang tải đề thi...</option></select>
-                        <label for="cr-student">Sinh viên</label><select id="cr-student"><option value="">Tất cả sinh viên</option></select>
-                        <label for="cr-question">Câu hỏi</label><select id="cr-question"><option value="">Tất cả câu hỏi</option></select>
-                        <button type="button" class="btn btn-primary btn-small" id="cr-refresh"><i class="fa fa-refresh"></i> Tải kết quả</button>
+                    <div class="filter-row code-results-filters" role="search" aria-label="Lọc kết quả bài code">
+                        <label class="code-result-filter-field" for="cr-exam"><span>Đề thi</span><select id="cr-exam"><option value="">Đang tải đề thi...</option></select></label>
+                        <label class="code-result-filter-field" for="cr-student"><span>Sinh viên</span><select id="cr-student"><option value="">Tất cả sinh viên</option></select></label>
+                        <label class="code-result-filter-field" for="cr-question"><span>Câu hỏi</span><select id="cr-question"><option value="">Tất cả câu hỏi</option></select></label>
+                        <div class="code-result-filter-actions">
+                            <button type="button" class="btn btn-primary btn-small" id="cr-refresh"><i class="fa fa-refresh" aria-hidden="true"></i> Tải kết quả</button>
+                            <button type="button" class="btn btn-secondary btn-small" id="cr-clear" disabled><i class="fa fa-times" aria-hidden="true"></i> Xóa lọc</button>
+                        </div>
                     </div>
                     <div id="cr-notice" class="notice hidden"></div>
                     <div id="cr-matrix"></div>

@@ -101,7 +101,7 @@
     const grid = h("div", { class: "exam-card-grid" });
     const status = h("div", { class: "notice hidden" });
 
-    const search = h("input", { type: "search", placeholder: "Tìm theo tên kỳ thi...", "aria-label": "Tìm kỳ thi", on: { input: (e) => { filters.q = e.target.value; render(); } } });
+    const search = h("input", { type: "search", placeholder: "Nhập tên kỳ thi", "aria-label": "Tìm kỳ thi", on: { input: (e) => { filters.q = e.target.value; render(); } } });
     const tagSelect = h("select", { "aria-label": "Lọc theo nhãn", on: { change: (e) => { filters.tag = e.target.value; render(); } } },
       h("option", { value: "" }, "Tất cả nhãn"), h("option", { value: "midterm" }, "Giữa kỳ"), h("option", { value: "final" }, "Cuối kỳ"));
     const statusSelect = h("select", { "aria-label": "Lọc theo trạng thái", on: { change: (e) => { filters.status = e.target.value; render(); } } },
@@ -112,7 +112,10 @@
         h("div", {}, h("h2", {}, h("i", { class: "fa fa-calendar" }), " Danh sách kỳ thi"),
           h("p", { class: "muted" }, "Tạo kỳ thi, phát đề, bắt đầu và kết thúc kỳ thi. Chỉ một kỳ thi được diễn ra tại một thời điểm.")),
         link(examUrl(), "fa-plus", "Tạo kỳ thi mới", "btn-primary")),
-      h("div", { class: "exam-filters" }, search, tagSelect, statusSelect),
+      h("div", { class: "exam-filters", role: "search", "aria-label": "Lọc danh sách kỳ thi" },
+        h("label", { class: "exam-filter-field" }, h("span", {}, "Tìm kỳ thi"), search),
+        h("label", { class: "exam-filter-field" }, h("span", {}, "Nhãn"), tagSelect),
+        h("label", { class: "exam-filter-field" }, h("span", {}, "Trạng thái"), statusSelect)),
       status, grid);
 
     function card(exam) {
@@ -498,7 +501,8 @@
         h("p", { class: "muted" }, "Cần chọn ít nhất một sinh viên để phát đề. MSSV chưa có tài khoản sẽ được tạo tự động (mật khẩu ban đầu là MSSV) khi phát đề."),
         mark("participants", h("div", { class: "participant-block" },
           h("div", {},
-            h("input", { type: "search", value: form.accountQuery, placeholder: "Tìm MSSV hoặc họ tên...", on: { input: (e) => { form.accountQuery = e.target.value; refreshList(); } } }),
+            h("label", { class: "exam-search-field" }, h("span", {}, "Tìm sinh viên"),
+              h("input", { type: "search", value: form.accountQuery, placeholder: "Nhập MSSV hoặc họ tên", on: { input: (e) => { form.accountQuery = e.target.value; refreshList(); } } })),
             list,
             h("div", { class: "form-actions" },
               h("button", { type: "button", class: "btn btn-ghost btn-small", on: { click: () => setVisible(true) } }, "Chọn tất cả kết quả"),
