@@ -475,7 +475,7 @@
         : current?.schema_version >= 2 && current?.status === "published"
           ? "Paper hi\u1ec7n \u0111ang \u0111\u01b0\u1ee3c xu\u1ea5t b\u1ea3n" : "Ch\u01b0a c\u00f3 phi\u00ean b\u1ea3n xu\u1ea5t b\u1ea3n";
       lifecycleStatus.className = `paper-save-status paper-save-status-${state.key}${editorFeedbackError ? " has-feedback-error" : ""}`;
-      lifecycleStatus.replaceChildren(
+      lifecycleStatus.replaceChildren(...[
         h("div", { class: "paper-save-status-primary", "data-status": state.key },
           h("i", { class: `fa ${state.icon}`, "aria-hidden": "true" }),
           h("strong", {}, state.label)),
@@ -485,7 +485,7 @@
         stalePaperId ? h("button", { type: "button", class: "btn btn-small btn-secondary", "data-role": "reload-stale-paper", on: { click: () => {
           if (window.confirm("T\u1ea3i l\u1ea1i b\u1ea3n m\u1edbi nh\u1ea5t s\u1ebd b\u1ecf c\u00e1c thay \u0111\u1ed5i ch\u01b0a l\u01b0u tr\u00ean m\u00e0n h\u00ecnh. Ti\u1ebfp t\u1ee5c?")) openEditor(stalePaperId);
         } } }, "T\u1ea3i l\u1ea1i b\u1ea3n m\u1edbi nh\u1ea5t") : null,
-      );
+      ].filter((node) => node !== null));
       operationStatus.textContent = editorOperation === "publish" ? "\u0110ang xu\u1ea5t b\u1ea3n phi\u00ean b\u1ea3n\u2026" : "";
       const hasDraftChanges = dirty || isNew;
       const unchangedPublished = independent && current?.status === "published" && !dirty;

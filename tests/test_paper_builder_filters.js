@@ -31,7 +31,7 @@ class Element {
     }
   }
   append(...items) { this.children.push(...items.filter((item) => item != null)); }
-  replaceChildren(...items) { this.children = items.filter((item) => item != null); }
+  replaceChildren(...items) { this.children = items.map((item) => item instanceof Element ? item : String(item)); }
   addEventListener(type, callback) { this.listeners[type] = callback; }
   async dispatch(type) { if (this.listeners[type]) await this.listeners[type]({ type, target: this, stopPropagation() {} }); }
   get textContent() { return this._text + this.children.map((child) => child instanceof Element ? child.textContent : String(child)).join(''); }
@@ -155,6 +155,9 @@ async function main() {
   assert(editor.querySelectorAll('button').some((button) => button.textContent.includes('Save Draft')),
     `new Paper can be saved as a Draft to create its ID; buttons=${editor.querySelectorAll('button').map((button) => button.textContent).join('|')}; editor=${editor.textContent}`);
   assert(editor.textContent.includes('Lưu thành bản nháp để tạo Paper ID'), 'new Paper explains the Draft creation step');
+  assert.strictEqual(editor.querySelector('[data-role="paper-lifecycle"]').textContent,
+    'Ch\u01b0a l\u01b0uCh\u01b0a c\u00f3 phi\u00ean b\u1ea3n xu\u1ea5t b\u1ea3n',
+    'new Paper status renders only the save and publication messages, without null placeholders');
 
   const control = (name) => { const node = editor.querySelector(`[data-filter="${name}"]`); assert(node, `missing ${name} filter`); return node; };
   const available = () => editor.querySelector('.qb-picker-list').textContent;
