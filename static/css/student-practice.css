@@ -314,7 +314,7 @@
 .practice-workspace-grid {
   display: grid;
   grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
-  align-items: start;
+  align-items: stretch;
   gap: 16px;
 }
 
