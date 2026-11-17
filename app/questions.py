@@ -9,6 +9,8 @@ import re
 import uuid
 from typing import Mapping
 
+from .code_runner import _java_target, _safe_single_file, _validate_tests
+from .java_runner import _validate_reflection_request
 from .grading import (
     GradingError,
     parse_nonnegative_decimal,
@@ -95,6 +97,8 @@ def _validate_question(payload: Mapping, *, question_id: str, actor: str) -> dic
     # Validation records and the private reference source are server-owned and must
     # never be accepted from a client payload.
     question.pop("validation", None)
+    # sample_source is a transient validation input, not Question Bank data.
+    question.pop("sample_source", None)
     question.pop("reference_source", None)
     question.pop("practice_revision", None)
     question.pop("expected_version", None)
@@ -175,10 +179,28 @@ def _validate_question(payload: Mapping, *, question_id: str, actor: str) -> dic
         if language == "java":
             if not isinstance(question.get("target_class"), str) or not question["target_class"].strip():
                 raise QuestionError("Java STDIO questions require target_class")
+            target_file = question.get("target_file")
+            try:
+                _, source_path = _java_target(
+                    question["target_class"], question.get("target_package"),
+                    target_file if target_file not in (None, "") else None,
+                )
+            except ValueError as exc:
+                raise QuestionError(str(exc)) from exc
+            # Java STDIO's filename is derived by the Runner when omitted; persist
+            # that same filename so stored Questions are execution-ready.
+            question["target_file"] = source_path.name
         else:
             question.pop("target_class", None)
             question.pop("target_package", None)
-            question.setdefault("target_file", "solution.py")
+            target_file = question.get("target_file")
+            if target_file in (None, ""):
+                # Match the Runner's established default for omitted Python filenames.
+                target_file = "solution.py"
+            try:
+                question["target_file"] = _safe_single_file(target_file, ".py", "target_file")
+            except ValueError as exc:
+                raise QuestionError(str(exc)) from exc
 
     try:
         declared = parse_nonnegative_decimal(question.get("total_points"), "total_points")
@@ -197,6 +219,32 @@ def _validate_question(payload: Mapping, *, question_id: str, actor: str) -> dic
         raise QuestionError(str(exc)) from exc
     if declared != configured_total:
         raise QuestionError("total_points must equal the sum of configured check/test points")
+    if grading_mode == "stdio":
+        try:
+            _, runner_total = _validate_tests(tests)
+        except (GradingError, TypeError, ValueError) as exc:
+            raise QuestionError(str(exc)) from exc
+        if declared != runner_total:
+            raise QuestionError("total_points must equal the sum of configured test points")
+    else:
+        # The Reflection Runner requires unique check IDs, a non-empty kind,
+        # boolean visibility, and numeric points. Validate its actual request
+        # contract here without executing user code or requiring sample_source.
+        target_class = question["target_class"]
+        target_package = question["target_package"]
+        target_name = (
+            target_class if target_class.startswith(target_package + ".")
+            else f"{target_package}.{target_class}" if target_package
+            else target_class
+        )
+        try:
+            _validate_reflection_request(
+                "class ImportValidation {}",
+                target_name,
+                {"checks": checks, "total_points": question.get("total_points")},
+            )
+        except (GradingError, TypeError, ValueError) as exc:
+            raise QuestionError(str(exc)) from exc
 
     question.update(
         {

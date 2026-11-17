@@ -62,7 +62,7 @@
   let questions = [];
   let listLoadGeneration = 0;
 
-  const SERVER_OWNED = ["id", "status", "source", "usage_count", "version", "validation", "reference_source", "practice_revision", "expected_version", "expected_practice_revision"];
+  const SERVER_OWNED = ["id", "status", "source", "usage_count", "version", "validation", "reference_source", "sample_source", "practice_revision", "expected_version", "expected_practice_revision"];
   const CHECK_KINDS = {
     field: "Thuộc tính (field)",
     constructor: "Constructor",
@@ -524,19 +524,25 @@
       delete item.constructor_args;
     } else if (item.kind === "comparable") {
       const oldCases = item.cases;
+      // This marker is editor-only. Never trust a marker supplied by imported JSON.
+      delete item.__editor_comparable_source;
       if (Array.isArray(oldCases)) {
         item.cases = oldCases;
       } else {
         const instances = item.instances || [];
-        item.cases = (item.comparisons || []).map((comparison) => ({
+        const comparisons = item.comparisons || [];
+        item.cases = comparisons.map((comparison) => ({
           a: instances[comparison.left]?.constructor_args || [],
           b: instances[comparison.right]?.constructor_args || [],
           expected_sign: comparison.expected_sign,
         }));
+        const source = { cases: clone(item.cases) };
+        for (const key of ["instances", "comparisons", "expected_order", "constructor_param_types"]) {
+          if (Object.prototype.hasOwnProperty.call(item, key)) source[key] = clone(item[key]);
+        }
+        item.__editor_comparable_source = source;
         item.constructor_param_types ??= instances[0]?.constructor_parameter_types || [];
       }
-      delete item.instances;
-      delete item.comparisons;
     }
     return item;
   }
@@ -592,6 +598,21 @@
       delete item.expected_template;
       delete item.setup_actions;
     } else if (item.kind === "comparable") {
+      const source = item.__editor_comparable_source;
+      delete item.__editor_comparable_source;
+      if (source && JSON.stringify(item.cases || []) === JSON.stringify(source.cases)) {
+        // Untouched legacy checks retain shared instance identity, comparison indexes,
+        // and expected_order exactly as imported.
+        for (const key of ["instances", "comparisons", "expected_order", "constructor_param_types"]) {
+          if (Object.prototype.hasOwnProperty.call(source, key)) item[key] = source[key];
+          else delete item[key];
+        }
+        delete item.cases;
+        return item;
+      }
+      // Editing pairwise cases creates a new independent-pair representation. The old
+      // global ordering no longer describes that expanded instance list.
+      if (source) delete item.expected_order;
       const parameterTypes = item.constructor_param_types || [];
       item.instances = [];
       item.comparisons = [];

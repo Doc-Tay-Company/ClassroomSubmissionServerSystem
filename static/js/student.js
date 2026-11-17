@@ -18,7 +18,10 @@
     catch (error) { reportBackgroundError("Student tab storage write", error); }
     return Object.keys(tabs).length;
   };
+  let telemetryEnabled = false;
+  let heartbeatInFlight = false;
   const sendTelemetry = async () => {
+    if (!telemetryEnabled) return;
     const form = new URLSearchParams({
       visibility: document.visibilityState,
       focused: String(document.hasFocus()),
@@ -26,7 +29,6 @@
       browser: navigator.userAgent,
     });
     try {
-      // send data to server
       await window.cssRequest("/api/student/telemetry", {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -35,9 +37,12 @@
     } catch (error) { reportBackgroundError("Student telemetry", error); }
   };
   const heartbeat = async () => {
+    if (heartbeatInFlight) return;
+    heartbeatInFlight = true;
     try {
-      await sendTelemetry();
-      const status = await window.cssRequest("/api/student/status"); //get data from server
+      const status = await window.cssRequest("/api/student/status");
+      telemetryEnabled = status.active_exam_attempt === true;
+      if (telemetryEnabled) await sendTelemetry();
       const box = document.getElementById("student-notifications");
       if (box && status.notifications?.length) {
         box.className = "alert alert-info";
@@ -71,7 +76,12 @@
       const waiting = panel && ["idle", "ended", "distributed"].includes(panel.dataset.examState);
       const publishedBefore = (panel?.dataset.published || "").split(",").filter(Boolean).sort().join(",");
       if (waiting && (status.exam_state === "started" || publishedBefore !== published)) window.location.reload();
-    } catch (error) { reportBackgroundError("Student heartbeat", error); }
+    } catch (error) {
+      telemetryEnabled = false;
+      reportBackgroundError("Student heartbeat", error);
+    } finally {
+      heartbeatInFlight = false;
+    }
   };
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") heartbeat();

@@ -1720,5 +1720,1095 @@
     "distributed_at": "2026-11-06T06:41:02+00:00",
     "started_at": "2026-11-13T03:37:16+00:00",
     "ended_at": "2026-11-14T18:35:21+00:00"
+  },
+  "f283d00825844a97b234f6187d702121": {
+    "id": "f283d00825844a97b234f6187d702121",
+    "schema_version": 2,
+    "status": "ended",
+    "release_id": "65f9bac000584439a57b508fc51776a3",
+    "general_exam_id": "8edb178189ca49de894c63acfcfa6061",
+    "paper_ref": {
+      "paper_id": "e2864110eddd46d19006c5aba026b7a1"
+    },
+    "paper_snapshot": {
+      "id": "e2864110eddd46d19006c5aba026b7a1",
+      "title": "ATI",
+      "metadata": {},
+      "questions": [
+        {
+          "title": "Arithmetic Summary 2",
+          "statement": "Read two signed 32-bit integers a and b. Print exactly one line in this format: sum=<a+b>;diff=<a-b>;product=<a*b>. Do not add spaces around separators.",
+          "language": "java",
+          "grading_mode": "stdio",
+          "target_class": "Main",
+          "target_package": "",
+          "target_file": "Main.java",
+          "starter_code": "import java.util.Scanner;\n\npublic class Main {\n    public static void main(String[] args) {\n        Scanner scanner = new Scanner(System.in);\n        int a = scanner.nextInt();\n        int b = scanner.nextInt();\n        // Print the required arithmetic summary.\n    }\n}\n",
+          "time_limit_seconds": 5.0,
+          "memory_limit_mb": 256,
+          "max_output_bytes": 65536,
+          "allow_pretest": true,
+          "max_pretest_runs": 20,
+          "category": "Arithmetic",
+          "tags": [
+            "java",
+            "stdio",
+            "formatting"
+          ],
+          "difficulty": "easy",
+          "practice_enabled": true,
+          "tests": [
+            {
+              "id": "j01-positive",
+              "stdin": "12 5\n",
+              "expected_stdout": "sum=17;diff=7;product=60\n",
+              "points": 25,
+              "is_visible": true
+            },
+            {
+              "id": "j01-negative",
+              "stdin": "-3 8\n",
+              "expected_stdout": "sum=5;diff=-11;product=-24\n",
+              "points": 25,
+              "is_visible": true
+            },
+            {
+              "id": "j01-zero",
+              "stdin": "0 19\n",
+              "expected_stdout": "sum=19;diff=-19;product=0\n",
+              "points": 25,
+              "is_visible": false
+            },
+            {
+              "id": "j01-small",
+              "stdin": "-4 -6\n",
+              "expected_stdout": "sum=-10;diff=2;product=24\n",
+              "points": 25,
+              "is_visible": true
+            }
+          ],
+          "total_points": 100,
+          "problem_kind": "java_stdio",
+          "sample_source": "import java.util.Scanner;\n\npublic class Main {\n    public static void main(String[] args) {\n        Scanner scanner = new Scanner(System.in);\n        int a = scanner.nextInt();\n        int b = scanner.nextInt();\n\n        System.out.println(\"sum=\" + (a + b)\n                + \";diff=\" + (a - b)\n                + \";product=\" + (a * b));\n    }\n}",
+          "id": "cfe3b5ce315a4b9e80b762d6e58203eb",
+          "status": "published",
+          "source": {
+            "created_by": "naruto",
+            "created_at": "2026-11-16T07:42:23+00:00",
+            "updated_by": "naruto",
+            "updated_at": "2026-11-16T07:49:29+00:00"
+          },
+          "usage_count": 0,
+          "version": 5,
+          "validation": {
+            "spec_hash": "7337cfb391997fe5476d7375f99e4fc9bdd45bf1faf441c037b2a9fa7d2f84c1",
+            "passed": true,
+            "validated_at": "2026-11-16T07:49:29+00:00",
+            "validated_by": "naruto",
+            "sample_sha256": "2ced83b9a99af1e7271786721fe492a3c77259c3579756b23f10a15bd3875c53",
+            "verdict": "AC",
+            "score": 100,
+            "total_points": 100
+          },
+          "practice_revision": "d8e67f32edfc4bce861f405a7155c075",
+          "question_id": "cfe3b5ce315a4b9e80b762d6e58203eb",
+          "snapshot_version": 5,
+          "snapshot_at": "2026-11-16T07:51:16+00:00",
+          "order": 0
+        },
+        {
+          "title": "Arithmetic Summary 3",
+          "statement": "Read two signed 32-bit integers a and b. Print exactly one line in this format: sum=<a+b>;diff=<a-b>;product=<a*b>. Do not add spaces around separators.",
+          "language": "java",
+          "grading_mode": "stdio",
+          "target_class": "Main",
+          "target_package": "",
+          "target_file": "Main.java",
+          "starter_code": "import java.util.Scanner;\n\npublic class Main {\n    public static void main(String[] args) {\n        Scanner scanner = new Scanner(System.in);\n        int a = scanner.nextInt();\n        int b = scanner.nextInt();\n        // Print the required arithmetic summary.\n    }\n}\n",
+          "time_limit_seconds": 5.0,
+          "memory_limit_mb": 256,
+          "max_output_bytes": 65536,
+          "allow_pretest": true,
+          "max_pretest_runs": 20,
+          "category": "Arithmetic",
+          "tags": [
+            "java",
+            "stdio",
+            "formatting"
+          ],
+          "difficulty": "easy",
+          "practice_enabled": true,
+          "tests": [
+            {
+              "id": "j01-positive",
+              "stdin": "12 5\n",
+              "expected_stdout": "sum=17;diff=7;product=60\n",
+              "points": 25,
+              "is_visible": true
+            },
+            {
+              "id": "j01-negative",
+              "stdin": "-3 8\n",
+              "expected_stdout": "sum=5;diff=-11;product=-24\n",
+              "points": 25,
+              "is_visible": true
+            },
+            {
+              "id": "j01-zero",
+              "stdin": "0 19\n",
+              "expected_stdout": "sum=19;diff=-19;product=0\n",
+              "points": 25,
+              "is_visible": false
+            },
+            {
+              "id": "j01-small",
+              "stdin": "-4 -6\n",
+              "expected_stdout": "sum=-10;diff=2;product=24\n",
+              "points": 25,
+              "is_visible": true
+            }
+          ],
+          "total_points": 100,
+          "problem_kind": "java_stdio",
+          "id": "778d8f8928d24343aac1c0524856106d",
+          "sample_source": "import java.util.Scanner;\n\npublic class Main {\n    public static void main(String[] args) {\n        Scanner scanner = new Scanner(System.in);\n        int a = scanner.nextInt();\n        int b = scanner.nextInt();\n\n        System.out.println(\"sum=\" + (a + b)\n                + \";diff=\" + (a - b)\n                + \";product=\" + (a * b));\n    }\n}",
+          "status": "published",
+          "source": {
+            "created_by": "naruto",
+            "created_at": "2026-11-16T07:42:38+00:00",
+            "updated_by": "naruto",
+            "updated_at": "2026-11-16T07:47:24+00:00"
+          },
+          "usage_count": 0,
+          "version": 4,
+          "validation": {
+            "spec_hash": "23c505fc9912b6fe7375f46c3cce571765f8e764b7dc0407c19f712ffd3e0c60",
+            "passed": true,
+            "validated_at": "2026-11-16T07:47:24+00:00",
+            "validated_by": "naruto",
+            "sample_sha256": "2ced83b9a99af1e7271786721fe492a3c77259c3579756b23f10a15bd3875c53",
+            "verdict": "AC",
+            "score": 100,
+            "total_points": 100
+          },
+          "practice_revision": "e91b31242d50472b9151d4e677bd62a9",
+          "question_id": "778d8f8928d24343aac1c0524856106d",
+          "snapshot_version": 4,
+          "snapshot_at": "2026-11-16T07:51:16+00:00",
+          "order": 1
+        },
+        {
+          "title": "Arithmetic Summary",
+          "statement": "Read two signed 32-bit integers a and b. Print exactly one line in this format: sum=<a+b>;diff=<a-b>;product=<a*b>. Do not add spaces around separators.",
+          "language": "java",
+          "grading_mode": "stdio",
+          "target_class": "Main",
+          "target_package": "",
+          "target_file": "Main.java",
+          "starter_code": "import java.util.Scanner;\n\npublic class Main {\n    public static void main(String[] args) {\n        Scanner scanner = new Scanner(System.in);\n        int a = scanner.nextInt();\n        int b = scanner.nextInt();\n        // Print the required arithmetic summary.\n    }\n}\n",
+          "time_limit_seconds": 5.0,
+          "memory_limit_mb": 256,
+          "max_output_bytes": 65536,
+          "allow_pretest": true,
+          "max_pretest_runs": 20,
+          "category": "Arithmetic",
+          "tags": [
+            "java",
+            "stdio",
+            "formatting"
+          ],
+          "difficulty": "easy",
+          "practice_enabled": false,
+          "tests": [
+            {
+              "id": "j01-positive",
+              "stdin": "12 5\n",
+              "expected_stdout": "sum=17;diff=7;product=60\n",
+              "points": 25,
+              "is_visible": true
+            },
+            {
+              "id": "j01-negative",
+              "stdin": "-3 8\n",
+              "expected_stdout": "sum=5;diff=-11;product=-24\n",
+              "points": 25,
+              "is_visible": true
+            },
+            {
+              "id": "j01-zero",
+              "stdin": "0 19\n",
+              "expected_stdout": "sum=19;diff=-19;product=0\n",
+              "points": 25,
+              "is_visible": false
+            },
+            {
+              "id": "j01-small",
+              "stdin": "-4 -6\n",
+              "expected_stdout": "sum=-10;diff=2;product=24\n",
+              "points": 25,
+              "is_visible": true
+            }
+          ],
+          "total_points": 100,
+          "problem_kind": "java_stdio",
+          "sample_source": "import java.util.Scanner;\n\npublic class Main {\n    public static void main(String[] args) {\n        Scanner scanner = new Scanner(System.in);\n        int a = scanner.nextInt();\n        int b = scanner.nextInt();\n\n        System.out.println(\"sum=\" + (a + b)\n                + \";diff=\" + (a - b)\n                + \";product=\" + (a * b));\n    }\n}",
+          "id": "abf15daf5e734c07ac049821af780598",
+          "status": "published",
+          "source": {
+            "created_by": "naruto",
+            "created_at": "2026-11-16T07:35:00+00:00",
+            "updated_by": "naruto",
+            "updated_at": "2026-11-16T07:35:10+00:00"
+          },
+          "usage_count": 0,
+          "version": 2,
+          "validation": {
+            "spec_hash": "2047dc07ce6a8923d216579c1e231b72f168b9606c93885b5d2c42b3494ce5eb",
+            "passed": true,
+            "validated_at": "2026-11-16T07:35:10+00:00",
+            "validated_by": "naruto",
+            "sample_sha256": "2ced83b9a99af1e7271786721fe492a3c77259c3579756b23f10a15bd3875c53",
+            "verdict": "AC",
+            "score": 100,
+            "total_points": 100
+          },
+          "practice_revision": "bf09c80e89354e2ab4f1aa58fd955439",
+          "question_id": "abf15daf5e734c07ac049821af780598",
+          "snapshot_version": 2,
+          "snapshot_at": "2026-11-16T07:51:16+00:00",
+          "order": 2
+        }
+      ]
+    },
+    "created_by": "naruto",
+    "created_at": "2026-11-16T07:52:01+00:00",
+    "updated_at": "2026-11-16T08:16:10+00:00",
+    "title": "SAI",
+    "show_final_score_immediately": true,
+    "allow_pretest": true,
+    "max_pretest_runs": 20,
+    "pretest_cooldown_seconds": 2.0,
+    "submission_policy": "configurable",
+    "max_submissions": 1,
+    "distributed_at": "2026-11-16T07:52:01+00:00",
+    "started_at": "2026-11-16T07:52:24+00:00",
+    "ended_at": "2026-11-16T08:16:10+00:00"
+  },
+  "71802d77ff3749bcbae2d1556cc33ecb": {
+    "id": "71802d77ff3749bcbae2d1556cc33ecb",
+    "schema_version": 2,
+    "status": "distributed",
+    "release_id": "e57ba1806d26421e880bad6a32736c97",
+    "general_exam_id": "123101b1c513495cb4482f7854ad67a7",
+    "paper_ref": {
+      "paper_id": "e2864110eddd46d19006c5aba026b7a1"
+    },
+    "paper_snapshot": {
+      "id": "e2864110eddd46d19006c5aba026b7a1",
+      "title": "ATI",
+      "metadata": {},
+      "questions": [
+        {
+          "title": "Arithmetic Summary 2",
+          "statement": "Read two signed 32-bit integers a and b. Print exactly one line in this format: sum=<a+b>;diff=<a-b>;product=<a*b>. Do not add spaces around separators.",
+          "language": "java",
+          "grading_mode": "stdio",
+          "target_class": "Main",
+          "target_package": "",
+          "target_file": "Main.java",
+          "starter_code": "import java.util.Scanner;\n\npublic class Main {\n    public static void main(String[] args) {\n        Scanner scanner = new Scanner(System.in);\n        int a = scanner.nextInt();\n        int b = scanner.nextInt();\n        // Print the required arithmetic summary.\n    }\n}\n",
+          "time_limit_seconds": 5.0,
+          "memory_limit_mb": 256,
+          "max_output_bytes": 65536,
+          "allow_pretest": true,
+          "max_pretest_runs": 20,
+          "category": "Arithmetic",
+          "tags": [
+            "java",
+            "stdio",
+            "formatting"
+          ],
+          "difficulty": "easy",
+          "practice_enabled": true,
+          "tests": [
+            {
+              "id": "j01-positive",
+              "stdin": "12 5\n",
+              "expected_stdout": "sum=17;diff=7;product=60\n",
+              "points": 25,
+              "is_visible": true
+            },
+            {
+              "id": "j01-negative",
+              "stdin": "-3 8\n",
+              "expected_stdout": "sum=5;diff=-11;product=-24\n",
+              "points": 25,
+              "is_visible": true
+            },
+            {
+              "id": "j01-zero",
+              "stdin": "0 19\n",
+              "expected_stdout": "sum=19;diff=-19;product=0\n",
+              "points": 25,
+              "is_visible": false
+            },
+            {
+              "id": "j01-small",
+              "stdin": "-4 -6\n",
+              "expected_stdout": "sum=-10;diff=2;product=24\n",
+              "points": 25,
+              "is_visible": true
+            }
+          ],
+          "total_points": 100,
+          "problem_kind": "java_stdio",
+          "sample_source": "import java.util.Scanner;\n\npublic class Main {\n    public static void main(String[] args) {\n        Scanner scanner = new Scanner(System.in);\n        int a = scanner.nextInt();\n        int b = scanner.nextInt();\n\n        System.out.println(\"sum=\" + (a + b)\n                + \";diff=\" + (a - b)\n                + \";product=\" + (a * b));\n    }\n}",
+          "id": "cfe3b5ce315a4b9e80b762d6e58203eb",
+          "status": "published",
+          "source": {
+            "created_by": "naruto",
+            "created_at": "2026-11-16T07:42:23+00:00",
+            "updated_by": "naruto",
+            "updated_at": "2026-11-16T07:49:29+00:00"
+          },
+          "usage_count": 0,
+          "version": 5,
+          "validation": {
+            "spec_hash": "7337cfb391997fe5476d7375f99e4fc9bdd45bf1faf441c037b2a9fa7d2f84c1",
+            "passed": true,
+            "validated_at": "2026-11-16T07:49:29+00:00",
+            "validated_by": "naruto",
+            "sample_sha256": "2ced83b9a99af1e7271786721fe492a3c77259c3579756b23f10a15bd3875c53",
+            "verdict": "AC",
+            "score": 100,
+            "total_points": 100
+          },
+          "practice_revision": "d8e67f32edfc4bce861f405a7155c075",
+          "question_id": "cfe3b5ce315a4b9e80b762d6e58203eb",
+          "snapshot_version": 5,
+          "snapshot_at": "2026-11-16T07:51:16+00:00",
+          "order": 0
+        },
+        {
+          "title": "Arithmetic Summary 3",
+          "statement": "Read two signed 32-bit integers a and b. Print exactly one line in this format: sum=<a+b>;diff=<a-b>;product=<a*b>. Do not add spaces around separators.",
+          "language": "java",
+          "grading_mode": "stdio",
+          "target_class": "Main",
+          "target_package": "",
+          "target_file": "Main.java",
+          "starter_code": "import java.util.Scanner;\n\npublic class Main {\n    public static void main(String[] args) {\n        Scanner scanner = new Scanner(System.in);\n        int a = scanner.nextInt();\n        int b = scanner.nextInt();\n        // Print the required arithmetic summary.\n    }\n}\n",
+          "time_limit_seconds": 5.0,
+          "memory_limit_mb": 256,
+          "max_output_bytes": 65536,
+          "allow_pretest": true,
+          "max_pretest_runs": 20,
+          "category": "Arithmetic",
+          "tags": [
+            "java",
+            "stdio",
+            "formatting"
+          ],
+          "difficulty": "easy",
+          "practice_enabled": true,
+          "tests": [
+            {
+              "id": "j01-positive",
+              "stdin": "12 5\n",
+              "expected_stdout": "sum=17;diff=7;product=60\n",
+              "points": 25,
+              "is_visible": true
+            },
+            {
+              "id": "j01-negative",
+              "stdin": "-3 8\n",
+              "expected_stdout": "sum=5;diff=-11;product=-24\n",
+              "points": 25,
+              "is_visible": true
+            },
+            {
+              "id": "j01-zero",
+              "stdin": "0 19\n",
+              "expected_stdout": "sum=19;diff=-19;product=0\n",
+              "points": 25,
+              "is_visible": false
+            },
+            {
+              "id": "j01-small",
+              "stdin": "-4 -6\n",
+              "expected_stdout": "sum=-10;diff=2;product=24\n",
+              "points": 25,
+              "is_visible": true
+            }
+          ],
+          "total_points": 100,
+          "problem_kind": "java_stdio",
+          "id": "778d8f8928d24343aac1c0524856106d",
+          "sample_source": "import java.util.Scanner;\n\npublic class Main {\n    public static void main(String[] args) {\n        Scanner scanner = new Scanner(System.in);\n        int a = scanner.nextInt();\n        int b = scanner.nextInt();\n\n        System.out.println(\"sum=\" + (a + b)\n                + \";diff=\" + (a - b)\n                + \";product=\" + (a * b));\n    }\n}",
+          "status": "published",
+          "source": {
+            "created_by": "naruto",
+            "created_at": "2026-11-16T07:42:38+00:00",
+            "updated_by": "naruto",
+            "updated_at": "2026-11-16T07:47:24+00:00"
+          },
+          "usage_count": 0,
+          "version": 4,
+          "validation": {
+            "spec_hash": "23c505fc9912b6fe7375f46c3cce571765f8e764b7dc0407c19f712ffd3e0c60",
+            "passed": true,
+            "validated_at": "2026-11-16T07:47:24+00:00",
+            "validated_by": "naruto",
+            "sample_sha256": "2ced83b9a99af1e7271786721fe492a3c77259c3579756b23f10a15bd3875c53",
+            "verdict": "AC",
+            "score": 100,
+            "total_points": 100
+          },
+          "practice_revision": "e91b31242d50472b9151d4e677bd62a9",
+          "question_id": "778d8f8928d24343aac1c0524856106d",
+          "snapshot_version": 4,
+          "snapshot_at": "2026-11-16T07:51:16+00:00",
+          "order": 1
+        },
+        {
+          "title": "Arithmetic Summary",
+          "statement": "Read two signed 32-bit integers a and b. Print exactly one line in this format: sum=<a+b>;diff=<a-b>;product=<a*b>. Do not add spaces around separators.",
+          "language": "java",
+          "grading_mode": "stdio",
+          "target_class": "Main",
+          "target_package": "",
+          "target_file": "Main.java",
+          "starter_code": "import java.util.Scanner;\n\npublic class Main {\n    public static void main(String[] args) {\n        Scanner scanner = new Scanner(System.in);\n        int a = scanner.nextInt();\n        int b = scanner.nextInt();\n        // Print the required arithmetic summary.\n    }\n}\n",
+          "time_limit_seconds": 5.0,
+          "memory_limit_mb": 256,
+          "max_output_bytes": 65536,
+          "allow_pretest": true,
+          "max_pretest_runs": 20,
+          "category": "Arithmetic",
+          "tags": [
+            "java",
+            "stdio",
+            "formatting"
+          ],
+          "difficulty": "easy",
+          "practice_enabled": false,
+          "tests": [
+            {
+              "id": "j01-positive",
+              "stdin": "12 5\n",
+              "expected_stdout": "sum=17;diff=7;product=60\n",
+              "points": 25,
+              "is_visible": true
+            },
+            {
+              "id": "j01-negative",
+              "stdin": "-3 8\n",
+              "expected_stdout": "sum=5;diff=-11;product=-24\n",
+              "points": 25,
+              "is_visible": true
+            },
+            {
+              "id": "j01-zero",
+              "stdin": "0 19\n",
+              "expected_stdout": "sum=19;diff=-19;product=0\n",
+              "points": 25,
+              "is_visible": false
+            },
+            {
+              "id": "j01-small",
+              "stdin": "-4 -6\n",
+              "expected_stdout": "sum=-10;diff=2;product=24\n",
+              "points": 25,
+              "is_visible": true
+            }
+          ],
+          "total_points": 100,
+          "problem_kind": "java_stdio",
+          "sample_source": "import java.util.Scanner;\n\npublic class Main {\n    public static void main(String[] args) {\n        Scanner scanner = new Scanner(System.in);\n        int a = scanner.nextInt();\n        int b = scanner.nextInt();\n\n        System.out.println(\"sum=\" + (a + b)\n                + \";diff=\" + (a - b)\n                + \";product=\" + (a * b));\n    }\n}",
+          "id": "abf15daf5e734c07ac049821af780598",
+          "status": "published",
+          "source": {
+            "created_by": "naruto",
+            "created_at": "2026-11-16T07:35:00+00:00",
+            "updated_by": "naruto",
+            "updated_at": "2026-11-16T07:35:10+00:00"
+          },
+          "usage_count": 0,
+          "version": 2,
+          "validation": {
+            "spec_hash": "2047dc07ce6a8923d216579c1e231b72f168b9606c93885b5d2c42b3494ce5eb",
+            "passed": true,
+            "validated_at": "2026-11-16T07:35:10+00:00",
+            "validated_by": "naruto",
+            "sample_sha256": "2ced83b9a99af1e7271786721fe492a3c77259c3579756b23f10a15bd3875c53",
+            "verdict": "AC",
+            "score": 100,
+            "total_points": 100
+          },
+          "practice_revision": "bf09c80e89354e2ab4f1aa58fd955439",
+          "question_id": "abf15daf5e734c07ac049821af780598",
+          "snapshot_version": 2,
+          "snapshot_at": "2026-11-16T07:51:16+00:00",
+          "order": 2
+        }
+      ]
+    },
+    "created_by": "naruto",
+    "created_at": "2026-11-16T08:16:34+00:00",
+    "updated_at": "2026-11-16T08:16:34+00:00",
+    "title": "SAI (bản sao)",
+    "show_final_score_immediately": true,
+    "allow_pretest": true,
+    "max_pretest_runs": 20,
+    "pretest_cooldown_seconds": 2.0,
+    "submission_policy": "configurable",
+    "max_submissions": 1,
+    "distributed_at": "2026-11-16T08:16:34+00:00"
+  },
+  "76c9a66437fa4e8281d18ee977ba6fde": {
+    "id": "76c9a66437fa4e8281d18ee977ba6fde",
+    "schema_version": 2,
+    "status": "ended",
+    "release_id": "f03f153acf3c4f32bc5c3510d5f45c1c",
+    "general_exam_id": "037827bd86e34082ae3ee47fbc926a05",
+    "paper_ref": {
+      "paper_id": "e2864110eddd46d19006c5aba026b7a1"
+    },
+    "paper_snapshot": {
+      "id": "e2864110eddd46d19006c5aba026b7a1",
+      "title": "ATI",
+      "metadata": {},
+      "questions": [
+        {
+          "title": "Arithmetic Summary 2",
+          "statement": "Read two signed 32-bit integers a and b. Print exactly one line in this format: sum=<a+b>;diff=<a-b>;product=<a*b>. Do not add spaces around separators.",
+          "language": "java",
+          "grading_mode": "stdio",
+          "target_class": "Main",
+          "target_package": "",
+          "target_file": "Main.java",
+          "starter_code": "import java.util.Scanner;\n\npublic class Main {\n    public static void main(String[] args) {\n        Scanner scanner = new Scanner(System.in);\n        int a = scanner.nextInt();\n        int b = scanner.nextInt();\n        // Print the required arithmetic summary.\n    }\n}\n",
+          "time_limit_seconds": 5.0,
+          "memory_limit_mb": 256,
+          "max_output_bytes": 65536,
+          "allow_pretest": true,
+          "max_pretest_runs": 20,
+          "category": "Arithmetic",
+          "tags": [
+            "java",
+            "stdio",
+            "formatting"
+          ],
+          "difficulty": "easy",
+          "practice_enabled": true,
+          "tests": [
+            {
+              "id": "j01-positive",
+              "stdin": "12 5\n",
+              "expected_stdout": "sum=17;diff=7;product=60\n",
+              "points": 25,
+              "is_visible": true
+            },
+            {
+              "id": "j01-negative",
+              "stdin": "-3 8\n",
+              "expected_stdout": "sum=5;diff=-11;product=-24\n",
+              "points": 25,
+              "is_visible": true
+            },
+            {
+              "id": "j01-zero",
+              "stdin": "0 19\n",
+              "expected_stdout": "sum=19;diff=-19;product=0\n",
+              "points": 25,
+              "is_visible": false
+            },
+            {
+              "id": "j01-small",
+              "stdin": "-4 -6\n",
+              "expected_stdout": "sum=-10;diff=2;product=24\n",
+              "points": 25,
+              "is_visible": true
+            }
+          ],
+          "total_points": 100,
+          "problem_kind": "java_stdio",
+          "sample_source": "import java.util.Scanner;\n\npublic class Main {\n    public static void main(String[] args) {\n        Scanner scanner = new Scanner(System.in);\n        int a = scanner.nextInt();\n        int b = scanner.nextInt();\n\n        System.out.println(\"sum=\" + (a + b)\n                + \";diff=\" + (a - b)\n                + \";product=\" + (a * b));\n    }\n}",
+          "id": "cfe3b5ce315a4b9e80b762d6e58203eb",
+          "status": "published",
+          "source": {
+            "created_by": "naruto",
+            "created_at": "2026-11-16T07:42:23+00:00",
+            "updated_by": "naruto",
+            "updated_at": "2026-11-16T07:49:29+00:00"
+          },
+          "usage_count": 0,
+          "version": 5,
+          "validation": {
+            "spec_hash": "7337cfb391997fe5476d7375f99e4fc9bdd45bf1faf441c037b2a9fa7d2f84c1",
+            "passed": true,
+            "validated_at": "2026-11-16T07:49:29+00:00",
+            "validated_by": "naruto",
+            "sample_sha256": "2ced83b9a99af1e7271786721fe492a3c77259c3579756b23f10a15bd3875c53",
+            "verdict": "AC",
+            "score": 100,
+            "total_points": 100
+          },
+          "practice_revision": "d8e67f32edfc4bce861f405a7155c075",
+          "question_id": "cfe3b5ce315a4b9e80b762d6e58203eb",
+          "snapshot_version": 5,
+          "snapshot_at": "2026-11-16T07:51:16+00:00",
+          "order": 0
+        },
+        {
+          "title": "Arithmetic Summary 3",
+          "statement": "Read two signed 32-bit integers a and b. Print exactly one line in this format: sum=<a+b>;diff=<a-b>;product=<a*b>. Do not add spaces around separators.",
+          "language": "java",
+          "grading_mode": "stdio",
+          "target_class": "Main",
+          "target_package": "",
+          "target_file": "Main.java",
+          "starter_code": "import java.util.Scanner;\n\npublic class Main {\n    public static void main(String[] args) {\n        Scanner scanner = new Scanner(System.in);\n        int a = scanner.nextInt();\n        int b = scanner.nextInt();\n        // Print the required arithmetic summary.\n    }\n}\n",
+          "time_limit_seconds": 5.0,
+          "memory_limit_mb": 256,
+          "max_output_bytes": 65536,
+          "allow_pretest": true,
+          "max_pretest_runs": 20,
+          "category": "Arithmetic",
+          "tags": [
+            "java",
+            "stdio",
+            "formatting"
+          ],
+          "difficulty": "easy",
+          "practice_enabled": true,
+          "tests": [
+            {
+              "id": "j01-positive",
+              "stdin": "12 5\n",
+              "expected_stdout": "sum=17;diff=7;product=60\n",
+              "points": 25,
+              "is_visible": true
+            },
+            {
+              "id": "j01-negative",
+              "stdin": "-3 8\n",
+              "expected_stdout": "sum=5;diff=-11;product=-24\n",
+              "points": 25,
+              "is_visible": true
+            },
+            {
+              "id": "j01-zero",
+              "stdin": "0 19\n",
+              "expected_stdout": "sum=19;diff=-19;product=0\n",
+              "points": 25,
+              "is_visible": false
+            },
+            {
+              "id": "j01-small",
+              "stdin": "-4 -6\n",
+              "expected_stdout": "sum=-10;diff=2;product=24\n",
+              "points": 25,
+              "is_visible": true
+            }
+          ],
+          "total_points": 100,
+          "problem_kind": "java_stdio",
+          "id": "778d8f8928d24343aac1c0524856106d",
+          "sample_source": "import java.util.Scanner;\n\npublic class Main {\n    public static void main(String[] args) {\n        Scanner scanner = new Scanner(System.in);\n        int a = scanner.nextInt();\n        int b = scanner.nextInt();\n\n        System.out.println(\"sum=\" + (a + b)\n                + \";diff=\" + (a - b)\n                + \";product=\" + (a * b));\n    }\n}",
+          "status": "published",
+          "source": {
+            "created_by": "naruto",
+            "created_at": "2026-11-16T07:42:38+00:00",
+            "updated_by": "naruto",
+            "updated_at": "2026-11-16T07:47:24+00:00"
+          },
+          "usage_count": 0,
+          "version": 4,
+          "validation": {
+            "spec_hash": "23c505fc9912b6fe7375f46c3cce571765f8e764b7dc0407c19f712ffd3e0c60",
+            "passed": true,
+            "validated_at": "2026-11-16T07:47:24+00:00",
+            "validated_by": "naruto",
+            "sample_sha256": "2ced83b9a99af1e7271786721fe492a3c77259c3579756b23f10a15bd3875c53",
+            "verdict": "AC",
+            "score": 100,
+            "total_points": 100
+          },
+          "practice_revision": "e91b31242d50472b9151d4e677bd62a9",
+          "question_id": "778d8f8928d24343aac1c0524856106d",
+          "snapshot_version": 4,
+          "snapshot_at": "2026-11-16T07:51:16+00:00",
+          "order": 1
+        },
+        {
+          "title": "Arithmetic Summary",
+          "statement": "Read two signed 32-bit integers a and b. Print exactly one line in this format: sum=<a+b>;diff=<a-b>;product=<a*b>. Do not add spaces around separators.",
+          "language": "java",
+          "grading_mode": "stdio",
+          "target_class": "Main",
+          "target_package": "",
+          "target_file": "Main.java",
+          "starter_code": "import java.util.Scanner;\n\npublic class Main {\n    public static void main(String[] args) {\n        Scanner scanner = new Scanner(System.in);\n        int a = scanner.nextInt();\n        int b = scanner.nextInt();\n        // Print the required arithmetic summary.\n    }\n}\n",
+          "time_limit_seconds": 5.0,
+          "memory_limit_mb": 256,
+          "max_output_bytes": 65536,
+          "allow_pretest": true,
+          "max_pretest_runs": 20,
+          "category": "Arithmetic",
+          "tags": [
+            "java",
+            "stdio",
+            "formatting"
+          ],
+          "difficulty": "easy",
+          "practice_enabled": false,
+          "tests": [
+            {
+              "id": "j01-positive",
+              "stdin": "12 5\n",
+              "expected_stdout": "sum=17;diff=7;product=60\n",
+              "points": 25,
+              "is_visible": true
+            },
+            {
+              "id": "j01-negative",
+              "stdin": "-3 8\n",
+              "expected_stdout": "sum=5;diff=-11;product=-24\n",
+              "points": 25,
+              "is_visible": true
+            },
+            {
+              "id": "j01-zero",
+              "stdin": "0 19\n",
+              "expected_stdout": "sum=19;diff=-19;product=0\n",
+              "points": 25,
+              "is_visible": false
+            },
+            {
+              "id": "j01-small",
+              "stdin": "-4 -6\n",
+              "expected_stdout": "sum=-10;diff=2;product=24\n",
+              "points": 25,
+              "is_visible": true
+            }
+          ],
+          "total_points": 100,
+          "problem_kind": "java_stdio",
+          "sample_source": "import java.util.Scanner;\n\npublic class Main {\n    public static void main(String[] args) {\n        Scanner scanner = new Scanner(System.in);\n        int a = scanner.nextInt();\n        int b = scanner.nextInt();\n\n        System.out.println(\"sum=\" + (a + b)\n                + \";diff=\" + (a - b)\n                + \";product=\" + (a * b));\n    }\n}",
+          "id": "abf15daf5e734c07ac049821af780598",
+          "status": "published",
+          "source": {
+            "created_by": "naruto",
+            "created_at": "2026-11-16T07:35:00+00:00",
+            "updated_by": "naruto",
+            "updated_at": "2026-11-16T07:35:10+00:00"
+          },
+          "usage_count": 0,
+          "version": 2,
+          "validation": {
+            "spec_hash": "2047dc07ce6a8923d216579c1e231b72f168b9606c93885b5d2c42b3494ce5eb",
+            "passed": true,
+            "validated_at": "2026-11-16T07:35:10+00:00",
+            "validated_by": "naruto",
+            "sample_sha256": "2ced83b9a99af1e7271786721fe492a3c77259c3579756b23f10a15bd3875c53",
+            "verdict": "AC",
+            "score": 100,
+            "total_points": 100
+          },
+          "practice_revision": "bf09c80e89354e2ab4f1aa58fd955439",
+          "question_id": "abf15daf5e734c07ac049821af780598",
+          "snapshot_version": 2,
+          "snapshot_at": "2026-11-16T07:51:16+00:00",
+          "order": 2
+        }
+      ]
+    },
+    "created_by": "naruto",
+    "created_at": "2026-11-16T10:18:51+00:00",
+    "updated_at": "2026-11-16T10:22:58+00:00",
+    "title": "JAV",
+    "show_final_score_immediately": false,
+    "allow_pretest": true,
+    "max_pretest_runs": 20,
+    "pretest_cooldown_seconds": 2.0,
+    "submission_policy": "configurable",
+    "max_submissions": 1,
+    "distributed_at": "2026-11-16T10:18:51+00:00",
+    "started_at": "2026-11-16T10:19:02+00:00",
+    "ended_at": "2026-11-16T10:22:58+00:00"
+  },
+  "1b9853f1895a44f097e13d37c8482238": {
+    "id": "1b9853f1895a44f097e13d37c8482238",
+    "schema_version": 2,
+    "status": "ended",
+    "release_id": "cdbccfbf713143f58fb190eb964c3c56",
+    "general_exam_id": "ad4eccbc9daf4fe69fdf8a6ab4e15f39",
+    "paper_ref": {
+      "paper_id": "e2864110eddd46d19006c5aba026b7a1"
+    },
+    "paper_snapshot": {
+      "id": "e2864110eddd46d19006c5aba026b7a1",
+      "title": "ATI",
+      "metadata": {},
+      "questions": [
+        {
+          "title": "Arithmetic Summary 2",
+          "statement": "Read two signed 32-bit integers a and b. Print exactly one line in this format: sum=<a+b>;diff=<a-b>;product=<a*b>. Do not add spaces around separators.",
+          "language": "java",
+          "grading_mode": "stdio",
+          "target_class": "Main",
+          "target_package": "",
+          "target_file": "Main.java",
+          "starter_code": "import java.util.Scanner;\n\npublic class Main {\n    public static void main(String[] args) {\n        Scanner scanner = new Scanner(System.in);\n        int a = scanner.nextInt();\n        int b = scanner.nextInt();\n        // Print the required arithmetic summary.\n    }\n}\n",
+          "time_limit_seconds": 5.0,
+          "memory_limit_mb": 256,
+          "max_output_bytes": 65536,
+          "allow_pretest": true,
+          "max_pretest_runs": 20,
+          "category": "Arithmetic",
+          "tags": [
+            "java",
+            "stdio",
+            "formatting"
+          ],
+          "difficulty": "easy",
+          "practice_enabled": true,
+          "tests": [
+            {
+              "id": "j01-positive",
+              "stdin": "12 5\n",
+              "expected_stdout": "sum=17;diff=7;product=60\n",
+              "points": 25,
+              "is_visible": true
+            },
+            {
+              "id": "j01-negative",
+              "stdin": "-3 8\n",
+              "expected_stdout": "sum=5;diff=-11;product=-24\n",
+              "points": 25,
+              "is_visible": true
+            },
+            {
+              "id": "j01-zero",
+              "stdin": "0 19\n",
+              "expected_stdout": "sum=19;diff=-19;product=0\n",
+              "points": 25,
+              "is_visible": false
+            },
+            {
+              "id": "j01-small",
+              "stdin": "-4 -6\n",
+              "expected_stdout": "sum=-10;diff=2;product=24\n",
+              "points": 25,
+              "is_visible": true
+            }
+          ],
+          "total_points": 100,
+          "problem_kind": "java_stdio",
+          "sample_source": "import java.util.Scanner;\n\npublic class Main {\n    public static void main(String[] args) {\n        Scanner scanner = new Scanner(System.in);\n        int a = scanner.nextInt();\n        int b = scanner.nextInt();\n\n        System.out.println(\"sum=\" + (a + b)\n                + \";diff=\" + (a - b)\n                + \";product=\" + (a * b));\n    }\n}",
+          "id": "cfe3b5ce315a4b9e80b762d6e58203eb",
+          "status": "published",
+          "source": {
+            "created_by": "naruto",
+            "created_at": "2026-11-16T07:42:23+00:00",
+            "updated_by": "naruto",
+            "updated_at": "2026-11-16T07:49:29+00:00"
+          },
+          "usage_count": 0,
+          "version": 5,
+          "validation": {
+            "spec_hash": "7337cfb391997fe5476d7375f99e4fc9bdd45bf1faf441c037b2a9fa7d2f84c1",
+            "passed": true,
+            "validated_at": "2026-11-16T07:49:29+00:00",
+            "validated_by": "naruto",
+            "sample_sha256": "2ced83b9a99af1e7271786721fe492a3c77259c3579756b23f10a15bd3875c53",
+            "verdict": "AC",
+            "score": 100,
+            "total_points": 100
+          },
+          "practice_revision": "d8e67f32edfc4bce861f405a7155c075",
+          "question_id": "cfe3b5ce315a4b9e80b762d6e58203eb",
+          "snapshot_version": 5,
+          "snapshot_at": "2026-11-16T07:51:16+00:00",
+          "order": 0
+        },
+        {
+          "title": "Arithmetic Summary 3",
+          "statement": "Read two signed 32-bit integers a and b. Print exactly one line in this format: sum=<a+b>;diff=<a-b>;product=<a*b>. Do not add spaces around separators.",
+          "language": "java",
+          "grading_mode": "stdio",
+          "target_class": "Main",
+          "target_package": "",
+          "target_file": "Main.java",
+          "starter_code": "import java.util.Scanner;\n\npublic class Main {\n    public static void main(String[] args) {\n        Scanner scanner = new Scanner(System.in);\n        int a = scanner.nextInt();\n        int b = scanner.nextInt();\n        // Print the required arithmetic summary.\n    }\n}\n",
+          "time_limit_seconds": 5.0,
+          "memory_limit_mb": 256,
+          "max_output_bytes": 65536,
+          "allow_pretest": true,
+          "max_pretest_runs": 20,
+          "category": "Arithmetic",
+          "tags": [
+            "java",
+            "stdio",
+            "formatting"
+          ],
+          "difficulty": "easy",
+          "practice_enabled": true,
+          "tests": [
+            {
+              "id": "j01-positive",
+              "stdin": "12 5\n",
+              "expected_stdout": "sum=17;diff=7;product=60\n",
+              "points": 25,
+              "is_visible": true
+            },
+            {
+              "id": "j01-negative",
+              "stdin": "-3 8\n",
+              "expected_stdout": "sum=5;diff=-11;product=-24\n",
+              "points": 25,
+              "is_visible": true
+            },
+            {
+              "id": "j01-zero",
+              "stdin": "0 19\n",
+              "expected_stdout": "sum=19;diff=-19;product=0\n",
+              "points": 25,
+              "is_visible": false
+            },
+            {
+              "id": "j01-small",
+              "stdin": "-4 -6\n",
+              "expected_stdout": "sum=-10;diff=2;product=24\n",
+              "points": 25,
+              "is_visible": true
+            }
+          ],
+          "total_points": 100,
+          "problem_kind": "java_stdio",
+          "id": "778d8f8928d24343aac1c0524856106d",
+          "sample_source": "import java.util.Scanner;\n\npublic class Main {\n    public static void main(String[] args) {\n        Scanner scanner = new Scanner(System.in);\n        int a = scanner.nextInt();\n        int b = scanner.nextInt();\n\n        System.out.println(\"sum=\" + (a + b)\n                + \";diff=\" + (a - b)\n                + \";product=\" + (a * b));\n    }\n}",
+          "status": "published",
+          "source": {
+            "created_by": "naruto",
+            "created_at": "2026-11-16T07:42:38+00:00",
+            "updated_by": "naruto",
+            "updated_at": "2026-11-16T07:47:24+00:00"
+          },
+          "usage_count": 0,
+          "version": 4,
+          "validation": {
+            "spec_hash": "23c505fc9912b6fe7375f46c3cce571765f8e764b7dc0407c19f712ffd3e0c60",
+            "passed": true,
+            "validated_at": "2026-11-16T07:47:24+00:00",
+            "validated_by": "naruto",
+            "sample_sha256": "2ced83b9a99af1e7271786721fe492a3c77259c3579756b23f10a15bd3875c53",
+            "verdict": "AC",
+            "score": 100,
+            "total_points": 100
+          },
+          "practice_revision": "e91b31242d50472b9151d4e677bd62a9",
+          "question_id": "778d8f8928d24343aac1c0524856106d",
+          "snapshot_version": 4,
+          "snapshot_at": "2026-11-16T07:51:16+00:00",
+          "order": 1
+        },
+        {
+          "title": "Arithmetic Summary",
+          "statement": "Read two signed 32-bit integers a and b. Print exactly one line in this format: sum=<a+b>;diff=<a-b>;product=<a*b>. Do not add spaces around separators.",
+          "language": "java",
+          "grading_mode": "stdio",
+          "target_class": "Main",
+          "target_package": "",
+          "target_file": "Main.java",
+          "starter_code": "import java.util.Scanner;\n\npublic class Main {\n    public static void main(String[] args) {\n        Scanner scanner = new Scanner(System.in);\n        int a = scanner.nextInt();\n        int b = scanner.nextInt();\n        // Print the required arithmetic summary.\n    }\n}\n",
+          "time_limit_seconds": 5.0,
+          "memory_limit_mb": 256,
+          "max_output_bytes": 65536,
+          "allow_pretest": true,
+          "max_pretest_runs": 20,
+          "category": "Arithmetic",
+          "tags": [
+            "java",
+            "stdio",
+            "formatting"
+          ],
+          "difficulty": "easy",
+          "practice_enabled": false,
+          "tests": [
+            {
+              "id": "j01-positive",
+              "stdin": "12 5\n",
+              "expected_stdout": "sum=17;diff=7;product=60\n",
+              "points": 25,
+              "is_visible": true
+            },
+            {
+              "id": "j01-negative",
+              "stdin": "-3 8\n",
+              "expected_stdout": "sum=5;diff=-11;product=-24\n",
+              "points": 25,
+              "is_visible": true
+            },
+            {
+              "id": "j01-zero",
+              "stdin": "0 19\n",
+              "expected_stdout": "sum=19;diff=-19;product=0\n",
+              "points": 25,
+              "is_visible": false
+            },
+            {
+              "id": "j01-small",
+              "stdin": "-4 -6\n",
+              "expected_stdout": "sum=-10;diff=2;product=24\n",
+              "points": 25,
+              "is_visible": true
+            }
+          ],
+          "total_points": 100,
+          "problem_kind": "java_stdio",
+          "sample_source": "import java.util.Scanner;\n\npublic class Main {\n    public static void main(String[] args) {\n        Scanner scanner = new Scanner(System.in);\n        int a = scanner.nextInt();\n        int b = scanner.nextInt();\n\n        System.out.println(\"sum=\" + (a + b)\n                + \";diff=\" + (a - b)\n                + \";product=\" + (a * b));\n    }\n}",
+          "id": "abf15daf5e734c07ac049821af780598",
+          "status": "published",
+          "source": {
+            "created_by": "naruto",
+            "created_at": "2026-11-16T07:35:00+00:00",
+            "updated_by": "naruto",
+            "updated_at": "2026-11-16T07:35:10+00:00"
+          },
+          "usage_count": 0,
+          "version": 2,
+          "validation": {
+            "spec_hash": "2047dc07ce6a8923d216579c1e231b72f168b9606c93885b5d2c42b3494ce5eb",
+            "passed": true,
+            "validated_at": "2026-11-16T07:35:10+00:00",
+            "validated_by": "naruto",
+            "sample_sha256": "2ced83b9a99af1e7271786721fe492a3c77259c3579756b23f10a15bd3875c53",
+            "verdict": "AC",
+            "score": 100,
+            "total_points": 100
+          },
+          "practice_revision": "bf09c80e89354e2ab4f1aa58fd955439",
+          "question_id": "abf15daf5e734c07ac049821af780598",
+          "snapshot_version": 2,
+          "snapshot_at": "2026-11-16T07:51:16+00:00",
+          "order": 2
+        }
+      ]
+    },
+    "created_by": "naruto",
+    "created_at": "2026-11-17T02:24:56+00:00",
+    "updated_at": "2026-11-17T02:30:06+00:00",
+    "title": "HXH",
+    "show_final_score_immediately": true,
+    "allow_pretest": true,
+    "max_pretest_runs": 20,
+    "pretest_cooldown_seconds": 2.0,
+    "submission_policy": "configurable",
+    "max_submissions": 1,
+    "distributed_at": "2026-11-17T02:24:56+00:00",
+    "started_at": "2026-11-17T02:26:59+00:00",
+    "ended_at": "2026-11-17T02:30:06+00:00"
   }
 }

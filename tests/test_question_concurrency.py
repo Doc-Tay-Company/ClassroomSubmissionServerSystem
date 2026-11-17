@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import json
 from pathlib import Path
 import subprocess
 import sys
@@ -15,6 +16,7 @@ from app.code_exams import (
     publish_question_candidate,
     update_published_question,
     validate_question_sample,
+    execute_question,
 )
 from app.questions import (
     QuestionError,
@@ -115,6 +117,123 @@ class QuestionConcurrencyTests(unittest.TestCase):
             compute_spec_hash(dict(created, expected_version=1, expected_practice_revision="ignored")),
             compute_spec_hash(created),
         )
+
+    def test_stdio_import_defaults_and_protects_system_metadata(self):
+        payload = dict(_payload("import-python"), target_file="", sample_source="print('x')",
+                       status="published", version=99, usage_count=50,
+                       source={"created_by": "forged"}, validation={"passed": True},
+                       practice_revision="forged")
+        created = create_question(payload, "teacher", "127.0.0.1")
+        self.assertEqual(created["target_file"], "solution.py")
+        self.assertEqual(created["status"], "draft")
+        self.assertEqual(created["version"], 1)
+        self.assertEqual(created["usage_count"], 0)
+        self.assertEqual(created["source"]["created_by"], "teacher")
+        self.assertNotIn("sample_source", created)
+        self.assertNotIn("validation", created)
+
+        self.assertNotEqual(created["practice_revision"], "forged")
+
+        exported = _payload("exported-id")
+        for key in ("id", "status", "source", "usage_count", "version"):
+            exported.pop(key, None)
+        imported = create_question(exported, "teacher", "127.0.0.1")
+        self.assertEqual(imported["target_file"], "solution.py")
+        self.assertNotEqual(imported["id"], "exported-id")
+
+    def test_stdio_import_rejects_runner_invalid_fields_without_partial_write(self):
+        payload = dict(_payload("invalid-import"), target_file="../main.py")
+        with self.assertRaisesRegex(QuestionError, "safe .py filename"):
+            create_question(payload, "teacher", "127.0.0.1")
+        self.assertNotIn("invalid-import", storage.read_json("questions.json", {}))
+
+        payload = dict(_payload("invalid-test-import"), tests=[{
+            "id": "visible", "stdin": 7, "expected_stdout": "hello\n",
+            "points": 1, "is_visible": True,
+        }])
+        with self.assertRaisesRegex(QuestionError, "stdin and expected_stdout must be strings"):
+            create_question(payload, "teacher", "127.0.0.1")
+        self.assertNotIn("invalid-test-import", storage.read_json("questions.json", {}))
+
+        existing = create_question(_payload("invalid-update"), "teacher", "127.0.0.1")
+        before = get_question("invalid-update")
+        invalid_update = dict(_payload("invalid-update"), **_tokens(existing))
+        invalid_update["tests"] = [{
+            "id": "visible", "stdin": None, "expected_stdout": "hello\n",
+            "points": 1, "is_visible": True,
+        }]
+        with self.assertRaisesRegex(QuestionError, "stdin and expected_stdout must be strings"):
+            update_question("invalid-update", invalid_update, "teacher", "127.0.0.1")
+        self.assertEqual(get_question("invalid-update"), before)
+
+    def test_java_stdio_import_derives_and_validates_target_file(self):
+        payload = {
+            "id": "import-java", "title": "Java import", "statement": "Print a line.",
+            "language": "java", "grading_mode": "stdio", "target_class": "Main",
+            "target_package": "sample", "tests": [{
+                "id": "visible", "stdin": "", "expected_stdout": "ok\n",
+                "is_visible": True,
+            }], "total_points": 1,
+        }
+        created = create_question(payload, "teacher", "127.0.0.1")
+        self.assertEqual(created["target_file"], "Main.java")
+        self.assertEqual(created["tests"][0]["points"], 1)
+        payload["id"] = "bad-java-import"
+        payload["target_file"] = "Other.java"
+        with self.assertRaisesRegex(QuestionError, "match the target class name"):
+            create_question(payload, "teacher", "127.0.0.1")
+        self.assertNotIn("bad-java-import", storage.read_json("questions.json", {}))
+
+    def test_r03_comparable_import_preserves_legacy_arrays(self):
+        fixture_path = Path(__file__).resolve().parents[1] / "test-data" / "grading-questions" / "R03.json"
+        payload = json.loads(fixture_path.read_text(encoding="utf-8"))
+        payload["id"] = "r03-import"
+        expected = next(check for check in payload["checks"] if check["id"] == "r03-ordering")
+        created = create_question(payload, "teacher", "127.0.0.1")
+        actual = next(check for check in created["checks"] if check["id"] == "r03-ordering")
+        self.assertEqual(actual, expected)
+        self.assertEqual(len(actual["instances"]), 3)
+        self.assertEqual(actual["comparisons"], [
+            {"left": 1, "right": 0, "expected_sign": -1},
+            {"left": 2, "right": 0, "expected_sign": -1},
+        ])
+        self.assertEqual(actual["expected_order"], [1, 2, 0])
+
+        source = """package model;
+public class RankedLabel implements Comparable<RankedLabel> {
+    private int rank;
+    private String label;
+    public RankedLabel(int rank, String label) { this.rank = rank; this.label = label; }
+    @Override public int compareTo(RankedLabel other) {
+        int byRank = Integer.compare(this.rank, other.rank);
+        return byRank != 0 ? byRank : this.label.compareTo(other.label);
+    }
+}
+"""
+        result = execute_question(created, source)
+        self.assertEqual(result["verdict"], "AC", result.get("error"))
+        self.assertEqual(result["score"], 100)
+
+    def test_reflection_import_uses_runner_request_validation(self):
+        payload = {
+            "id": "import-reflection", "title": "Reflection import",
+            "language": "java", "grading_mode": "reflection",
+            "target_class": "Main", "target_package": "sample",
+            "checks": [{
+                "id": "method-check", "kind": "method", "method_name": "answer",
+                "expected_return_type": "int", "param_types": [],
+                "points": 1, "is_visible": True,
+            }], "total_points": 1,
+        }
+        created = create_question(payload, "teacher", "127.0.0.1")
+        self.assertEqual(created["status"], "draft")
+        self.assertEqual(created["checks"][0]["id"], "method-check")
+
+        payload["id"] = "invalid-reflection-import"
+        payload["checks"][0]["kind"] = ""
+        with self.assertRaisesRegex(QuestionError, "non-empty kind"):
+            create_question(payload, "teacher", "127.0.0.1")
+        self.assertNotIn("invalid-reflection-import", storage.read_json("questions.json", {}))
 
     def test_candidate_publication_requires_tokens_for_existing_draft(self):
         created = create_question(_payload("candidate"), "teacher", "127.0.0.1")

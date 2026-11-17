@@ -230,3 +230,52 @@ def remaining_seconds(item: dict) -> int:
         return 0
     end = datetime.fromisoformat(item["ends_at"])
     return max(0, int((end - datetime.now(timezone.utc)).total_seconds()))
+
+def is_active_exam_attempt(
+    student_id: str,
+    settings: dict | None = None,
+    assignment: dict | None = None,
+    now: datetime | None = None,
+) -> bool:
+    """Return whether this Student has an active attempt in the current release.
+
+    This lifecycle check intentionally does not inspect code-exam content or
+    Paper references. File and code Exams share the persisted assignment and
+    current release boundary.
+    """
+    settings = read_json("settings.json") if settings is None else settings
+    if not isinstance(settings, dict):
+        return False
+    assignment = read_json("assignments.json").get(student_id) if assignment is None else assignment
+    if not isinstance(assignment, dict):
+        return False
+    release_id = settings.get("exam_release_id")
+    if (
+        settings.get("exam_state") != "started"
+        or not settings.get("exam_released")
+        or not isinstance(release_id, str)
+        or not release_id
+        or assignment.get("release_id") != release_id
+        or assignment.get("status") != "in_progress"
+        or assignment.get("forced_submit")
+    ):
+        return False
+
+    current_time = now or datetime.now(timezone.utc)
+
+    def parse_timestamp(value):
+        if not isinstance(value, str) or not value:
+            return None
+        try:
+            parsed = datetime.fromisoformat(value)
+        except (TypeError, ValueError):
+            return None
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
+
+    started_at = parse_timestamp(assignment.get("started_at"))
+    ends_at = parse_timestamp(assignment.get("ends_at"))
+    if not started_at or not ends_at:
+        return False
+    return started_at <= current_time < ends_at

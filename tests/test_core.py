@@ -2,6 +2,7 @@ import io
 import hashlib
 import os
 import unittest
+from datetime import datetime, timedelta, timezone
 import zipfile
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -111,7 +112,8 @@ class CoreTests(unittest.TestCase):
                 }
             },
             "students.json": {"21010001": {"full_name": "Test Student"}},
-            "assignments.json": {},
+            "settings.json": {"exam_state": "started", "exam_released": True, "exam_release_id": "release-1"},
+            "assignments.json": {"21010001": {"release_id": "release-1", "started_at": (datetime.now(timezone.utc) - timedelta(minutes=1)).isoformat(), "ends_at": (datetime.now(timezone.utc) + timedelta(minutes=30)).isoformat(), "status": "in_progress"}},
             "submissions.json": {},
             "code_submissions.json": {},
         }
@@ -127,7 +129,7 @@ class CoreTests(unittest.TestCase):
         )
         handler = object.__new__(main.Handler)
         handler._parse_body = lambda: (b"", request)
-        handler._auth = lambda _request, _role: {"token": token, "token_key": token_key}
+        handler._auth = lambda _request, _role: {"user_id": "21010001", "token": token, "token_key": token_key}
         handler._json = lambda payload, status=200, headers=None: payload
 
         with patch("app.main.read_json", side_effect=lambda name: state[name]), patch(
@@ -138,10 +140,112 @@ class CoreTests(unittest.TestCase):
 
         self.assertEqual(response, {"ok": True})
         self.assertEqual(state["sessions.json"][token_key]["telemetry"]["tab_count"], 2)
+        self.assertEqual(state["sessions.json"][token_key]["telemetry"]["release_id"], "release-1")
         self.assertCountEqual(
             snapshot["students"][0]["alerts"],
             ["tab_hidden", "window_unfocused", "multiple_tabs"],
         )
+
+
+
+    def test_student_status_exposes_backend_active_attempt_without_changing_existing_fields(self):
+        now = datetime.now(timezone.utc)
+        state = {
+            "settings.json": {"exam_state": "started", "exam_released": True, "exam_release_id": "release-1"},
+            "assignments.json": {"student-1": {"release_id": "release-1", "started_at": (now - timedelta(minutes=1)).isoformat(), "ends_at": (now + timedelta(minutes=5)).isoformat(), "status": "in_progress"}},
+            "notifications.json": [],
+        }
+        request = SimpleNamespace(path="/api/student/status", query={})
+        handler = object.__new__(main.Handler)
+        handler._request = lambda: request
+        handler._auth = lambda _request, _role: {"user_id": "student-1"}
+        handler._json = lambda payload, status=200, headers=None: payload
+
+        with patch("app.main.read_json", side_effect=lambda name, *args: state.get(name, args[0] if args else {})), patch(
+            "app.main.general_exams.published_for_students", return_value=[]
+        ):
+            response = handler.do_GET()
+
+        self.assertTrue(response["active_exam_attempt"])
+        self.assertTrue(response["assigned"])
+        self.assertTrue(response["started"])
+        self.assertEqual(response["release_id"], "release-1")
+
+    def test_active_exam_attempt_requires_current_started_assignment_and_deadline(self):
+        now = datetime.now(timezone.utc)
+        settings = {"exam_state": "started", "exam_released": True, "exam_release_id": "release-1"}
+        active = {
+            "release_id": "release-1",
+            "started_at": (now - timedelta(minutes=1)).isoformat(),
+            "ends_at": (now + timedelta(minutes=5)).isoformat(),
+            "status": "in_progress",
+        }
+        self.assertTrue(main.is_active_exam_attempt("student-1", settings, active, now))
+        cases = [
+            ({**settings, "exam_state": "distributed"}, active),
+            ({**settings, "exam_released": False}, active),
+            (settings, {}),
+            (settings, {**active, "release_id": "old-release"}),
+            (settings, {**active, "started_at": None}),
+            (settings, {**active, "status": "assigned"}),
+            (settings, {**active, "status": "submitted"}),
+            (settings, {**active, "status": "ended"}),
+            (settings, {**active, "status": "expired"}),
+            (settings, {**active, "forced_submit": True}),
+            (settings, {**active, "ends_at": (now - timedelta(seconds=1)).isoformat()}),
+            (settings, {**active, "started_at": (now + timedelta(seconds=1)).isoformat()}),
+            (settings, {**active, "ends_at": "invalid"}),
+        ]
+        for candidate_settings, candidate_assignment in cases:
+            with self.subTest(settings=candidate_settings, assignment=candidate_assignment):
+                self.assertFalse(main.is_active_exam_attempt("student-1", candidate_settings, candidate_assignment, now))
+
+    def test_inactive_telemetry_is_ignored_without_overwriting_session_snapshot(self):
+        token = "student-session-token"
+        token_key = hashlib.sha256(token.encode("utf-8")).hexdigest()
+        old_snapshot = {"visibility": "hidden", "focused": False, "tab_count": 2, "browser": "old", "updated_at": main.utc_now()}
+        state = {
+            "sessions.json": {token_key: {"user_id": "student-1", "role": "student", "last_seen": main.utc_now(), "telemetry": old_snapshot}},
+            "settings.json": {"exam_state": "started", "exam_released": True, "exam_release_id": "release-1"},
+            "assignments.json": {"student-1": {"release_id": "release-1", "status": "assigned"}},
+        }
+        request = SimpleNamespace(
+            path="/api/student/telemetry",
+            form={"visibility": "visible", "focused": "true", "tab_count": "1", "browser": "new"},
+            cookies={SESSION_COOKIE: token},
+        )
+        handler = object.__new__(main.Handler)
+        handler._parse_body = lambda: (b"", request)
+        handler._auth = lambda _request, _role: {"user_id": "student-1", "token": token, "token_key": token_key}
+        handler._json = lambda payload, status=200, headers=None: payload
+
+        with patch("app.main.read_json", side_effect=lambda name: state[name]), patch(
+            "app.main.write_json", side_effect=lambda name, value: state.update({name: value})
+        ) as write_json:
+            response = handler.do_POST()
+
+        self.assertEqual(response, {"ok": True})
+        self.assertEqual(state["sessions.json"][token_key]["telemetry"], old_snapshot)
+        write_json.assert_not_called()
+
+    def test_monitor_hides_stale_telemetry_when_attempt_is_inactive_but_keeps_presence(self):
+        token_key = "hashed-session"
+        state = {
+            "students.json": {"student-1": {"full_name": "Test Student"}},
+            "sessions.json": {token_key: {"user_id": "student-1", "role": "student", "last_seen": main.utc_now(), "telemetry": {"visibility": "hidden", "focused": False, "tab_count": 2, "release_id": "old-release"}}},
+            "assignments.json": {"student-1": {"release_id": "old-release", "status": "ended", "started_at": main.utc_now(), "ends_at": main.utc_now()}},
+            "submissions.json": {},
+            "code_submissions.json": {},
+            "settings.json": {"exam_state": "ended", "exam_released": False, "exam_release_id": None},
+        }
+        with patch("app.main.read_json", side_effect=lambda name: state[name]):
+            snapshot = main.monitoring_snapshot()
+
+        student = snapshot["students"][0]
+        self.assertTrue(student["logged_in"])
+        self.assertFalse(student["active_exam_attempt"])
+        self.assertEqual(student["telemetry"], {})
+        self.assertEqual(student["alerts"], [])
 
 if __name__ == "__main__":
     unittest.main()

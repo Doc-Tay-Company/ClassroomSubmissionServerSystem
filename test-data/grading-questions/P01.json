@@ -49,5 +49,6 @@
       "points": 25,
       "is_visible": true
     }
-  ]
+  ],
+  "target_file": "main.py"
 }

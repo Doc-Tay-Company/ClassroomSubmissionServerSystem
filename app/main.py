@@ -36,7 +36,7 @@ from .accounts import parse_accounts
 from .http import inline_filename_header
 from .storage import initialize, read_json, write_json, audit, utc_now
 from .security import hash_password, verify_password, new_session, get_session, require_user, client_ip, login_allowed, record_login_failure, clear_login_failures, logout_session, SecurityError
-from .exams import list_exam_files, distribute_exams, start_exam, start_exam_session, end_exam_session, remaining_seconds
+from .exams import list_exam_files, distribute_exams, start_exam, start_exam_session, end_exam_session, remaining_seconds, is_active_exam_attempt
 from . import general_exams
 from .general_exams import ExamError
 from .submissions import accept_submission
@@ -128,6 +128,7 @@ def current_exam_for(student_id: str):
 def monitoring_snapshot() -> dict:
     students, sessions = read_json("students.json"), read_json("sessions.json")
     assignments, submissions = read_json("assignments.json"), read_json("submissions.json")
+    settings = read_json("settings.json")
     code_submissions = read_json("code_submissions.json")
     latest = {}; now = datetime.now(timezone.utc)
     for token, sess in sessions.items():
@@ -147,7 +148,10 @@ def monitoring_snapshot() -> dict:
             for item in code_submissions.get(sid, [])
             if item.get("release_id") == assignment.get("release_id")
         ]
+        active_attempt = is_active_exam_attempt(sid, settings, assignment)
         telemetry=sess.get("telemetry",{}) if sess else {}
+        if not active_attempt or telemetry.get("release_id") != assignment.get("release_id"):
+            telemetry = {}
         alerts=[]
         if telemetry.get("visibility") == "hidden": alerts.append("tab_hidden")
         if telemetry.get("focused") is False: alerts.append("window_unfocused")
@@ -173,7 +177,7 @@ def monitoring_snapshot() -> dict:
             if latest_code
             else None
         )
-        result.append({"student_id":sid,"full_name":student.get("full_name",""),"active":student.get("active",True),"logged_in":online,"ip":sess.get("ip") if sess else student.get("last_ip"),"user_agent":sess.get("user_agent","") if sess else "","last_seen":sess.get("last_seen") if sess else student.get("last_seen"),"exam_file":assignment.get("exam_file"),"exam_status":assignment.get("status","not_assigned"),"started_at":assignment.get("started_at"),"ends_at":assignment.get("ends_at"),"remaining_seconds":remaining_seconds(assignment) if assignment.get("started_at") else None,"submission_count":len(records),"latest_submission":records[-1] if records else None,"code_submission_count":len(code_records),"latest_code_submission":code_summary,"telemetry":telemetry,"alerts":alerts})
+        result.append({"student_id":sid,"full_name":student.get("full_name",""),"active":student.get("active",True),"logged_in":online,"ip":sess.get("ip") if sess else student.get("last_ip"),"user_agent":sess.get("user_agent","") if sess else "","last_seen":sess.get("last_seen") if sess else student.get("last_seen"),"exam_file":assignment.get("exam_file"),"exam_status":assignment.get("status","not_assigned"),"started_at":assignment.get("started_at"),"ends_at":assignment.get("ends_at"),"remaining_seconds":remaining_seconds(assignment) if assignment.get("started_at") else None,"active_exam_attempt":active_attempt,"submission_count":len(records),"latest_submission":records[-1] if records else None,"code_submission_count":len(code_records),"latest_code_submission":code_summary,"telemetry":telemetry,"alerts":alerts})
     abnormal_count=sum(1 for row in result if row["alerts"])
     return {"occurred_at":utc_now(),"students":result,"online_count":sum(1 for row in result if row["logged_in"]),"abnormal_count":abnormal_count}
 
@@ -415,7 +419,7 @@ class Handler(BaseHTTPRequestHandler):
                 sess=self._auth(req,"student"); item=current_exam_for(sess["user_id"]); settings=read_json("settings.json")
                 notifications=read_json("notifications.json", [])
                 personal=[item for item in notifications if item.get("student_id") in (None, sess["user_id"])]
-                return self._json({"assigned":bool(item),"started":bool(item and item.get("started_at")),"exam_file":item.get("exam_file") if item and item.get("started_at") else None,"status":item.get("status") if item else "not_assigned","release_id":item.get("release_id") if item else None,"remaining_seconds":remaining_seconds(item or {}) if item and item.get("started_at") else None,"started_at":item.get("started_at") if item else None,"ends_at":item.get("ends_at") if item else None,"server_time":utc_now(),"exam_state":settings.get("exam_state") or "idle","notifications":personal[-10:],"exam_password_enabled":settings.get("exam_password_enabled",False),                "accepted_submission_extensions":settings.get("accepted_submission_extensions",[".zip"]),"published_exams":general_exams.published_for_students(sess["user_id"])})
+                return self._json({"assigned":bool(item),"started":bool(item and item.get("started_at")),"active_exam_attempt":is_active_exam_attempt(sess["user_id"], settings, item),"exam_file":item.get("exam_file") if item and item.get("started_at") else None,"status":item.get("status") if item else "not_assigned","release_id":item.get("release_id") if item else None,"remaining_seconds":remaining_seconds(item or {}) if item and item.get("started_at") else None,"started_at":item.get("started_at") if item else None,"ends_at":item.get("ends_at") if item else None,"server_time":utc_now(),"exam_state":settings.get("exam_state") or "idle","notifications":personal[-10:],"exam_password_enabled":settings.get("exam_password_enabled",False),                "accepted_submission_extensions":settings.get("accepted_submission_extensions",[".zip"]),"published_exams":general_exams.published_for_students(sess["user_id"])})
             if path=="/api/student/code-exam":
                 sess=self._auth(req,"student"); return self._json(get_student_code_exam(sess["user_id"]))
             if path=="/api/student/code/submission":
@@ -851,6 +855,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"ok":True,"submission":record})
             if path=="/api/student/telemetry":
                 sess=self._auth(req,"student")
+                settings=read_json("settings.json"); assignment=current_exam_for(sess["user_id"])
+                if not is_active_exam_attempt(sess["user_id"], settings, assignment):
+                    return self._json({"ok":True})
                 sessions=read_json("sessions.json"); token_key=sess.get("token_key")
                 current=sessions.get(token_key)
                 if not current: raise ClientError(401,"Phiên đăng nhập không hợp lệ.")
@@ -858,7 +865,7 @@ class Handler(BaseHTTPRequestHandler):
                     return f.get(name, str(default)).lower() in {"true","1","on","yes"}
                 try: tab_count=max(1,min(20,int(f.get("tab_count","1"))))
                 except ValueError: tab_count=1
-                current["telemetry"]={"visibility":"hidden" if f.get("visibility")=="hidden" else "visible","focused":flag("focused",True),"tab_count":tab_count,"browser":f.get("browser","")[:80],"updated_at":utc_now()}
+                current["telemetry"]={"visibility":"hidden" if f.get("visibility")=="hidden" else "visible","focused":flag("focused",True),"tab_count":tab_count,"browser":f.get("browser","")[:80],"updated_at":utc_now(),"release_id":assignment.get("release_id")}
                 current["last_seen"]=utc_now(); sessions[token_key]=current; write_json("sessions.json",sessions)
                 return self._json({"ok":True})
             if path=="/api/admin/admins":
