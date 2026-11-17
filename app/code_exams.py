@@ -1395,12 +1395,12 @@ def get_admin_code_results(
             {"question_id": q["question_id"], "title": q.get("title", ""), "total_points": q["total_points"], "language": q.get("language"), "grading_mode": q.get("grading_mode")}
             for q in exam.get("questions", [])
         ],
-        "matrix": _results_matrix(exam, submissions, student_id),
+        "matrix": build_results_matrix(exam, submissions, student_id),
         "submissions": rows,
     }
 
 
-def _results_matrix(exam: dict, submissions: Mapping, only_student: str | None) -> list[dict]:
+def build_results_matrix(exam: dict, submissions: Mapping, only_student: str | None) -> list[dict]:
     """One row per student, one cell per question in exam order; scores follow the latest graded submission."""
     names = {sid: item.get("full_name", "") for sid, item in read_json("students.json").items()}
     matrix = []
@@ -1507,11 +1507,12 @@ def regrade_submission(
     ip: str,
     *,
     use_latest_spec: bool = False,
+    lifecycle_status: str | None = None,
 ) -> dict:
     exam = get_code_exam(exam_id)
     if not exam:
         raise CodeExamError("Code exam was not found", 404)
-    if exam.get("status") != "ended":
+    if (lifecycle_status if lifecycle_status is not None else exam.get("status")) != "ended":
         raise CodeExamError("Only ended code exams can be regraded", 409)
 
     owner_id = None

@@ -20,6 +20,7 @@ class Element {
     };
   }
   get options() { return this.children.filter((child) => child instanceof Element && child.tagName === 'OPTION'); }
+  get lastChild() { return this.children.at(-1); }
   append(...items) { this.children.push(...items.filter((item) => item !== null && item !== undefined)); }
   replaceChildren(...items) { this.children = items.filter((item) => item !== null && item !== undefined); }
   addEventListener(type, callback) { this.listeners[type] = callback; }
@@ -44,20 +45,37 @@ async function main() {
     'cr-notice', 'cr-matrix', 'cr-refresh', 'cr-clear'];
   const elements = new Map(ids.map((id) => [id, new Element(id === 'cr-exam' || id === 'cr-student' || id === 'cr-question' ? 'select' : 'div')]));
   const requests = [];
-  const exam = { id: 'exam-1', title: 'Exam One', status: 'ended', questions: [
+  const operations = [];
+  let includeSubmission = false;
+  const questions = [
     { question_id: 'q1', title: 'Question One' }, { question_id: 'q2', title: 'Question Two' },
-  ] };
+  ];
+  const exam = { id: 'exam-1', title: 'Main Exam One', status: 'ended' };
+  const submission = { id: 'submission-1', exam_id: 'internal-runtime-id', student_id: 'student-1',
+    question_id: 'q1', status: 'graded', score: 8, total_points: 10, attempt: 1, source_code: 'print(1)' };
   const document = {
     getElementById: (id) => elements.get(id) || null,
     createElement: (tag) => new Element(tag),
     createTextNode: (text) => String(text),
   };
   const window = {
-    cssRequest: async (url) => {
+    confirm: () => true,
+    cssRequest: async (url, options = {}) => {
       requests.push(url);
-      if (url === '/api/admin/code-exams') return { code_exams: [exam] };
+      if (options.method === 'POST') {
+        operations.push({ url, body: JSON.parse(options.body) });
+        if (url === '/api/admin/exam-results/exam-1/regrade') return { submission };
+        if (url === '/api/admin/exam-results/exam-1/regrade-student') return { result: { regraded: [{ question_id: 'q1' }], failed: [], skipped: [] } };
+        throw new Error(`Unexpected POST ${url}`);
+      }
+      if (url === '/api/admin/exam-results') return { exams: [exam] };
       if (url === '/api/admin/accounts') return { students: [{ student_id: 'student-1', full_name: 'Student One' }] };
-      if (url.startsWith('/api/admin/code-results?')) return { status: 'ended', submissions: [], matrix: [] };
+      if (url.startsWith('/api/admin/exam-results/exam-1?')) return { status: 'ended', questions,
+        submissions: includeSubmission ? [submission] : [],
+        matrix: includeSubmission ? [{ student_id: 'student-1', total_score: 8, total_points: 10, cells: [
+          { question_id: 'q1', status: 'graded', score: 8, total_points: 10, submission_id: 'submission-1', attempts: 1 },
+          { question_id: 'q2', status: 'not_assigned' },
+        ] }] : [] };
       throw new Error(`Unexpected API request: ${url}`);
     },
   };
@@ -70,28 +88,45 @@ async function main() {
   const studentSelect = elements.get('cr-student');
   const questionSelect = elements.get('cr-question');
   const clear = elements.get('cr-clear');
-  assert.deepStrictEqual(examSelect.options.map((option) => option.value), ['', 'exam-1'], 'exam options remain available');
+  assert.deepStrictEqual(examSelect.options.map((option) => option.value), ['', 'exam-1'], 'options use main exam IDs');
+  assert(examSelect.options[1].textContent.includes('Main Exam One'), 'options use main exam titles and lifecycle state');
   assert.deepStrictEqual(studentSelect.options.map((option) => option.value), ['', 'student-1'], 'student options remain available');
 
   examSelect.value = 'exam-1';
   await examSelect.dispatch('change');
   assert.strictEqual(clear.disabled, false, 'clear action is enabled once an exam is selected');
-  assert.deepStrictEqual([...new URL(requests.at(-1), 'http://local').searchParams.entries()], [['exam_id', 'exam-1']],
-    'unfiltered request keeps the existing exam_id parameter');
+  assert.strictEqual(new URL(requests.at(-1), 'http://local').pathname, '/api/admin/exam-results/exam-1',
+    'results are requested using the main exam ID');
+  assert.deepStrictEqual(questionSelect.options.map((option) => option.value), ['', 'q1', 'q2'],
+    'question options come from the selected release results, not the legacy exam list');
 
   studentSelect.value = 'student-1';
   questionSelect.value = 'q2';
   await studentSelect.dispatch('change');
   const filtered = [...new URL(requests.at(-1), 'http://local').searchParams.entries()];
-  assert.deepStrictEqual(filtered, [['exam_id', 'exam-1'], ['student_id', 'student-1'], ['question_id', 'q2']],
+  assert.deepStrictEqual(filtered, [['student_id', 'student-1'], ['question_id', 'q2']],
     'combined filters preserve the existing server-side parameter names and values');
 
   await clear.dispatch('click');
   assert.strictEqual(studentSelect.value, '', 'clear resets the student filter');
   assert.strictEqual(questionSelect.value, '', 'clear resets the question filter');
   assert.strictEqual(examSelect.value, 'exam-1', 'clear retains the selected exam');
-  assert.deepStrictEqual([...new URL(requests.at(-1), 'http://local').searchParams.entries()], [['exam_id', 'exam-1']],
+  assert.deepStrictEqual([...new URL(requests.at(-1), 'http://local').searchParams.entries()], [],
     'clearing filters reloads the full result set for the selected exam');
+  includeSubmission = true;
+  await elements.get('cr-refresh').dispatch('click');
+  assert(elements.get('cr-matrix').textContent.includes('Không được giao'), 'other Papers do not count as unsubmitted questions');
+  await elements.get('cr-list').querySelector('button').dispatch('click');
+  const buttons = (node) => node.children.flatMap((child) => child instanceof Element
+    ? [...(child.tagName === 'BUTTON' ? [child] : []), ...buttons(child)] : []);
+  await buttons(elements.get('cr-detail')).find((button) => button.textContent === 'Chấm lại').dispatch('click');
+  assert.deepStrictEqual(operations.at(-1), { url: '/api/admin/exam-results/exam-1/regrade',
+    body: { submission_id: 'submission-1', use_latest_spec: false } }, 'single regrading uses the selected main exam ID');
+  await buttons(elements.get('cr-matrix')).find((button) => button.textContent === 'Chấm lại cả đề').dispatch('click');
+  assert.deepStrictEqual(operations.at(-1), { url: '/api/admin/exam-results/exam-1/regrade-student',
+    body: { student_id: 'student-1', use_latest_spec: false } }, 'bulk regrading also uses the selected main exam ID');
+  assert(!requests.some((url) => url.includes('/code-exams') || url.includes('/code-results')),
+    'results no longer fetch legacy code exam options or legacy results');
   console.log('PASS Code Results filter options, API parameters, combined selection, and clear behavior');
 }
 

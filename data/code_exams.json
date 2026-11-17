@@ -1766,5 +1766,622 @@
     "max_submissions": 1,
     "distributed_at": "2026-11-15T05:27:27+00:00",
     "started_at": "2026-11-17T04:05:29+00:00"
+  },
+  "e7244fb97cd94adfa5c5ebbaba9235c3": {
+    "id": "e7244fb97cd94adfa5c5ebbaba9235c3",
+    "schema_version": 2,
+    "status": "ended",
+    "release_id": "a9e41da6dbdb4781ac44cb5fcea259b3",
+    "general_exam_id": "661ae6a3c3204cdd8c6a115a7e8dce3a",
+    "paper_ref": {
+      "paper_id": "0af1576a8e5045f5856084da6d0e9032"
+    },
+    "paper_snapshot": {
+      "id": "0af1576a8e5045f5856084da6d0e9032",
+      "title": "Nghia",
+      "metadata": {},
+      "questions": [
+        {
+          "title": "Employee Class (Java Reflection)",
+          "statement": "Create a class Employee in package model with: private String employeeId, private String name, private double salary; public constructor Employee(String employeeId, String name, double salary); getSalary() returns the current salary; giveRaise(double percentage) increases salary by the given percentage and returns the updated salary; throw IllegalArgumentException if the percentage is negative; toString() returns Employee{employeeId=<employeeId>, name=<name>, salary=<salary>}; Employee implements Comparable<Employee>, comparing by salary in ascending order.",
+          "language": "java",
+          "grading_mode": "reflection",
+          "target_class": "model.Employee",
+          "target_package": "model",
+          "target_file": "Employee.java",
+          "starter_code": "package model;\n\npublic class Employee {\n    // TODO\n}\n",
+          "time_limit_seconds": 5.0,
+          "memory_limit_mb": 256,
+          "max_output_bytes": 65536,
+          "allow_pretest": true,
+          "max_pretest_runs": 20,
+          "category": "OOP",
+          "tags": [
+            "oop",
+            "java",
+            "encapsulation",
+            "reflection",
+            "employee"
+          ],
+          "difficulty": "easy",
+          "practice_enabled": false,
+          "checks": [
+            {
+              "id": "field-employeeId",
+              "kind": "field",
+              "points": 10,
+              "is_visible": true,
+              "name": "employeeId",
+              "type": "java.lang.String",
+              "modifier": "private"
+            },
+            {
+              "id": "field-name",
+              "kind": "field",
+              "points": 10,
+              "is_visible": true,
+              "name": "name",
+              "type": "java.lang.String",
+              "modifier": "private"
+            },
+            {
+              "id": "field-salary",
+              "kind": "field",
+              "points": 10,
+              "is_visible": true,
+              "name": "salary",
+              "type": "double",
+              "modifier": "private"
+            },
+            {
+              "id": "ctor",
+              "kind": "constructor",
+              "points": 10,
+              "is_visible": true,
+              "parameter_types": [
+                "java.lang.String",
+                "java.lang.String",
+                "double"
+              ],
+              "modifier": "public"
+            },
+            {
+              "id": "method-getSalary",
+              "kind": "method",
+              "points": 10,
+              "is_visible": true,
+              "name": "getSalary",
+              "return_type": "double",
+              "parameter_types": [],
+              "modifier": "public"
+            },
+            {
+              "id": "method-giveRaise",
+              "kind": "method",
+              "points": 10,
+              "is_visible": true,
+              "name": "giveRaise",
+              "return_type": "double",
+              "parameter_types": [
+                "double"
+              ],
+              "modifier": "public"
+            },
+            {
+              "id": "behavior-giveRaise",
+              "kind": "behavior",
+              "points": 10,
+              "is_visible": true,
+              "setup": [],
+              "expect_return": 1100,
+              "constructor_parameter_types": [
+                "java.lang.String",
+                "java.lang.String",
+                "double"
+              ],
+              "constructor_args": [
+                "E001",
+                "Morgan",
+                1000
+              ],
+              "method": "giveRaise",
+              "parameter_types": [
+                "double"
+              ],
+              "args": [
+                10
+              ]
+            },
+            {
+              "id": "behavior-invalid-raise",
+              "kind": "behavior",
+              "points": 10,
+              "is_visible": false,
+              "setup": [],
+              "expect_exception": "java.lang.IllegalArgumentException",
+              "constructor_parameter_types": [
+                "java.lang.String",
+                "java.lang.String",
+                "double"
+              ],
+              "constructor_args": [
+                "E002",
+                "Casey",
+                1000
+              ],
+              "method": "giveRaise",
+              "parameter_types": [
+                "double"
+              ],
+              "args": [
+                -5
+              ]
+            },
+            {
+              "id": "tostring",
+              "kind": "toString",
+              "points": 5,
+              "is_visible": true,
+              "setup": [],
+              "constructor_parameter_types": [
+                "java.lang.String",
+                "java.lang.String",
+                "double"
+              ],
+              "constructor_args": [
+                "E003",
+                "Riley",
+                2500
+              ],
+              "template": "Employee{employeeId={employeeId}, name={name}, salary={salary}}"
+            },
+            {
+              "id": "comparable",
+              "kind": "comparable",
+              "points": 15,
+              "is_visible": false,
+              "instances": [
+                {
+                  "constructor_parameter_types": [
+                    "java.lang.String",
+                    "java.lang.String",
+                    "double"
+                  ],
+                  "constructor_args": [
+                    "E004",
+                    "A",
+                    1000
+                  ]
+                },
+                {
+                  "constructor_parameter_types": [
+                    "java.lang.String",
+                    "java.lang.String",
+                    "double"
+                  ],
+                  "constructor_args": [
+                    "E005",
+                    "B",
+                    2000
+                  ]
+                },
+                {
+                  "constructor_parameter_types": [
+                    "java.lang.String",
+                    "java.lang.String",
+                    "double"
+                  ],
+                  "constructor_args": [
+                    "E006",
+                    "C",
+                    3000
+                  ]
+                },
+                {
+                  "constructor_parameter_types": [
+                    "java.lang.String",
+                    "java.lang.String",
+                    "double"
+                  ],
+                  "constructor_args": [
+                    "E005",
+                    "B",
+                    2000
+                  ]
+                },
+                {
+                  "constructor_parameter_types": [
+                    "java.lang.String",
+                    "java.lang.String",
+                    "double"
+                  ],
+                  "constructor_args": [
+                    "E004",
+                    "A",
+                    1000
+                  ]
+                },
+                {
+                  "constructor_parameter_types": [
+                    "java.lang.String",
+                    "java.lang.String",
+                    "double"
+                  ],
+                  "constructor_args": [
+                    "E007",
+                    "D",
+                    1000
+                  ]
+                }
+              ],
+              "comparisons": [
+                {
+                  "left": 0,
+                  "right": 1,
+                  "expected_sign": -1
+                },
+                {
+                  "left": 2,
+                  "right": 3,
+                  "expected_sign": 1
+                },
+                {
+                  "left": 4,
+                  "right": 5,
+                  "expected_sign": 0
+                }
+              ]
+            }
+          ],
+          "total_points": 100,
+          "problem_kind": "java_reflection",
+          "id": "144b9e6ecc24448ea9f1cdaeaf32dded",
+          "sample_source": "package model;\n\npublic class Employee implements Comparable<Employee> {\n    private String employeeId;\n    private String name;\n    private double salary;\n\n    public Employee(String employeeId, String name, double salary) {\n        this.employeeId = employeeId;\n        this.name = name;\n        this.salary = salary;\n    }\n\n    public double getSalary() {\n        return salary;\n    }\n\n    public double giveRaise(double percentage) {\n        if (percentage < 0) {\n            throw new IllegalArgumentException(\"Raise percentage cannot be negative.\");\n        }\n        this.salary += this.salary * (percentage / 100.0);\n        return this.salary;\n    }\n\n    @Override\n    public String toString() {\n        return \"Employee{employeeId=\" + employeeId + \", name=\" + name + \", salary=\" + salary + \"}\";\n    }\n\n    @Override\n    public int compareTo(Employee other) {\n        return Double.compare(this.salary, other.salary);\n    }\n}",
+          "status": "published",
+          "source": {
+            "created_by": "nghia",
+            "created_at": "2026-11-17T06:14:51+00:00",
+            "updated_by": "nghia",
+            "updated_at": "2026-11-17T06:15:01+00:00"
+          },
+          "usage_count": 0,
+          "version": 2,
+          "validation": {
+            "spec_hash": "7c1013e1c198d83e7f2ad428bf43f890834fd6b0ba56d55a8c24569d8ee9f7c1",
+            "passed": true,
+            "validated_at": "2026-11-17T06:15:01+00:00",
+            "validated_by": "nghia",
+            "sample_sha256": "e22c37b83a43d8d640396d9913cceef9db4fcb9f0a462a44caede34750ee98ea",
+            "verdict": "AC",
+            "score": 100,
+            "total_points": 100
+          },
+          "practice_revision": "19eb52efdac649149aa29cc510859903",
+          "question_id": "144b9e6ecc24448ea9f1cdaeaf32dded",
+          "snapshot_version": 2,
+          "snapshot_at": "2026-11-17T08:26:00+00:00",
+          "order": 0
+        },
+        {
+          "title": "Book Class (Java Reflection)",
+          "statement": "Create a class Book in package model with: private String isbn, private String title, private double price; public constructor Book(String isbn, String title, double price); getPrice() returns the current price; applyDiscount(double percentage) reduces the price by the given percentage and returns the updated price; throw IllegalArgumentException if the percentage is less than 0 or greater than 100; toString() returns Book{isbn=<isbn>, title=<title>, price=<price>}; Book implements Comparable<Book>, comparing by price in ascending order.",
+          "language": "java",
+          "grading_mode": "reflection",
+          "target_class": "model.Book",
+          "target_package": "model",
+          "target_file": "Book.java",
+          "starter_code": "package model;\n\npublic class Book {\n    // TODO\n}\n",
+          "time_limit_seconds": 5.0,
+          "memory_limit_mb": 256,
+          "max_output_bytes": 65536,
+          "allow_pretest": true,
+          "max_pretest_runs": 20,
+          "category": "OOP",
+          "tags": [
+            "oop",
+            "java",
+            "encapsulation",
+            "reflection",
+            "book"
+          ],
+          "difficulty": "easy",
+          "practice_enabled": false,
+          "checks": [
+            {
+              "id": "field-isbn",
+              "kind": "field",
+              "points": 10,
+              "is_visible": true,
+              "name": "isbn",
+              "type": "java.lang.String",
+              "modifier": "private"
+            },
+            {
+              "id": "field-title",
+              "kind": "field",
+              "points": 10,
+              "is_visible": true,
+              "name": "title",
+              "type": "java.lang.String",
+              "modifier": "private"
+            },
+            {
+              "id": "field-price",
+              "kind": "field",
+              "points": 10,
+              "is_visible": true,
+              "name": "price",
+              "type": "double",
+              "modifier": "private"
+            },
+            {
+              "id": "ctor",
+              "kind": "constructor",
+              "points": 10,
+              "is_visible": true,
+              "parameter_types": [
+                "java.lang.String",
+                "java.lang.String",
+                "double"
+              ],
+              "modifier": "public"
+            },
+            {
+              "id": "method-getPrice",
+              "kind": "method",
+              "points": 10,
+              "is_visible": true,
+              "name": "getPrice",
+              "return_type": "double",
+              "parameter_types": [],
+              "modifier": "public"
+            },
+            {
+              "id": "method-applyDiscount",
+              "kind": "method",
+              "points": 10,
+              "is_visible": true,
+              "name": "applyDiscount",
+              "return_type": "double",
+              "parameter_types": [
+                "double"
+              ],
+              "modifier": "public"
+            },
+            {
+              "id": "behavior-discount",
+              "kind": "behavior",
+              "points": 10,
+              "is_visible": true,
+              "setup": [],
+              "expect_return": 180,
+              "constructor_parameter_types": [
+                "java.lang.String",
+                "java.lang.String",
+                "double"
+              ],
+              "constructor_args": [
+                "978-0001",
+                "Java Basics",
+                200
+              ],
+              "method": "applyDiscount",
+              "parameter_types": [
+                "double"
+              ],
+              "args": [
+                10
+              ]
+            },
+            {
+              "id": "behavior-invalid-discount-negative",
+              "kind": "behavior",
+              "points": 5,
+              "is_visible": false,
+              "setup": [],
+              "expect_exception": "java.lang.IllegalArgumentException",
+              "constructor_parameter_types": [
+                "java.lang.String",
+                "java.lang.String",
+                "double"
+              ],
+              "constructor_args": [
+                "978-0002",
+                "OOP",
+                100
+              ],
+              "method": "applyDiscount",
+              "parameter_types": [
+                "double"
+              ],
+              "args": [
+                -5
+              ]
+            },
+            {
+              "id": "behavior-invalid-discount-over-100",
+              "kind": "behavior",
+              "points": 5,
+              "is_visible": false,
+              "setup": [],
+              "expect_exception": "java.lang.IllegalArgumentException",
+              "constructor_parameter_types": [
+                "java.lang.String",
+                "java.lang.String",
+                "double"
+              ],
+              "constructor_args": [
+                "978-0003",
+                "Patterns",
+                100
+              ],
+              "method": "applyDiscount",
+              "parameter_types": [
+                "double"
+              ],
+              "args": [
+                100.1
+              ]
+            },
+            {
+              "id": "tostring",
+              "kind": "toString",
+              "points": 5,
+              "is_visible": true,
+              "setup": [],
+              "constructor_parameter_types": [
+                "java.lang.String",
+                "java.lang.String",
+                "double"
+              ],
+              "constructor_args": [
+                "978-0004",
+                "Reflection",
+                150
+              ],
+              "template": "Book{isbn={isbn}, title={title}, price={price}}"
+            },
+            {
+              "id": "comparable",
+              "kind": "comparable",
+              "points": 15,
+              "is_visible": false,
+              "instances": [
+                {
+                  "constructor_parameter_types": [
+                    "java.lang.String",
+                    "java.lang.String",
+                    "double"
+                  ],
+                  "constructor_args": [
+                    "978-0005",
+                    "A",
+                    50
+                  ]
+                },
+                {
+                  "constructor_parameter_types": [
+                    "java.lang.String",
+                    "java.lang.String",
+                    "double"
+                  ],
+                  "constructor_args": [
+                    "978-0006",
+                    "B",
+                    100
+                  ]
+                },
+                {
+                  "constructor_parameter_types": [
+                    "java.lang.String",
+                    "java.lang.String",
+                    "double"
+                  ],
+                  "constructor_args": [
+                    "978-0007",
+                    "C",
+                    150
+                  ]
+                },
+                {
+                  "constructor_parameter_types": [
+                    "java.lang.String",
+                    "java.lang.String",
+                    "double"
+                  ],
+                  "constructor_args": [
+                    "978-0006",
+                    "B",
+                    100
+                  ]
+                },
+                {
+                  "constructor_parameter_types": [
+                    "java.lang.String",
+                    "java.lang.String",
+                    "double"
+                  ],
+                  "constructor_args": [
+                    "978-0005",
+                    "A",
+                    50
+                  ]
+                },
+                {
+                  "constructor_parameter_types": [
+                    "java.lang.String",
+                    "java.lang.String",
+                    "double"
+                  ],
+                  "constructor_args": [
+                    "978-0008",
+                    "D",
+                    50
+                  ]
+                }
+              ],
+              "comparisons": [
+                {
+                  "left": 0,
+                  "right": 1,
+                  "expected_sign": -1
+                },
+                {
+                  "left": 2,
+                  "right": 3,
+                  "expected_sign": 1
+                },
+                {
+                  "left": 4,
+                  "right": 5,
+                  "expected_sign": 0
+                }
+              ]
+            }
+          ],
+          "total_points": 100,
+          "problem_kind": "java_reflection",
+          "id": "4dc797959c864ca28eda18e979bb86ea",
+          "sample_source": "package model;\n\npublic class Book implements Comparable<Book> {\n    private String isbn;\n    private String title;\n    private double price;\n\n    public Book(String isbn, String title, double price) {\n        this.isbn = isbn;\n        this.title = title;\n        this.price = price;\n    }\n\n    public double getPrice() {\n        return price;\n    }\n\n    public double applyDiscount(double percentage) {\n        if (percentage < 0 || percentage > 100) {\n            throw new IllegalArgumentException(\"Discount percentage must be between 0 and 100.\");\n        }\n        this.price -= this.price * (percentage / 100.0);\n        return this.price;\n    }\n\n    @Override\n    public String toString() {\n        return \"Book{isbn=\" + isbn + \", title=\" + title + \", price=\" + price + \"}\";\n    }\n\n    @Override\n    public int compareTo(Book other) {\n        return Double.compare(this.price, other.price);\n    }\n}",
+          "status": "published",
+          "source": {
+            "created_by": "nghia",
+            "created_at": "2026-11-17T06:15:23+00:00",
+            "updated_by": "nghia",
+            "updated_at": "2026-11-17T06:16:10+00:00"
+          },
+          "usage_count": 0,
+          "version": 3,
+          "validation": {
+            "spec_hash": "d58a79e0511ae793aca035ad362667936cf9de9837f7850905e6288bb5c7ed2e",
+            "passed": true,
+            "validated_at": "2026-11-17T06:16:10+00:00",
+            "validated_by": "nghia",
+            "sample_sha256": "0e0b3306c79423bce5cfafcbf54e8cbbe42795be063067e5fa01d02e123d8acf",
+            "verdict": "AC",
+            "score": 100,
+            "total_points": 100
+          },
+          "practice_revision": "be3fcf6d2dc642ea988340a05322311f",
+          "question_id": "4dc797959c864ca28eda18e979bb86ea",
+          "snapshot_version": 3,
+          "snapshot_at": "2026-11-17T08:26:00+00:00",
+          "order": 1
+        }
+      ]
+    },
+    "created_by": "nghia",
+    "created_at": "2026-11-17T10:20:50+00:00",
+    "updated_at": "2026-11-17T10:26:31+00:00",
+    "title": "ádf",
+    "show_final_score_immediately": false,
+    "allow_pretest": true,
+    "max_pretest_runs": 20,
+    "pretest_cooldown_seconds": 2.0,
+    "submission_policy": "configurable",
+    "max_submissions": 1,
+    "distributed_at": "2026-11-17T10:20:50+00:00",
+    "started_at": "2026-11-17T10:20:53+00:00",
+    "ended_at": "2026-11-17T10:26:31+00:00"
   }
 }

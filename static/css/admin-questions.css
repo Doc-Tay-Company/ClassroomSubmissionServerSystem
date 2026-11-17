@@ -42,6 +42,12 @@ input.invalid,textarea.invalid{border-color:#dc2626;outline-color:#dc2626}
 .submission-source{max-height:520px;white-space:pre;overflow:auto}
 .code-result-value{white-space:pre-wrap;overflow-wrap:anywhere;max-width:320px}
 .regrade-controls{display:flex;align-items:center;gap:10px;flex-wrap:wrap;border-top:1px solid #e5eaf2;margin-top:16px;padding-top:12px}
+#code-results-view #cr-matrix:not(:empty),#code-results-view #cr-list:not(:empty){margin-bottom:24px}
+#code-results-view .regrade-controls{margin:16px 0;padding:12px 14px;border:1px solid #e4eaf2;border-radius:10px;background:#f8faff;min-width:0}
+#code-results-view .regrade-controls select{width:390px;max-width:100%;height:40px;min-width:0;padding:8px 11px;border:1px solid #dbe2ed;border-radius:9px;background:#fff;color:#1e293b;font:inherit;outline:0}
+#code-results-view .regrade-controls select:focus{border-color:#6693f5;box-shadow:0 0 0 3px #2563eb18}
+#code-results-view .regrade-controls>p{flex:1 1 240px;margin:0;line-height:1.5}
+@media(max-width:560px){#code-results-view .regrade-controls{align-items:stretch}#code-results-view .regrade-controls select{width:100%;flex-basis:100%}#code-results-view .regrade-controls>p{flex-basis:100%}}
 .history-entry{margin-top:12px;padding:10px;border:1px solid #e5eaf2;border-radius:8px}
 .history-entry h4{margin:4px 0}
 .exam-filters{display:grid;grid-template-columns:minmax(240px,1.3fr) repeat(2,minmax(170px,.8fr));gap:12px;margin:12px 0 18px;align-items:end}

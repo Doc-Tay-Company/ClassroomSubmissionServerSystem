@@ -380,6 +380,14 @@ class Handler(BaseHTTPRequestHandler):
                     return self._json({"preview":general_exams.preview_exam(exam_id[:-len("/preview")])})
                 if not exam_id or "/" in exam_id: raise ClientError(404,"Không tìm thấy kỳ thi.")
                 return self._json({"exam":general_exams.get_exam(exam_id)})
+            if path=="/api/admin/exam-results":
+                self._auth(req,"admin"); return self._json({"exams":general_exams.list_result_exams()})
+            if path.startswith("/api/admin/exam-results/"):
+                self._auth(req,"admin")
+                exam_id=urllib.parse.unquote(path[len("/api/admin/exam-results/"):]).strip("/")
+                if not exam_id or "/" in exam_id: raise ClientError(404,"Exam was not found.")
+                student_ids=req.query.get("student_id",[]); question_ids=req.query.get("question_id",[])
+                return self._json(general_exams.get_exam_results(exam_id,student_id=student_ids[0] if student_ids else None,question_id=question_ids[0] if question_ids else None))
             if path=="/api/admin/code-exams":
                 self._auth(req,"admin"); return self._json({"code_exams":list_code_exams()})
             if path.startswith("/api/admin/code-exams/") and req.method == "GET":
@@ -605,6 +613,25 @@ class Handler(BaseHTTPRequestHandler):
                 if not question_id or "/" in question_id: raise ClientError(404,"Question was not found.")
                 question=publish_question(question_id,self._json_body(req),sess["user_id"],client_ip(req))
                 return self._json({"ok":True,"question":question,"validation":question.get("validation")},200)
+            if path.startswith("/api/admin/exam-results/"):
+                sess=self._auth(req,"admin")
+                parts=[urllib.parse.unquote(part) for part in path[len("/api/admin/exam-results/"):].strip("/").split("/")]
+                if len(parts)!=2 or "/" in parts[0]: raise ClientError(404,"Endpoint was not found.")
+                exam_id,action=parts
+                if action not in {"regrade","regrade-student"}: raise ClientError(404,"Endpoint was not found.")
+                payload=self._json_body(req)
+                use_latest_spec=payload.get("use_latest_spec",False)
+                if not isinstance(use_latest_spec,bool): raise ClientError(400,"use_latest_spec must be a boolean.")
+                if action=="regrade":
+                    submission_id=payload.get("submission_id")
+                    if not isinstance(submission_id,str) or not submission_id: raise ClientError(400,"submission_id is required.")
+                    result=general_exams.regrade_exam_submission(exam_id,submission_id,sess["user_id"],client_ip(req),use_latest_spec=use_latest_spec)
+                    return self._json({"ok":True,"submission":result})
+                student_id=payload.get("student_id"); question_id=payload.get("question_id")
+                if not isinstance(student_id,str) or not student_id: raise ClientError(400,"student_id is required.")
+                if question_id is not None and (not isinstance(question_id,str) or not question_id): raise ClientError(400,"question_id must be a non-empty string.")
+                result=general_exams.regrade_exam_student(exam_id,student_id,sess["user_id"],client_ip(req),question_id=question_id,use_latest_spec=use_latest_spec)
+                return self._json({"ok":True,"result":result})
             if path.startswith("/api/admin/code-results/") and path.endswith("/regrade-student"):
                 sess=self._auth(req,"admin")
                 exam_id=urllib.parse.unquote(path[len("/api/admin/code-results/"):-len("/regrade-student")].strip("/"))

@@ -17,11 +17,13 @@ from collections.abc import Mapping
 from .code_exams import (
     CodeExamError,
     attach_code_exam_to_release,
+    build_results_matrix,
     create_code_exam,
     create_paper_code_exam,
     discard_code_exam,
     get_code_exam,
     public_question,
+    regrade_submission,
     release_student_exam_scores,
     transition_code_exam,
 )
@@ -611,6 +613,140 @@ def list_exams() -> list[dict]:
 def get_exam(exam_id: str) -> dict:
     reconcile()
     return _public(_must(_load(), exam_id))
+
+
+def list_result_exams() -> list[dict]:
+    exams = [exam for exam in _load().values() if not exam.get("deleted_at") and _item(exam, "code")]
+    exams.sort(key=lambda exam: exam.get("updated_at", ""), reverse=True)
+    return [{"id": exam["id"], "title": exam["title"], "status": exam["status"]} for exam in exams]
+
+
+def _result_exam(exam_id: str) -> dict:
+    exam = _must(_load(), exam_id)
+    if not _item(exam, "code"):
+        raise ExamError("This exam has no code assessment.", 409)
+    return exam
+
+
+def get_exam_results(exam_id: str, *, student_id: str | None = None, question_id: str | None = None) -> dict:
+    exam = _result_exam(exam_id)
+    release_id = (exam.get("release") or {}).get("release_id")
+    submissions = read_json("code_submissions.json")
+    if not isinstance(submissions, dict) or any(
+        not isinstance(records, list) or any(not isinstance(record, dict) for record in records)
+        for records in submissions.values()
+    ):
+        raise ExamError("Invalid code_submissions.json: expected student-keyed submission lists.", 409)
+    rows = [
+        {**copy.deepcopy(record), "student_id": owner}
+        for owner, records in submissions.items() for record in records
+        if release_id and record.get("release_id") == release_id
+    ]
+    rows.sort(key=lambda record: (record.get("submitted_at", ""), record["student_id"], record.get("attempt", 0)))
+    code_item = _item(exam, "code")
+    snapshot_ids = _code_exam_ids(code_item) | {record.get("exam_id") for record in rows if record.get("exam_id")}
+    stored_snapshots = read_json("code_exams.json")
+    question_sets = {}
+    questions = {}
+    warnings = []
+    for snapshot_id in sorted(snapshot_ids):
+        snapshot = stored_snapshots.get(snapshot_id)
+        frozen = ((snapshot.get("paper_snapshot") or {}).get("questions") or snapshot.get("questions")) if snapshot else None
+        if not snapshot or snapshot.get("release_id") != release_id or not frozen:
+            warnings.append(f"Released grading snapshot {snapshot_id} is unavailable. Stored submissions remain visible; affected totals cannot be verified.")
+            continue
+        summaries = [{
+            "question_id": question.get("question_id", question.get("id")),
+            "title": question.get("title", ""), "total_points": question["total_points"],
+            "language": question.get("language"), "grading_mode": question.get("grading_mode"),
+        } for question in frozen]
+        question_sets[snapshot_id] = summaries
+        for question in summaries:
+            questions.setdefault(question["question_id"], question)
+    bank = read_json("questions.json")
+    for record in rows:
+        qid = record["question_id"]
+        questions.setdefault(qid, {
+            "question_id": qid, "title": bank.get(qid, {}).get("title", qid),
+            "total_points": record.get("total_points", 0),
+            "language": record.get("language"), "grading_mode": record.get("grading_mode"),
+        })
+    grouped = {}
+    for record in rows:
+        grouped.setdefault(record["student_id"], []).append({**record, "exam_id": exam_id})
+    matrix = []
+    assignments = (exam.get("release") or {}).get("paper_assignments", {})
+    for owner, records in grouped.items():
+        if student_id is not None and owner != student_id:
+            continue
+        assigned_id = (assignments.get(owner) or {}).get("code_exam_id")
+        owner_ids = {record["exam_id"] for record in rows if record["student_id"] == owner and record.get("exam_id")}
+        if assigned_id:
+            owner_ids.add(assigned_id)
+        expected = {}
+        for snapshot_id in sorted(owner_ids):
+            for question in question_sets.get(snapshot_id, []):
+                expected.setdefault(question["question_id"], question)
+        for record in records:
+            expected.setdefault(record["question_id"], questions[record["question_id"]])
+        context = {"id": exam_id, "release_id": release_id, "questions": list(expected.values())}
+        entry = build_results_matrix(context, {owner: records}, None)[0]
+        complete_metadata = bool(owner_ids) and all(snapshot_id in question_sets for snapshot_id in owner_ids)
+        if not complete_metadata:
+            entry["total_score"] = entry["total_points"] = None
+        cells = {cell["question_id"]: cell for cell in entry["cells"]}
+        entry["cells"] = [cells.get(qid, {"question_id": qid, "status": "not_assigned" if complete_metadata else "unknown"}) for qid in questions]
+        matrix.append(entry)
+    matrix.sort(key=lambda entry: entry["student_id"])
+    return {
+        "exam_id": exam_id, "release_id": release_id, "title": exam["title"], "status": exam["status"],
+        "questions": list(questions.values()), "matrix": matrix, "warnings": warnings,
+        "submissions": [record for record in rows
+                        if (student_id is None or record["student_id"] == student_id)
+                        and (question_id is None or record.get("question_id") == question_id)],
+    }
+
+
+def regrade_exam_submission(exam_id: str, submission_id: str, actor: str, ip: str, *, use_latest_spec: bool = False) -> dict:
+    exam = _result_exam(exam_id)
+    if exam["status"] != "ended":
+        raise ExamError("Only ended exams can be regraded.", 409)
+    result = get_exam_results(exam_id)
+    record = next((record for record in result["submissions"] if record.get("id") == submission_id), None)
+    if record is None:
+        raise ExamError("Submission was not found for this exam release.", 404)
+    return regrade_submission(record["exam_id"], submission_id, actor, ip, use_latest_spec=use_latest_spec, lifecycle_status=exam["status"])
+
+
+def regrade_exam_student(exam_id: str, student_id: str, actor: str, ip: str, *, question_id: str | None = None, use_latest_spec: bool = False) -> dict:
+    exam = _result_exam(exam_id)
+    if exam["status"] != "ended":
+        raise ExamError("Only ended exams can be regraded.", 409)
+    result = get_exam_results(exam_id, student_id=student_id)
+    if not result["submissions"]:
+        raise ExamError("This student has no submissions for this exam release.", 404)
+    qids = [cell["question_id"] for entry in result["matrix"] for cell in entry["cells"]
+            if cell["status"] not in {"not_assigned", "unknown"}]
+    if question_id is not None:
+        if question_id not in qids:
+            raise ExamError("Question is not part of this exam release.", 404)
+        qids = [question_id]
+    regraded, failed, skipped = [], [], []
+    for qid in qids:
+        completed = [record for record in result["submissions"] if record.get("question_id") == qid and record.get("status") in {"graded", "error"}]
+        if not completed:
+            skipped.append({"question_id": qid, "reason": "No completed submission."})
+            continue
+        target = completed[-1]
+        try:
+            updated = regrade_submission(target["exam_id"], target["id"], actor, ip, use_latest_spec=use_latest_spec, lifecycle_status=exam["status"])
+            regraded.append({"question_id": qid, "submission_id": target["id"], "verdict": updated.get("verdict"), "score": updated.get("score")})
+        except CodeExamError as exc:
+            failed.append({"question_id": qid, "submission_id": target["id"], "error": str(exc), "status": exc.status})
+    if regraded:
+        release_student_exam_scores(result["release_id"])
+    audit("exam.bulk_regrade", actor, ip, {"exam_id": exam_id, "student_id": student_id, "regraded": len(regraded), "failed": len(failed)})
+    return {"exam_id": exam_id, "student_id": student_id, "regraded": regraded, "failed": failed, "skipped": skipped}
 
 
 def preview_exam(exam_id: str) -> dict:

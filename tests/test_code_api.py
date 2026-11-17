@@ -1091,6 +1091,125 @@ class CodeApiTests(unittest.TestCase):
         self.assertEqual(status, 400, result)
         self.assertEqual(storage.read_json("assignments.json")["student-1"]["status"], "in_progress")
 
+    def result_exam_fixture(self):
+        self.addCleanup(storage.write_json, "exams.json", storage.read_json("exams.json"))
+        exam = {
+            "id": "main-exam", "title": "Current main exam", "status": "ended",
+            "items": [{"type": "code", "paper_code_exam_ids": {"paper-a": "runtime-a", "paper-b": "runtime-b"}}],
+            "release": {"release_id": "current-release", "paper_assignments": {
+                "student-1": {"code_exam_id": "runtime-a"}, "student-2": {"code_exam_id": "runtime-b"},
+            }},
+        }
+        storage.write_json("exams.json", {exam["id"]: exam, "deleted": {**exam, "id": "deleted", "deleted_at": "now"},
+                                          "zip-only": {**exam, "id": "zip-only", "items": [{"type": "zip"}]}})
+        submissions = {}
+        snapshots = {}
+        for index, suffix in enumerate(("a", "b"), 1):
+            qid = f"question-{suffix}"
+            runtime_id = f"runtime-{suffix}"
+            snapshots[runtime_id] = {"id": runtime_id, "release_id": "current-release", "status": "ended",
+                                     "questions": [{"question_id": qid, "title": f"Frozen {suffix}", "total_points": 10}]}
+            submissions[f"student-{index}"] = [{"id": f"submission-{suffix}", "exam_id": runtime_id,
+                "release_id": "current-release", "question_id": qid, "status": "graded", "score": 8,
+                "total_points": 10, "source_code": "print('answer')", "results": [{"is_visible": False, "expected": "secret"}],
+                "attempt": 1, "submitted_at": "2026-11-17T09:00:00+00:00", "verdict": "WA"}]
+        submissions["student-1"].append({**submissions["student-1"][0], "id": "old-release", "release_id": "old-release"})
+        storage.write_json("code_exams.json", snapshots)
+        storage.write_json("code_submissions.json", submissions)
+        return exam
+
+    def test_exam_results_use_main_exams_and_release_scoped_submissions(self):
+        exam = self.result_exam_fixture()
+        before = storage.read_json("exams.json")
+        status, response = self.request("GET", "/api/admin/exam-results", cookie=self.admin_cookie)
+        self.assertEqual(status, 200, response)
+        self.assertEqual(response["exams"], [{"id": exam["id"], "title": exam["title"], "status": "ended"}])
+        self.assertEqual(storage.read_json("exams.json"), before)
+        status, result = self.request("GET", "/api/admin/exam-results/main-exam", cookie=self.admin_cookie)
+        self.assertEqual(status, 200, result)
+        self.assertEqual(result["exam_id"], "main-exam")
+        self.assertEqual({record["id"] for record in result["submissions"]}, {"submission-a", "submission-b"})
+        self.assertEqual([q["title"] for q in result["questions"]], ["Frozen a", "Frozen b"])
+        self.assertEqual([entry["total_score"] for entry in result["matrix"]], [8, 8])
+        self.assertEqual([entry["total_points"] for entry in result["matrix"]], [10, 10])
+        self.assertEqual(result["matrix"][0]["cells"][1]["status"], "not_assigned")
+        self.assertIn("secret", json.dumps(result["submissions"]))
+        status, filtered = self.request("GET", "/api/admin/exam-results/main-exam?student_id=student-2&question_id=question-b", cookie=self.admin_cookie)
+        self.assertEqual(status, 200, filtered)
+        self.assertEqual([record["id"] for record in filtered["submissions"]], ["submission-b"])
+        self.assertEqual(len(filtered["matrix"]), 1)
+        self.assertEqual(len(filtered["questions"]), 2)
+        for path in ("/api/admin/exam-results", "/api/admin/exam-results/main-exam"):
+            status, denied = self.request("GET", path, cookie=self.student_cookie)
+            self.assertEqual(status, 403, denied)
+        status, deleted = self.request("GET", "/api/admin/exam-results/deleted", cookie=self.admin_cookie)
+        self.assertEqual(status, 404, deleted)
+
+    def test_exam_results_remain_readable_without_runtime_snapshots_and_do_not_migrate_data(self):
+        self.result_exam_fixture()
+        storage.write_json("code_exams.json", {})
+        original = storage.read_json("code_submissions.json")
+        status, listing = self.request("GET", "/api/admin/exam-results", cookie=self.admin_cookie)
+        self.assertEqual(status, 200, listing)
+        self.assertEqual(listing["exams"][0]["id"], "main-exam")
+        status, result = self.request("GET", "/api/admin/exam-results/main-exam", cookie=self.admin_cookie)
+        self.assertEqual(status, 200, result)
+        self.assertEqual(len(result["submissions"]), 2)
+        self.assertTrue(result["warnings"])
+        self.assertIsNone(result["matrix"][0]["total_score"])
+        self.assertEqual(storage.read_json("code_submissions.json"), original)
+        storage.write_json("code_submissions.json", {"code_submissions": original})
+        status, invalid = self.request("GET", "/api/admin/exam-results/main-exam", cookie=self.admin_cookie)
+        self.assertEqual(status, 409, invalid)
+        self.assertIn("Invalid code_submissions.json", invalid["detail"])
+        self.assertEqual(storage.read_json("code_submissions.json"), {"code_submissions": original})
+
+    def test_exam_results_regrading_resolves_runtime_ids_and_rejects_other_releases(self):
+        exam = self.result_exam_fixture()
+        with patch("app.general_exams.regrade_submission", return_value={"id": "submission-a"}) as regrade:
+            status, response = self.request("POST", "/api/admin/exam-results/main-exam/regrade", cookie=self.admin_cookie,
+                payload={"submission_id": "submission-a", "use_latest_spec": False})
+            self.assertEqual(status, 200, response)
+            regrade.assert_called_once_with("runtime-a", "submission-a", "admin-1", "127.0.0.1", use_latest_spec=False, lifecycle_status="ended")
+            regrade.reset_mock()
+            status, response = self.request("POST", "/api/admin/exam-results/main-exam/regrade", cookie=self.admin_cookie,
+                payload={"submission_id": "old-release"})
+            self.assertEqual(status, 404, response)
+            regrade.assert_not_called()
+            with patch("app.general_exams.release_student_exam_scores") as release:
+                status, response = self.request("POST", "/api/admin/exam-results/main-exam/regrade-student", cookie=self.admin_cookie,
+                    payload={"student_id": "student-1", "question_id": "question-a"})
+            self.assertEqual(status, 200, response)
+            self.assertEqual(len(response["result"]["regraded"]), 1)
+            release.assert_called_once_with("current-release")
+            regrade.reset_mock()
+            storage.write_json("exams.json", {"main-exam": {**exam, "status": "started"}})
+            status, response = self.request("POST", "/api/admin/exam-results/main-exam/regrade", cookie=self.admin_cookie,
+                payload={"submission_id": "submission-a"})
+            self.assertEqual(status, 409, response)
+            regrade.assert_not_called()
+
+    def test_exam_results_regrading_uses_main_lifecycle_not_stale_runtime_status(self):
+        self.addCleanup(storage.write_json, "exams.json", storage.read_json("exams.json"))
+        runtime_id = self.create_started_code_exam()
+        with patch("app.code_exams.execute_question", return_value=_execution()):
+            status, submitted = self.request("POST", "/api/student/code/submit", cookie=self.student_cookie,
+                payload={"question_id": "echo-question", "source_code": "print(input())\n"})
+        self.assertEqual(status, 201, submitted)
+        runtime = storage.read_json("code_exams.json")[runtime_id]
+        storage.write_json("exams.json", {"main-exam": {
+            "id": "main-exam", "title": "Main exam", "status": "ended",
+            "items": [{"type": "code", "code_exam_id": runtime_id}],
+            "release": {"release_id": runtime["release_id"]},
+        }})
+        record = storage.read_json("code_submissions.json")["student-1"][0]
+        with patch("app.code_exams.execute_question", return_value=_execution()):
+            status, response = self.request("POST", "/api/admin/exam-results/main-exam/regrade", cookie=self.admin_cookie,
+                payload={"submission_id": record["id"]})
+        self.assertEqual(status, 200, response)
+        self.assertEqual(len(response["submission"]["grading_history"]), 1)
+        self.assertEqual(storage.read_json("code_exams.json")[runtime_id]["status"], "started")
+
     def test_admin_code_results_include_hidden_details_and_require_admin_role(self):
         exam_id = self.create_started_code_exam()
         with patch("app.code_exams.execute_question", return_value=_execution()):
