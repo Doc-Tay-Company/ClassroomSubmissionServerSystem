@@ -61,7 +61,6 @@
   const listNotice = document.getElementById("q-notice");
   let questions = [];
   let listLoadGeneration = 0;
-  const pendingPractice = new Map();
   const practiceSaving = new Set();
 
   const SERVER_OWNED = ["id", "status", "source", "usage_count", "version", "validation", "reference_source", "practice_revision", "expected_version", "expected_practice_revision"];
@@ -193,9 +192,6 @@
   }
 
   function renderList() {
-    for (const q of questions) {
-      if (q.status === "archived" && !practiceSaving.has(q.id)) pendingPractice.delete(q.id);
-    }
     const rows = filteredQuestions();
     // The Question Bank preserves insertion order; surface recent saves first.
     rows.sort((a, b) => String(b.source?.created_at || "").localeCompare(String(a.source?.created_at || "")));
@@ -209,39 +205,16 @@
       listHost.replaceChildren(h("p", { class: "empty-cell" }, "Không có câu hỏi khớp bộ lọc."));
       return;
     }
-    const head = h("tr", {}, ...["Tiêu đề", "Ngôn ngữ / kiểu chấm", "Điểm", "Trạng thái", "Phiên bản", "Đã dùng", ""].map((t) => h("th", {}, t)));
+    const head = h("tr", {}, ...["Tiêu đề", "Ngôn ngữ / kiểu chấm", "Điểm", "Trạng thái", "Phiên bản", "Đã dùng", "Luyện tập", ""].map((t) => h("th", {}, t)));
     const body = rows.map((q) => {
       const act = (label, cls, fn, disabled = false) => h("button", { type: "button", class: `btn btn-small ${cls}`, disabled, on: { click: (e) => { e.stopPropagation(); fn(); } } }, label);
       const open = () => (q.status === "draft" ? openEditor(q.id) : openDetail(q.id));
-      const hasPendingPractice = pendingPractice.has(q.id);
-      const practiceEnabled = hasPendingPractice ? pendingPractice.get(q.id) : q.practice_enabled === true;
       const practiceBusy = practiceSaving.has(q.id);
       const actions = [];
       if (q.status === "published") actions.push(act("Chỉnh sửa", "btn-secondary", () => openEditor(q.id), practiceBusy), act("Thu hồi", "btn-ghost", () => revoke(q), practiceBusy));
       if (q.status === "archived") actions.push(act("Khôi phục", "btn-secondary", () => restore(q), practiceBusy));
       actions.push(act("Sao chép", "btn-ghost", () => duplicate(q), practiceBusy));
       if (q.status !== "archived") actions.push(act("Lưu trữ", "btn-ghost", () => archive(q), practiceBusy));
-      if (q.status !== "archived") {
-        actions.push(h("label", {
-          class: "practice-toggle",
-          title: "Cho phép sinh viên luyện tập câu hỏi này",
-          on: { click: (e) => e.stopPropagation() },
-        },
-          h("input", {
-            type: "checkbox",
-            checked: practiceEnabled,
-            disabled: practiceBusy,
-            "aria-label": `Cho phép luyện tập: ${q.title}`,
-            on: {
-              click: (e) => e.stopPropagation(),
-              change: (e) => stagePracticeChange(q, e.target.checked),
-            },
-          }),
-          " Luyện tập"));
-        if (hasPendingPractice) {
-          actions.push(act("Lưu", "btn-primary", () => savePracticeChange(q), practiceBusy));
-        }
-      }
       actions.push(act("Xóa", "btn-danger", () => remove(q), practiceBusy));
       return h("tr", {
         class: "q-row-clickable", tabindex: "0", title: q.status === "draft" ? "Mở để chỉnh sửa" : "Mở để xem",
@@ -253,9 +226,19 @@
         h("td", {}, h("strong", {}, q.title), q.category ? h("div", { class: "fine-print" }, q.category) : null),
         h("td", {}, `${q.language} / ${q.grading_mode}`),
         h("td", {}, q.total_points),
-        h("td", {}, statusPill(q.status), q.practice_enabled ? h("span", { style: "display:inline-block; margin-left:4px; font-size:10px; padding:1px 5px; border-radius:8px; background:#e0f2fe; color:#0369a1; font-weight:600;" }, "Practice") : null),
+        h("td", {}, h("div", { class: "question-status-tags" },
+          statusPill(q.status),
+          q.practice_enabled ? h("span", { class: "status-pill status-practice" }, "Luyện tập") : null)),
         h("td", {}, q.version ?? 1),
         h("td", {}, q.usage_count ?? 0),
+        h("td", { class: "practice-cell", on: { click: (e) => e.stopPropagation() } }, h("input", {
+          class: "practice-toggle",
+          type: "checkbox",
+          checked: q.practice_enabled === true,
+          disabled: practiceBusy || q.status === "archived",
+          "aria-label": `Cho phép luyện tập: ${q.title}`,
+          on: { change: (e) => confirmPracticeChange(q, e.target) },
+        })),
         h("td", {}, h("div", { class: "row-actions" }, ...actions)));
     });
     listHost.replaceChildren(h("table", { class: "data-table" }, h("thead", {}, head), h("tbody", {}, body)));
@@ -287,26 +270,47 @@
     ...(q.practice_revision !== undefined ? { expected_practice_revision: q.practice_revision } : {}),
   });
 
-  function stagePracticeChange(q, enabled) {
-    if (enabled === (q.practice_enabled === true)) pendingPractice.delete(q.id);
-    else pendingPractice.set(q.id, enabled);
-    renderList();
+  function confirmPracticeChange(q, checkbox) {
+    const enabled = checkbox.checked;
+    checkbox.checked = q.practice_enabled === true;
+    const dialog = h("dialog", {
+      class: "modal-box practice-confirm",
+      "aria-labelledby": "practice-confirm-title",
+      "aria-describedby": "practice-confirm-message",
+    });
+    const close = () => dialog.close();
+    dialog.addEventListener("close", () => {
+      dialog.remove();
+      if (checkbox.isConnected) checkbox.focus();
+    }, { once: true });
+    dialog.append(
+      h("h3", { id: "practice-confirm-title" }, enabled ? "Bật Luyện tập" : "Gỡ Luyện tập"),
+      h("p", { id: "practice-confirm-message" }, enabled
+        ? "Bật Luyện tập sẽ cho phép sinh viên luyện tập câu hỏi này."
+        : "Gỡ Luyện tập sẽ khiến sinh viên không thể tiếp tục luyện tập."),
+      h("div", { class: "form-actions" },
+        h("button", { type: "button", class: "btn btn-secondary", autofocus: true, on: { click: close } }, "Hủy bỏ"),
+        h("button", { type: "button", class: "btn btn-primary", on: { click: () => {
+          close();
+          savePracticeChange(q, enabled);
+        } } }, "Xác nhận")));
+    document.body.append(dialog);
+    dialog.showModal();
   }
 
-  async function savePracticeChange(q) {
-    if (!pendingPractice.has(q.id) || practiceSaving.has(q.id) || q.status === "archived") return;
-    const enabled = pendingPractice.get(q.id);
+  async function savePracticeChange(q, enabled) {
+    if (practiceSaving.has(q.id) || q.status === "archived") return;
     practiceSaving.add(q.id);
     renderList();
-    const succeeded = await mutate(() => {
+    await mutate(async () => {
       const draft = toEditorQuestion(q);
       draft.practice_enabled = enabled;
       const payload = buildPayload(draft, q);
       if (q.status === "published") payload.sample_source = q.reference_source || "";
-      return post(`/api/admin/questions/${encodeURIComponent(q.id)}/update`, payload);
+      const result = await post(`/api/admin/questions/${encodeURIComponent(q.id)}/update`, payload);
+      if (result.saved === false) throw new Error("Không thể lưu thay đổi luyện tập: đáp án mẫu chưa đạt xác thực.");
     }, enabled ? "Đã bật luyện tập cho câu hỏi." : "Đã tắt luyện tập cho câu hỏi.");
     practiceSaving.delete(q.id);
-    if (succeeded) pendingPractice.delete(q.id);
     renderList();
   }
 
@@ -322,12 +326,7 @@
   }
   function archive(q) {
     if (!window.confirm(`Lưu trữ câu hỏi “${q.title}”? Câu hỏi sẽ không thể chọn cho đề mới.`)) return;
-    return mutate(() => post(`/api/admin/questions/${encodeURIComponent(q.id)}/archive`, expectedState(q)), "Đã lưu trữ câu hỏi.").then((succeeded) => {
-      if (succeeded) {
-        pendingPractice.delete(q.id);
-        renderList();
-      }
-    });
+    return mutate(() => post(`/api/admin/questions/${encodeURIComponent(q.id)}/archive`, expectedState(q)), "Đã lưu trữ câu hỏi.");
   }
   function remove(q) {
     if (!window.confirm(`Xóa vĩnh viễn câu hỏi “${q.title}”?`)) return;
@@ -338,9 +337,7 @@
         if (error.status === 409) throw new Error(`Không thể xóa: câu hỏi đang được đề thi, bài nộp hoặc lượt chạy sử dụng. Hãy dùng “Lưu trữ”. (${error.message})`);
         throw error;
       }
-    }, "Đã xóa câu hỏi.").then((succeeded) => {
-      if (succeeded) pendingPractice.delete(q.id);
-    });
+    }, "Đã xóa câu hỏi.");
   }
 
   // ---------- detail + validation/publish ----------
