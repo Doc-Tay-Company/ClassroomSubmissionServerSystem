@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  // ---------- shared DOM helpers (also used by code-exams.js) ----------
+  // ---------- shared DOM helpers ----------
   function h(tag, attrs, ...children) {
     const node = document.createElement(tag);
     for (const [key, value] of Object.entries(attrs || {})) {

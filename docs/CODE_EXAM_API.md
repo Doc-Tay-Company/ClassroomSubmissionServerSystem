@@ -137,13 +137,13 @@ Starting the release writes each student's `paper_id`, `paper_version_id`, and
 choice; refresh/relogin do not rerandomize it. Question order inside a Paper
 is unchanged.
 
-## Legacy standalone Code Exam APIs
+## Removed standalone Code Exam APIs
 
-`GET /api/admin/code-exams` and `GET /api/admin/code-exams/{id}` remain
-available. `POST /api/admin/code-exams` and `PUT
-/api/admin/code-exams/{id}` retain the legacy `question_ids` contract and
-snapshot currently published questions directly. Historical question-based
-records and assignments are not converted into Paper records.
+The obsolete `Đề thi code` tab and all `/api/admin/code-exams` routes
+(collection GET/POST and detail GET/PUT) have been removed and return 404.
+Manage exams through `/api/admin/exam-records` and view results through
+`/api/admin/exam-results`. Internal Code Exam snapshots, historical assignments,
+and student submission/execution routes are retained; no stored exam data is deleted.
 
 ## Student APIs
 

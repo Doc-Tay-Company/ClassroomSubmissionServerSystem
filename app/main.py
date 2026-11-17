@@ -8,7 +8,6 @@ import html
 import json
 import mimetypes
 import os
-import re
 import secrets
 import socket
 import ssl
@@ -68,12 +67,9 @@ from .papers import (
 )
 from .code_exams import (
     CodeExamError,
-    create_code_exam,
     get_student_code_exam,
     get_student_submission,
     get_admin_code_results,
-    get_code_exam,
-    list_code_exams,
     publish_question,
         publish_question_candidate,
         update_published_question,
@@ -84,8 +80,6 @@ from .code_exams import (
     run_pretest,
     submit_code,
     submit_code_exam,
-    transition_code_exam,
-    update_draft_code_exam,
     release_student_exam_scores,
 )
 from .java_runner import JDKConfigurationError, JDKNotFoundError, verify_jdk_configuration
@@ -241,27 +235,13 @@ class Handler(BaseHTTPRequestHandler):
                     filename=part.get_filename()
                     if filename is not None: files[name]={"filename":filename,"data":payload,"content_type":part.get_content_type()}
                     else: form[name]=payload.decode(part.get_content_charset() or "utf-8", "replace")
-        code_exam_mutation = (
-            urllib.parse.urlsplit(self.path).path == "/api/admin/code-exams"
-            or (
-                self.command == "PUT"
-                and bool(
-                    re.fullmatch(
-                        r"/api/admin/code-exams/[^/]+",
-                        urllib.parse.urlsplit(self.path).path,
-                    )
-                )
-            )
-        )
         if ctype.lower().startswith("application/json"):
             try:
                 json_body=json.loads(body.decode("utf-8"))
             except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-                status = 422 if code_exam_mutation else 400
-                raise ClientError(status,"Body JSON không hợp lệ hoặc không phải UTF-8.") from exc
+                raise ClientError(400,"Body JSON không hợp lệ hoặc không phải UTF-8.") from exc
             if not isinstance(json_body, dict):
-                status = 422 if code_exam_mutation else 400
-                raise ClientError(status,"Body JSON phải là một object.")
+                raise ClientError(400,"Body JSON phải là một object.")
         return body, RequestData(self,form,files,json_body)
 
     def _request(self, form=None, files=None): return RequestData(self,form,files)
@@ -326,7 +306,7 @@ class Handler(BaseHTTPRequestHandler):
                 allowed={"dashboard","monitor","notifications","exam","exams","accounts","submissions","server","admins","exam-management"}
                 if section not in allowed: section="dashboard"
                 tab=req.query.get("tab", ["questions"])[0]
-                if tab not in {"questions","papers","exams","results"}: tab="questions"
+                if tab not in {"questions","papers","results"}: tab="questions"
                 return self._html(self._render("admin.html",session=sess,section=section,tab=tab,exam_id=req.query.get("id",[""])[0],exam_files=list_exam_files(),settings=read_json("settings.json"),monitoring=monitoring_snapshot()))
             if path=="/admin/accounts-template.txt":
                 self._auth(req,"admin")
@@ -388,17 +368,6 @@ class Handler(BaseHTTPRequestHandler):
                 if not exam_id or "/" in exam_id: raise ClientError(404,"Exam was not found.")
                 student_ids=req.query.get("student_id",[]); question_ids=req.query.get("question_id",[])
                 return self._json(general_exams.get_exam_results(exam_id,student_id=student_ids[0] if student_ids else None,question_id=question_ids[0] if question_ids else None))
-            if path=="/api/admin/code-exams":
-                self._auth(req,"admin"); return self._json({"code_exams":list_code_exams()})
-            if path.startswith("/api/admin/code-exams/") and req.method == "GET":
-                self._auth(req,"admin")
-                exam_id=urllib.parse.unquote(path[len("/api/admin/code-exams/"):].strip("/"))
-                if not exam_id or "/" in exam_id:
-                    raise ClientError(404,"Code exam was not found.")
-                exam=get_code_exam(exam_id)
-                if not exam:
-                    raise ClientError(404,"Code exam was not found.")
-                return self._json({"code_exam":exam})
             if path=="/api/admin/code-results":
                 self._auth(req,"admin")
                 exam_ids=req.query.get("exam_id",[])
@@ -482,19 +451,6 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         try:
             body,req=self._parse_body(); path=req.path; f=req.form; sess=None
-            if getattr(self, "command", "POST") == "PUT" and path.startswith("/api/admin/code-exams/"):
-                sess=self._auth(req,"admin")
-                exam_id=urllib.parse.unquote(path[len("/api/admin/code-exams/"):].strip("/"))
-                if not exam_id or "/" in exam_id:
-                    raise ClientError(404,"Code exam was not found.")
-                payload=self._json_body(req)
-                try:
-                    exam=update_draft_code_exam(exam_id,payload,sess["user_id"],client_ip(req))
-                except CodeExamError as exc:
-                    if exc.status == 400:
-                        raise ClientError(422,str(exc)) from exc
-                    raise
-                return self._json({"ok":True,"code_exam":exam})
             if path=="/login":
                 username=f.get("username","").strip(); password=f.get("password",""); ip=client_ip(req); key=username.casefold()
                 allowed,seconds=login_allowed(key)
@@ -667,28 +623,6 @@ class Handler(BaseHTTPRequestHandler):
                 if action in actions: return self._json({"ok":True,"exam":actions[action](exam_id,actor,ip)})
                 if action=="delete": return self._json({"ok":True,**general_exams.delete_exam(exam_id,actor,ip)})
                 raise ClientError(404,"Không tìm thấy endpoint.")
-            if path=="/api/admin/code-exams":
-                sess=self._auth(req,"admin")
-                try:
-                    exam=create_code_exam(self._json_body(req),sess["user_id"],client_ip(req))
-                except CodeExamError as exc:
-                    if exc.status == 400:
-                        raise ClientError(422,str(exc)) from exc
-                    raise
-                return self._json({"ok":True,"code_exam":exam},201)
-            if path.startswith("/api/admin/code-exams/") and req.method == "PUT":
-                sess=self._auth(req,"admin")
-                exam_id=urllib.parse.unquote(path[len("/api/admin/code-exams/"):].strip("/"))
-                if not exam_id or "/" in exam_id:
-                    raise ClientError(404,"Code exam was not found.")
-                payload=self._json_body(req)
-                try:
-                    exam=update_draft_code_exam(exam_id,payload,sess["user_id"],client_ip(req))
-                except CodeExamError as exc:
-                    if exc.status == 400:
-                        raise ClientError(422,str(exc)) from exc
-                    raise
-                return self._json({"ok":True,"code_exam":exam})
             if path=="/api/admin/accounts/import":
                 sess=self._auth(req,"admin"); text=f.get("pasted_text",""); file=req.files.get("account_file")
                 if file and file.get("filename"):

@@ -25,7 +25,7 @@ storage.LOG_DIR = _TEST_DATA_ROOT / "logs"
 storage.DATA_DIR.mkdir(parents=True, exist_ok=True)
 storage.LOG_DIR.mkdir(parents=True, exist_ok=True)
 
-from app import main
+from app import code_exams, main
 from app.security import new_session
 from app.java_runner import JDKConfigurationError
 
@@ -199,15 +199,10 @@ class CodeApiTests(unittest.TestCase):
         self.assertEqual(status, 200, published)
         return published["question"]
 
-    def create_draft_code_exam(self, question_ids):
-        status, result = self.request(
-            "POST",
-            "/api/admin/code-exams",
-            cookie=self.admin_cookie,
-            payload={"title": "Draft exam", "question_ids": question_ids},
+    def create_draft_code_exam(self, question_ids, **options):
+        return code_exams.create_code_exam(
+            {"title": "Draft exam", "question_ids": question_ids, **options}, "admin-1", "127.0.0.1"
         )
-        self.assertEqual(status, 201, result)
-        return result["code_exam"]
 
     def distribute_and_start_code_exam(self, exam_id, *, start_student=True):
         distribution = {"mode": "random", "code_exam_id": exam_id, "code_only": "true"}
@@ -268,19 +263,9 @@ class CodeApiTests(unittest.TestCase):
             payload=self.question_state_tokens("echo-question"),
         )
         self.assertEqual(status, 200, published)
-        status, created_exam = self.request(
-            "POST",
-            "/api/admin/code-exams",
-            cookie=self.admin_cookie,
-            payload={
-                "title": "Code exam",
-                "question_ids": ["echo-question"],
-                "show_final_score_immediately": False,
-                "pretest_cooldown_seconds": 0,
-            },
-        )
-        self.assertEqual(status, 201, created_exam)
-        exam_id = created_exam["code_exam"]["id"]
+        created_exam = self.create_draft_code_exam(["echo-question"], title="Code exam",
+            show_final_score_immediately=False, pretest_cooldown_seconds=0)
+        exam_id = created_exam["id"]
         distribution = {"mode": "random", "code_exam_id": exam_id, "code_only": "true"}
         body = urllib.parse.urlencode(distribution).encode()
         files = []
@@ -492,155 +477,34 @@ class CodeApiTests(unittest.TestCase):
         self.assertIsNone(assignment["exam_file"])
         self.assertEqual(assignment["status"], "in_progress")
 
-    def test_code_exam_creation_rejects_duplicate_question_ids_with_422(self):
-        self.create_published_question("duplicate-target")
-        status, response = self.request(
-            "POST",
-            "/api/admin/code-exams",
-            cookie=self.admin_cookie,
-            payload={"title": "Duplicate exam", "question_ids": ["duplicate-target", "duplicate-target"]},
-        )
-        self.assertEqual(status, 422, response)
-        self.assertIn("detail", response)
+    def test_obsolete_code_exam_endpoints_are_removed_without_deleting_runtime_data(self):
+        records = {"retained": {"id": "retained", "status": "draft", "questions": []}}
+        storage.write_json("code_exams.json", records)
+        for method, path in (
+            ("GET", "/api/admin/code-exams"),
+            ("POST", "/api/admin/code-exams"),
+            ("GET", "/api/admin/code-exams/retained"),
+            ("PUT", "/api/admin/code-exams/retained"),
+        ):
+            with self.subTest(method=method, path=path):
+                status, _ = self.request(method, path, cookie=self.admin_cookie,
+                    payload={} if method in {"POST", "PUT"} else None, parse_json=False)
+                self.assertEqual(status, 404)
+                self.assertEqual(storage.read_json("code_exams.json"), records)
 
-    def test_code_exam_update_refreshes_ordered_snapshots_only_for_drafts(self):
-        first = self.create_published_question("first-question")
-        second = self.create_published_question("second-question")
-        exam = self.create_draft_code_exam(["first-question", "second-question"])
-        exam_id = exam["id"]
-        original_first_snapshot = exam["questions"][0]
-        initial_usage = {
-            question_id: storage.read_json("questions.json")[question_id]["usage_count"]
-            for question_id in ("first-question", "second-question")
-        }
-
-        updated_bank_question = dict(first)
-        updated_bank_question["statement"] = "Updated after exam creation."
-        update_payload = {
-            **updated_bank_question,
-            **self.question_state_tokens("first-question"),
-            "sample_source": _SAMPLE_SOURCE,
-        }
-        with patch("app.code_exams.execute_question", return_value=_execution()):
-            status, updated = self.request(
-                "POST",
-                "/api/admin/questions/first-question/update",
-                cookie=self.admin_cookie,
-                payload=update_payload,
-            )
-        self.assertEqual(status, 200, updated)
-        self.assertTrue(updated["saved"])
-        updated_question = updated["question"]
-        self.assertEqual(
-            storage.read_json("code_exams.json")[exam_id]["questions"][0]["statement"],
-            original_first_snapshot["statement"],
-        )
-
-        payload = {
-            "title": "Reordered and refreshed",
-            "question_ids": ["second-question", "first-question"],
-            "submission_policy": "configurable",
-            "max_submissions": 2,
-            "show_final_score_immediately": True,
-            "allow_pretest": True,
-            "max_pretest_runs": 20,
-            "pretest_cooldown_seconds": 2,
-        }
-        status, response = self.request(
-            "PUT",
-            f"/api/admin/code-exams/{exam_id}",
-            cookie=self.admin_cookie,
-            payload=payload,
-        )
-        self.assertEqual(status, 200, response)
-        refreshed = response["code_exam"]
-        self.assertEqual([item["question_id"] for item in refreshed["questions"]], payload["question_ids"])
-        self.assertEqual([item["order"] for item in refreshed["questions"]], [0, 1])
-        self.assertEqual(refreshed["questions"][1]["statement"], "Updated after exam creation.")
-        self.assertEqual(refreshed["questions"][1]["snapshot_version"], updated_question["version"])
-        self.assertEqual(refreshed["created_at"], exam["created_at"])
-        usages_after_update = storage.read_json("questions.json")
-        self.assertEqual(
-            usages_after_update["first-question"]["usage_count"], initial_usage["first-question"]
-        )
-        self.assertEqual(
-            usages_after_update["second-question"]["usage_count"], initial_usage["second-question"]
-        )
-
-        payload["question_ids"] = ["first-question"]
-        status, response = self.request(
-            "PUT",
-            f"/api/admin/code-exams/{exam_id}",
-            cookie=self.admin_cookie,
-            payload=payload,
-        )
-        self.assertEqual(status, 200, response)
-        usages_after_removal = storage.read_json("questions.json")
-        self.assertEqual(
-            usages_after_removal["first-question"]["usage_count"], initial_usage["first-question"]
-        )
-        self.assertEqual(
-            usages_after_removal["second-question"]["usage_count"],
-            initial_usage["second-question"] - 1,
-        )
-
-        status, missing = self.request(
-            "PUT",
-            "/api/admin/code-exams/not-a-real-exam",
-            cookie=self.admin_cookie,
-            payload=payload,
-        )
-        self.assertEqual(status, 404, missing)
-        status, duplicate = self.request(
-            "PUT",
-            f"/api/admin/code-exams/{exam_id}",
-            cookie=self.admin_cookie,
-            payload={**payload, "question_ids": ["first-question", "first-question"]},
-        )
-        self.assertEqual(status, 422, duplicate)
-        self.assertEqual(
-            [item["question_id"] for item in storage.read_json("code_exams.json")[exam_id]["questions"]],
-            payload["question_ids"],
-        )
-
-    def test_code_exam_update_after_distribution_is_conflict(self):
-        exam_id = self.create_started_code_exam()
-        payload = {
-            "title": "Cannot update distributed exam",
-            "question_ids": ["echo-question"],
-        }
-        status, response = self.request(
-            "PUT",
-            f"/api/admin/code-exams/{exam_id}",
-            cookie=self.admin_cookie,
-            payload=payload,
-        )
-        self.assertEqual(status, 409, response)
-        self.assertEqual(storage.read_json("code_exams.json")[exam_id]["status"], "started")
-
-    def test_code_exam_update_checks_auth_role_and_missing_exam(self):
-        question = self.create_published_question("update-auth-question")
-        payload = {"title": "Auth test", "question_ids": [question["id"]]}
-        status, response = self.request(
-            "PUT",
-            "/api/admin/code-exams/not-found",
-            cookie=self.admin_cookie,
-            payload=payload,
-        )
-        self.assertEqual(status, 404, response)
-        status, response = self.request(
-            "PUT",
-            "/api/admin/code-exams/not-found",
-            cookie=self.student_cookie,
-            payload=payload,
-        )
-        self.assertEqual(status, 403, response)
-        status, response = self.request(
-            "PUT",
-            "/api/admin/code-exams/not-found",
-            payload=payload,
-        )
-        self.assertEqual(status, 401, response)
+    def test_obsolete_code_exam_tab_and_script_are_removed(self):
+        for tab in ("questions", "papers", "results", "exams"):
+            with self.subTest(tab=tab):
+                status, page = self.request("GET", f"/admin?section=exam-management&tab={tab}",
+                    cookie=self.admin_cookie, parse_json=False)
+                self.assertEqual(status, 200)
+                html = page.decode("utf-8")
+                self.assertNotIn("tab=exams", html)
+                self.assertNotIn('id="code-exams-view"', html)
+                self.assertNotIn("/static/js/code-exams.js", html)
+                self.assertIn('href="/admin?section=exams"', html)
+        status, _ = self.request("GET", "/static/js/code-exams.js", parse_json=False)
+        self.assertEqual(status, 404)
 
     def test_exam_end_releases_scores_for_hidden_policy(self):
         exam_id = self.create_started_code_exam()
@@ -669,15 +533,7 @@ class CodeApiTests(unittest.TestCase):
         self.assertEqual(result["exam_score"], 10)
         self.assertEqual(storage.read_json("code_exams.json")[exam_id]["status"], "ended")
 
-    def test_code_exam_routes_map_invalid_json_to_422_without_changing_shared_parser(self):
-        status, response = self.request(
-            "POST",
-            "/api/admin/code-exams",
-            cookie=self.admin_cookie,
-            raw_body=b"{",
-            content_type="application/json",
-        )
-        self.assertEqual(status, 422, response)
+    def test_shared_json_parser_rejects_invalid_json(self):
         status, response = self.request(
             "POST",
             "/api/admin/questions",
@@ -845,19 +701,9 @@ class CodeApiTests(unittest.TestCase):
     def test_bulk_submit_grades_all_questions_and_marks_exam_submitted(self):
         self.create_published_question("first-question")
         self.create_published_question("second-question")
-        status, created = self.request(
-            "POST",
-            "/api/admin/code-exams",
-            cookie=self.admin_cookie,
-            payload={
-                "title": "Bulk exam",
-                "question_ids": ["first-question", "second-question"],
-                "show_final_score_immediately": True,
-                "pretest_cooldown_seconds": 0,
-            },
-        )
-        self.assertEqual(status, 201, created)
-        self.distribute_and_start_code_exam(created["code_exam"]["id"])
+        created = self.create_draft_code_exam(["first-question", "second-question"], title="Bulk exam",
+            show_final_score_immediately=True, pretest_cooldown_seconds=0)
+        self.distribute_and_start_code_exam(created["id"])
 
         answers = {
             "first-question": "print(input())\n",
@@ -897,19 +743,9 @@ class CodeApiTests(unittest.TestCase):
     def test_bulk_submit_requires_every_question_and_hides_scores(self):
         self.create_published_question("first-question")
         self.create_published_question("second-question")
-        status, created = self.request(
-            "POST",
-            "/api/admin/code-exams",
-            cookie=self.admin_cookie,
-            payload={
-                "title": "Bulk exam",
-                "question_ids": ["first-question", "second-question"],
-                "show_final_score_immediately": False,
-                "pretest_cooldown_seconds": 0,
-            },
-        )
-        self.assertEqual(status, 201, created)
-        self.distribute_and_start_code_exam(created["code_exam"]["id"])
+        created = self.create_draft_code_exam(["first-question", "second-question"], title="Bulk exam",
+            show_final_score_immediately=False, pretest_cooldown_seconds=0)
+        self.distribute_and_start_code_exam(created["id"])
 
         status, missing = self.request(
             "POST",
@@ -939,19 +775,9 @@ class CodeApiTests(unittest.TestCase):
     def test_bulk_submit_skips_already_submitted_question_without_consuming_attempts(self):
         self.create_published_question("first-question")
         self.create_published_question("second-question")
-        status, created = self.request(
-            "POST",
-            "/api/admin/code-exams",
-            cookie=self.admin_cookie,
-            payload={
-                "title": "Bulk exam",
-                "question_ids": ["first-question", "second-question"],
-                "show_final_score_immediately": True,
-                "pretest_cooldown_seconds": 0,
-            },
-        )
-        self.assertEqual(status, 201, created)
-        self.distribute_and_start_code_exam(created["code_exam"]["id"])
+        created = self.create_draft_code_exam(["first-question", "second-question"], title="Bulk exam",
+            show_final_score_immediately=True, pretest_cooldown_seconds=0)
+        self.distribute_and_start_code_exam(created["id"])
 
         with patch("app.code_exams.execute_question", return_value=_execution()):
             status, first = self.request(
@@ -1000,19 +826,9 @@ class CodeApiTests(unittest.TestCase):
 
     def test_home_view_offers_the_next_exam_before_the_student_starts(self):
         self.create_published_question("echo-question")
-        status, created = self.request(
-            "POST",
-            "/api/admin/code-exams",
-            cookie=self.admin_cookie,
-            payload={
-                "title": "Next code exam",
-                "question_ids": ["echo-question"],
-                "show_final_score_immediately": False,
-                "pretest_cooldown_seconds": 0,
-            },
-        )
-        self.assertEqual(status, 201, created)
-        self.distribute_and_start_code_exam(created["code_exam"]["id"], start_student=False)
+        created = self.create_draft_code_exam(["echo-question"], title="Next code exam",
+            show_final_score_immediately=False, pretest_cooldown_seconds=0)
+        self.distribute_and_start_code_exam(created["id"], start_student=False)
 
         status, home = self.request("GET", "/?view=home", cookie=self.student_cookie, parse_json=False)
         self.assertEqual(status, 200)
@@ -1053,18 +869,8 @@ class CodeApiTests(unittest.TestCase):
         self.assertIn("Code exam", home.decode("utf-8"))
 
         self.create_published_question("second-question")
-        status, created = self.request(
-            "POST",
-            "/api/admin/code-exams",
-            cookie=self.admin_cookie,
-            payload={
-                "title": "Second code exam",
-                "question_ids": ["second-question"],
-                "pretest_cooldown_seconds": 0,
-            },
-        )
-        self.assertEqual(status, 201, created)
-        self.distribute_and_start_code_exam(created["code_exam"]["id"], start_student=False)
+        created = self.create_draft_code_exam(["second-question"], title="Second code exam", pretest_cooldown_seconds=0)
+        self.distribute_and_start_code_exam(created["id"], start_student=False)
 
         status, next_home = self.request("GET", "/?view=home", cookie=self.student_cookie, parse_json=False)
         self.assertEqual(status, 200)
@@ -1521,18 +1327,8 @@ class CodeApiTests(unittest.TestCase):
             payload=self.question_state_tokens("echo-question"),
         )
         self.assertEqual(status, 200, published)
-        status, created = self.request(
-            "POST",
-            "/api/admin/code-exams",
-            cookie=self.admin_cookie,
-            payload={
-                "title": "Visible after each submission",
-                "question_ids": ["echo-question"],
-                "show_final_score_immediately": True,
-            },
-        )
-        self.assertEqual(status, 201, created)
-        exam_id = created["code_exam"]["id"]
+        created = self.create_draft_code_exam(["echo-question"], title="Visible after each submission", show_final_score_immediately=True)
+        exam_id = created["id"]
         body = urllib.parse.urlencode(
             {"mode": "random", "code_exam_id": exam_id, "code_only": "true"}
         ).encode()
