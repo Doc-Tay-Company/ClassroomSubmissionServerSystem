@@ -61,6 +61,7 @@
   const listNotice = document.getElementById("q-notice");
   let questions = [];
   let listLoadGeneration = 0;
+  const practiceSaving = new Set();
 
   const SERVER_OWNED = ["id", "status", "source", "usage_count", "version", "validation", "reference_source", "practice_revision", "expected_version", "expected_practice_revision"];
   const CHECK_KINDS = {
@@ -204,16 +205,17 @@
       listHost.replaceChildren(h("p", { class: "empty-cell" }, "Không có câu hỏi khớp bộ lọc."));
       return;
     }
-    const head = h("tr", {}, ...["Tiêu đề", "Ngôn ngữ / kiểu chấm", "Điểm", "Trạng thái", "Phiên bản", "Đã dùng", ""].map((t) => h("th", {}, t)));
+    const head = h("tr", {}, ...["Tiêu đề", "Ngôn ngữ / kiểu chấm", "Điểm", "Trạng thái", "Phiên bản", "Đã dùng", "Luyện tập", ""].map((t) => h("th", {}, t)));
     const body = rows.map((q) => {
-      const act = (label, cls, fn) => h("button", { type: "button", class: `btn btn-small ${cls}`, on: { click: (e) => { e.stopPropagation(); fn(); } } }, label);
+      const act = (label, cls, fn, disabled = false) => h("button", { type: "button", class: `btn btn-small ${cls}`, disabled, on: { click: (e) => { e.stopPropagation(); fn(); } } }, label);
       const open = () => (q.status === "draft" ? openEditor(q.id) : openDetail(q.id));
+      const practiceBusy = practiceSaving.has(q.id);
       const actions = [];
-      if (q.status === "published") actions.push(act("Chỉnh sửa", "btn-secondary", () => openEditor(q.id)), act("Thu hồi", "btn-ghost", () => revoke(q)));
-      if (q.status === "archived") actions.push(act("Khôi phục", "btn-secondary", () => restore(q)));
-      actions.push(act("Sao chép", "btn-ghost", () => duplicate(q)));
-      if (q.status !== "archived") actions.push(act("Lưu trữ", "btn-ghost", () => archive(q)));
-      actions.push(act("Xóa", "btn-danger", () => remove(q)));
+      if (q.status === "published") actions.push(act("Chỉnh sửa", "btn-secondary", () => openEditor(q.id), practiceBusy), act("Thu hồi", "btn-ghost", () => revoke(q), practiceBusy));
+      if (q.status === "archived") actions.push(act("Khôi phục", "btn-secondary", () => restore(q), practiceBusy));
+      actions.push(act("Sao chép", "btn-ghost", () => duplicate(q), practiceBusy));
+      if (q.status !== "archived") actions.push(act("Lưu trữ", "btn-ghost", () => archive(q), practiceBusy));
+      actions.push(act("Xóa", "btn-danger", () => remove(q), practiceBusy));
       return h("tr", {
         class: "q-row-clickable", tabindex: "0", title: q.status === "draft" ? "Mở để chỉnh sửa" : "Mở để xem",
         on: {
@@ -224,10 +226,20 @@
         h("td", {}, h("strong", {}, q.title), q.category ? h("div", { class: "fine-print" }, q.category) : null),
         h("td", {}, `${q.language} / ${q.grading_mode}`),
         h("td", {}, q.total_points),
-        h("td", {}, statusPill(q.status), q.practice_enabled ? h("span", { style: "display:inline-block; margin-left:4px; font-size:10px; padding:1px 5px; border-radius:8px; background:#e0f2fe; color:#0369a1; font-weight:600;" }, "Practice") : null),
+        h("td", {}, h("div", { class: "question-status-tags" },
+          statusPill(q.status),
+          q.practice_enabled ? h("span", { class: "status-pill status-practice" }, "Luyện tập") : null)),
         h("td", {}, q.version ?? 1),
         h("td", {}, q.usage_count ?? 0),
-        h("td", { class: "row-actions" }, ...actions));
+        h("td", { class: "practice-cell", on: { click: (e) => e.stopPropagation() } }, h("input", {
+          class: "practice-toggle",
+          type: "checkbox",
+          checked: q.practice_enabled === true,
+          disabled: practiceBusy || q.status === "archived",
+          "aria-label": `Cho phép luyện tập: ${q.title}`,
+          on: { change: (e) => confirmPracticeChange(q, e.target) },
+        })),
+        h("td", {}, h("div", { class: "row-actions" }, ...actions)));
     });
     listHost.replaceChildren(h("table", { class: "data-table" }, h("thead", {}, head), h("tbody", {}, body)));
   }
@@ -257,6 +269,50 @@
     expected_version: q.version ?? 1,
     ...(q.practice_revision !== undefined ? { expected_practice_revision: q.practice_revision } : {}),
   });
+
+  function confirmPracticeChange(q, checkbox) {
+    const enabled = checkbox.checked;
+    checkbox.checked = q.practice_enabled === true;
+    const dialog = h("dialog", {
+      class: "modal-box practice-confirm",
+      "aria-labelledby": "practice-confirm-title",
+      "aria-describedby": "practice-confirm-message",
+    });
+    const close = () => dialog.close();
+    dialog.addEventListener("close", () => {
+      dialog.remove();
+      if (checkbox.isConnected) checkbox.focus();
+    }, { once: true });
+    dialog.append(
+      h("h3", { id: "practice-confirm-title" }, enabled ? "Bật Luyện tập" : "Gỡ Luyện tập"),
+      h("p", { id: "practice-confirm-message" }, enabled
+        ? "Bật Luyện tập sẽ cho phép sinh viên luyện tập câu hỏi này."
+        : "Gỡ Luyện tập sẽ khiến sinh viên không thể tiếp tục luyện tập."),
+      h("div", { class: "form-actions" },
+        h("button", { type: "button", class: "btn btn-secondary", autofocus: true, on: { click: close } }, "Hủy bỏ"),
+        h("button", { type: "button", class: "btn btn-primary", on: { click: () => {
+          close();
+          savePracticeChange(q, enabled);
+        } } }, "Xác nhận")));
+    document.body.append(dialog);
+    dialog.showModal();
+  }
+
+  async function savePracticeChange(q, enabled) {
+    if (practiceSaving.has(q.id) || q.status === "archived") return;
+    practiceSaving.add(q.id);
+    renderList();
+    await mutate(async () => {
+      const draft = toEditorQuestion(q);
+      draft.practice_enabled = enabled;
+      const payload = buildPayload(draft, q);
+      if (q.status === "published") payload.sample_source = q.reference_source || "";
+      const result = await post(`/api/admin/questions/${encodeURIComponent(q.id)}/update`, payload);
+      if (result.saved === false) throw new Error("Không thể lưu thay đổi luyện tập: đáp án mẫu chưa đạt xác thực.");
+    }, enabled ? "Đã bật luyện tập cho câu hỏi." : "Đã tắt luyện tập cho câu hỏi.");
+    practiceSaving.delete(q.id);
+    renderList();
+  }
 
   function duplicate(q) {
     return mutate(() => post(`/api/admin/questions/${encodeURIComponent(q.id)}/duplicate`, expectedState(q)), "Đã nhân bản câu hỏi (bản sao ở trạng thái nháp).");
@@ -835,7 +891,8 @@
     }
     const select = h("select", {}, ...Object.entries(CHECK_KINDS).map(([k, label]) => h("option", { value: k }, label)));
     return h("span", { class: "inline-group" }, select,
-      h("button", { type: "button", class: "btn btn-secondary btn-small", on: { click: () => { editing.draft.checks.push(newCheck(select.value)); renderItems(); refreshTotal(); } } }, h("i", { class: "fa fa-plus" }), " Thêm check"));
+      h("button", { type: "button", class: "btn btn-secondary btn-small check-add-btn", on: { click: () => { editing.draft.checks.push(newCheck(select.value)); renderItems(); refreshTotal(); } } },
+        h("i", { class: "fa fa-plus" }), "Thêm check"));
   }
 
   function uniqueId(prefix) {
@@ -1018,14 +1075,14 @@
   }
 
   // ---------- save / import / export ----------
-  function buildPayload() {
-    const d = clone(editing.draft);
+  function buildPayload(draft = editing.draft, original = editing?.original) {
+    const d = clone(draft);
     for (const key of SERVER_OWNED) delete d[key];
     refreshTotalOn(d);
-    if (editing && editing.original) {
-      d.expected_version = editing.original.version ?? 1;
-      if (editing.original.practice_revision !== undefined) {
-        d.expected_practice_revision = editing.original.practice_revision;
+    if (original) {
+      d.expected_version = original.version ?? 1;
+      if (original.practice_revision !== undefined) {
+        d.expected_practice_revision = original.practice_revision;
       }
     }
     if (d.grading_mode === "reflection") {
