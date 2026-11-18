@@ -101,7 +101,7 @@
     const grid = h("div", { class: "exam-card-grid" });
     const status = h("div", { class: "notice hidden" });
 
-    const search = h("input", { type: "search", placeholder: "Tìm theo tên kỳ thi...", "aria-label": "Tìm kỳ thi", on: { input: (e) => { filters.q = e.target.value; render(); } } });
+    const search = h("input", { type: "search", placeholder: "Nhập tên kỳ thi", "aria-label": "Tìm kỳ thi", on: { input: (e) => { filters.q = e.target.value; render(); } } });
     const tagSelect = h("select", { "aria-label": "Lọc theo nhãn", on: { change: (e) => { filters.tag = e.target.value; render(); } } },
       h("option", { value: "" }, "Tất cả nhãn"), h("option", { value: "midterm" }, "Giữa kỳ"), h("option", { value: "final" }, "Cuối kỳ"));
     const statusSelect = h("select", { "aria-label": "Lọc theo trạng thái", on: { change: (e) => { filters.status = e.target.value; render(); } } },
@@ -112,7 +112,10 @@
         h("div", {}, h("h2", {}, h("i", { class: "fa fa-calendar" }), " Danh sách kỳ thi"),
           h("p", { class: "muted" }, "Tạo kỳ thi, phát đề, bắt đầu và kết thúc kỳ thi. Chỉ một kỳ thi được diễn ra tại một thời điểm.")),
         link(examUrl(), "fa-plus", "Tạo kỳ thi mới", "btn-primary")),
-      h("div", { class: "exam-filters" }, search, tagSelect, statusSelect),
+      h("div", { class: "exam-filters", role: "search", "aria-label": "Lọc danh sách kỳ thi" },
+        h("label", { class: "exam-filter-field" }, h("span", {}, "Tìm kỳ thi"), search),
+        h("label", { class: "exam-filter-field" }, h("span", {}, "Nhãn"), tagSelect),
+        h("label", { class: "exam-filter-field" }, h("span", {}, "Trạng thái"), statusSelect)),
       status, grid);
 
     function card(exam) {
@@ -284,7 +287,7 @@
           h("div", { class: "qb-preview-head" }, h("h4", {}, `Xem trước Paper (${previewState.distribution_mode?.toUpperCase() || ""})`),
             h("button", { type: "button", class: "btn btn-small btn-ghost", on: { click: () => { previewState = null; render(); } } }, h("i", { class: "fa fa-times" }), " Đóng")),
           ...previewState.paper_versions.map((paper) => h("section", { class: "qb-preview-item" },
-            h("h5", {}, `${paper.title} · ${paper.paper_version_id || paper.paper_id}`),
+            h("h5", {}, paper.title),
             ...(paper.questions || []).map((question, index) => h("article", {},
               h("h5", {}, `Câu ${index + 1}: ${question.title}`),
               h("p", { class: "fine-print" }, [question.category, question.language, `${Number(question.total_points) || 0} điểm`].filter(Boolean).join(" · ")),
@@ -453,11 +456,7 @@
           stackField("Chính sách nộp bài", h("select", { on: { change: bind("policy") } },
             h("option", { value: "once", selected: form.policy === "once" }, "Một lần duy nhất"),
             h("option", { value: "configurable", selected: form.policy === "configurable" }, "Theo số lần Admin cấu hình"))),
-          stackField("Số lần nộp tối đa", mark("maxSub", h("input", { type: "number", min: 1, max: 20, value: form.maxSub, on: { input: bind("maxSub") } }))),
-          stackField("Khi nộp lại", h("select", { on: { change: bind("overwrite", "yesno") } },
-            h("option", { value: "true", selected: form.overwrite }, "Ghi đè file trước"),
-            h("option", { value: "false", selected: !form.overwrite }, "Giữ các file trước"))),
-          stackField("Loại file được chấp nhận", mark("ext", h("input", { value: form.ext, placeholder: ".zip .pdf .docx", on: { input: bind("ext") } })))),
+          stackField("Số lần nộp tối đa", mark("maxSub", h("input", { type: "number", min: 1, max: 20, value: form.maxSub, on: { input: bind("maxSub") } })))),
         h("label", { class: "checkbox-row" }, h("input", { type: "checkbox", checked: form.pwEnabled, on: { change: (e) => { form.pwEnabled = e.target.checked; scheduleAutosave(); render(); } } }), " Yêu cầu mật khẩu đề thi"),
         form.pwEnabled
           ? stackField("Mật khẩu đề thi", mark("password", h("input", { type: "password", autocomplete: "new-password", value: form.pw, placeholder: form.hasPw ? "Đã có mật khẩu — chỉ nhập khi muốn đổi" : "Nhập mật khẩu", on: { input: bind("pw") } })))
@@ -498,7 +497,8 @@
         h("p", { class: "muted" }, "Cần chọn ít nhất một sinh viên để phát đề. MSSV chưa có tài khoản sẽ được tạo tự động (mật khẩu ban đầu là MSSV) khi phát đề."),
         mark("participants", h("div", { class: "participant-block" },
           h("div", {},
-            h("input", { type: "search", value: form.accountQuery, placeholder: "Tìm MSSV hoặc họ tên...", on: { input: (e) => { form.accountQuery = e.target.value; refreshList(); } } }),
+            h("label", { class: "exam-search-field" }, h("span", {}, "Tìm sinh viên"),
+              h("input", { type: "search", value: form.accountQuery, placeholder: "Nhập MSSV hoặc họ tên", on: { input: (e) => { form.accountQuery = e.target.value; refreshList(); } } })),
             list,
             h("div", { class: "form-actions" },
               h("button", { type: "button", class: "btn btn-ghost btn-small", on: { click: () => setVisible(true) } }, "Chọn tất cả kết quả"),
@@ -538,21 +538,29 @@
         h("button", { type: "button", class: "btn btn-small btn-secondary", disabled: !canEdit, on: { click: () => { code.legacy = false; code.legacyQuestionIds = []; code.mode = "common"; code.paperVersions = []; scheduleAutosave(); render(); } },
         }, "Bỏ cấu hình cũ và chọn Paper"),
         h("p", { class: "fine-print" }, `Câu hỏi cũ: ${code.legacyQuestionIds.join(", ") || "không có"}`)) : null;
+      const distributionMode = h("select", { class: "exam-select-wide", disabled: !canEdit,
+        on: { change: (e) => { code.mode = e.target.value; if (code.mode === "common") code.paperVersions = code.paperVersions.slice(0, 1); scheduleAutosave(); render(); } } },
+      h("option", { value: "common" }, "COMMON — cùng một Paper cho mọi sinh viên"),
+      h("option", { value: "random" }, "RANDOM — máy chủ chọn một Paper trong pool cho từng sinh viên"));
+      // The shared h() helper sets select.value before appending options. Set it
+      // after construction so a re-render cannot default RANDOM to COMMON.
+      distributionMode.value = code.mode;
       const distributionControls = !code.legacy ? h("div", { class: "exam-rows" },
-        rowField("Chế độ phân phối Paper", h("select", { class: "exam-select-wide", disabled: !canEdit, value: code.mode, on: { change: (e) => { code.mode = e.target.value; if (code.mode === "common") code.paperVersions = code.paperVersions.slice(0, 1); scheduleAutosave(); render(); } } },
-          h("option", { value: "common" }, "COMMON — cùng một Paper cho mọi sinh viên"),
-          h("option", { value: "random" }, "RANDOM — máy chủ chọn một Paper trong pool cho từng sinh viên"))),
+        rowField("Chế độ phân phối Paper", distributionMode),
         h("p", { class: "fine-print" }, code.mode === "common"
           ? "Chọn chính xác một Paper version."
           : "Chọn pool Paper versions; máy chủ gán một Paper hoàn chỉnh cho mỗi sinh viên. Câu hỏi bên trong Paper không bị xáo trộn."),
         warnings.length ? h("div", { class: "alert alert-warning", role: "alert" }, "Một số Paper đã chọn không còn là version hiện hành hoặc Paper không còn Published. Gỡ chúng hoặc khôi phục trạng thái trước khi phát.",
-          h("ul", {}, ...warnings.map((item) => h("li", {}, `${item.paper_id} · ${item.paper_version_id}`)))) : null,
+          h("ul", {}, ...warnings.map((item) => {
+            const paper = ref.papers.find((entry) => entry.id === item.paper_id);
+            return h("li", {}, `${paper?.title || "Paper không còn khả dụng"} · Không còn Published/version hiện hành`);
+          }))) : null,
         h("div", { class: "paper-choice-list" }, ...(currentPool.length ? currentPool.map((paper) => {
           const item = paper.schema_version >= 2 ? { paper_id: paper.id } : { paper_id: paper.id, paper_version_id: paper.current_version_id };
           const checked = currentSelection.some((selected) => pairKey(selected) === pairKey(item));
           return h("label", { class: "paper-choice" },
             h("input", { type: "checkbox", checked, disabled: !canEdit, on: { change: (e) => togglePaper(paper, e.target.checked) } }),
-            h("span", {}, h("strong", {}, paper.title), h("small", {}, paper.schema_version >= 2 ? `${paper.question_count} câu · Paper ${paper.id}` : `${paper.question_count} câu · ${paper.version_count} version · ${paper.current_version_id}`)));
+            h("span", {}, h("strong", {}, paper.title), h("small", {}, `${paper.question_count} câu · Đã xuất bản`)));
         }) : [h("p", { class: "muted" }, "Chưa có Paper Published. Tạo và xuất bản Paper trong tab Quản lý đề thi.")])),
         currentSelection.length ? h("p", { class: "fine-print" }, `Đã chọn ${currentSelection.length} Paper version${code.mode === "common" ? " (COMMON yêu cầu đúng 1)" : " trong pool RANDOM"}.`,
           h("button", { type: "button", class: "btn btn-small btn-secondary", on: { click: () => openPreview() } }, h("i", { class: "fa fa-eye" }), " Xem trước Paper đã chọn")) : null,
@@ -561,8 +569,8 @@
           const current = paper?.status === "published" && (selected.paper_version_id ? paper.current_version_id === selected.paper_version_id : paper.schema_version >= 2);
           return h("li", { class: `qb-selected${current ? "" : " qb-warn"}` },
             h("span", { class: "qb-index" }, `${index + 1}.`),
-            h("span", { class: "qb-main" }, h("strong", {}, paper?.title || selected.paper_id), h("small", {}, `${selected.paper_version_id || selected.paper_id}${current ? " · Published" : " · Không còn version hiện hành/Published"}`)),
-            h("button", { type: "button", class: "btn btn-small btn-ghost", disabled: !canEdit, "aria-label": `Gỡ Paper ${selected.paper_id} ${selected.paper_version_id}`, on: { click: () => { code.paperVersions = code.paperVersions.filter((_, selectedIndex) => selectedIndex !== index); scheduleAutosave(); render(); } } }, "Gỡ"));
+            h("span", { class: "qb-main" }, h("strong", {}, paper?.title || "Paper không còn khả dụng"), h("small", {}, current ? "Published hiện hành" : "Không còn Published/version hiện hành")),
+            h("button", { type: "button", class: "btn btn-small btn-ghost", disabled: !canEdit, "aria-label": `Gỡ ${paper?.title || "Paper không còn khả dụng"} khỏi Exam`, on: { click: () => { code.paperVersions = code.paperVersions.filter((_, selectedIndex) => selectedIndex !== index); scheduleAutosave(); render(); } } }, "Gỡ"));
         })) : null) : null;
       const clampInput = (input, assign, integer) => {
         const raw = input.value.trim();
@@ -637,7 +645,12 @@
           h("option", { value: "selected", selected: zip.mode === "selected" }, "Luân phiên trong các đề được chọn"),
           h("option", { value: "parity", selected: zip.mode === "parity" }, "Chẵn/lẻ theo chữ số cuối MSSV"),
           h("option", { value: "custom", selected: zip.mode === "custom" }, "Quy tắc tùy chỉnh theo chữ số cuối MSSV"))),
-        ...extra));
+        ...extra,
+        h("div", { class: "exam-grid" },
+          stackField("Khi nộp lại", h("select", { on: { change: bind("overwrite", "yesno") } },
+            h("option", { value: "true", selected: form.overwrite }, "Ghi đè file trước"),
+            h("option", { value: "false", selected: !form.overwrite }, "Giữ các file trước"))),
+          stackField("Loại file được chấp nhận", mark("ext", h("input", { value: form.ext, placeholder: ".zip .pdf .docx", on: { input: bind("ext") } }))))));
     }
 
     let busy = false;
@@ -738,14 +751,15 @@
       const warningText = !readOnly || !exam ? "" : exam.status === "distributed"
         ? "Kỳ thi đã phát đề. Bấm “Chỉnh sửa” để thay đổi (đề sẽ được phát lại)."
         : "Kỳ thi ở chế độ chỉ xem.";
-      body.replaceChildren(
+      body.replaceChildren(...[
         h("div", { class: "exam-detail-head" },
           h("div", { class: "exam-detail-status" }, pill(exam ? exam.status : "draft"), actionBar()),
           link("/admin?section=exams", "fa-arrow-left", "Danh sách kỳ thi", "btn-ghost")),
         warningText.trim() ? h("div", { class: "alert alert-warning" }, warningText) : null,
         h("fieldset", { class: "exam-form", disabled: readOnly }, configSection(), participantsSection(), itemTypeSelector(), codeSection(), zipSection()),
         mode() === "edit" && (!exam || exam.status === "draft") ? autosave : null,
-        bottomBar(), notice);
+        bottomBar(), notice,
+      ].filter((node) => node !== null));
       if (showErrors && mode() === "edit") applyErrors(publishProblems());
     }
 

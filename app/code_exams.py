@@ -252,60 +252,6 @@ def _increment_question_usage(snapshots: list[dict], *, exclude_question_ids: se
     update_json("questions.json", record_usage)
 
 
-def _update_question_usage_for_exam(exam: dict, snapshots: list[dict]) -> None:
-    old_ids = {item["question_id"] for item in exam.get("questions", [])}
-    new_ids = {item["question_id"] for item in snapshots}
-
-    def update_usage(questions):
-        for question_id in old_ids - new_ids:
-            question = questions.get(question_id)
-            if question:
-                question["usage_count"] = max(0, int(question.get("usage_count", 0)) - 1)
-        for question_id in new_ids - old_ids:
-            question = questions.get(question_id)
-            if question:
-                question["usage_count"] = int(question.get("usage_count", 0)) + 1
-
-    update_json("questions.json", update_usage)
-
-
-def update_draft_code_exam(exam_id: str, payload: Mapping, actor: str, ip: str) -> dict:
-    exam = get_code_exam(exam_id)
-    if not exam:
-        raise CodeExamError("Code exam was not found", 404)
-    if exam.get("status") != "draft":
-        raise CodeExamError("Only draft code exams can be updated", 409)
-
-    updated_data, snapshots = _validate_code_exam_payload(payload)
-    updated = {
-        **exam,
-        **updated_data,
-        "updated_at": utc_now(),
-    }
-
-    def replace(exams):
-        current = exams.get(exam_id)
-        if not current:
-            raise CodeExamError("Code exam was not found", 404)
-        if current.get("status") != "draft":
-            raise CodeExamError("Only draft code exams can be updated", 409)
-        exams[exam_id] = updated
-
-    update_json("code_exams.json", replace)
-    _update_question_usage_for_exam(exam, snapshots)
-    audit(
-        "code.exam_updated",
-        actor,
-        ip,
-        {"exam_id": exam_id, "question_ids": [item["question_id"] for item in snapshots]},
-    )
-    return updated
-
-
-def list_code_exams() -> list[dict]:
-    return [get_code_exam(exam_id) for exam_id in read_json("code_exams.json")]
-
-
 def get_code_exam(exam_id: str) -> dict | None:
     exam = read_json("code_exams.json").get(exam_id)
     if not exam:
@@ -1318,12 +1264,12 @@ def get_admin_code_results(
             {"question_id": q["question_id"], "title": q.get("title", ""), "total_points": q["total_points"], "language": q.get("language"), "grading_mode": q.get("grading_mode")}
             for q in exam.get("questions", [])
         ],
-        "matrix": _results_matrix(exam, submissions, student_id),
+        "matrix": build_results_matrix(exam, submissions, student_id),
         "submissions": rows,
     }
 
 
-def _results_matrix(exam: dict, submissions: Mapping, only_student: str | None) -> list[dict]:
+def build_results_matrix(exam: dict, submissions: Mapping, only_student: str | None) -> list[dict]:
     """One row per student, one cell per question in exam order; scores follow the latest graded submission."""
     names = {sid: item.get("full_name", "") for sid, item in read_json("students.json").items()}
     matrix = []
@@ -1430,11 +1376,12 @@ def regrade_submission(
     ip: str,
     *,
     use_latest_spec: bool = False,
+    lifecycle_status: str | None = None,
 ) -> dict:
     exam = get_code_exam(exam_id)
     if not exam:
         raise CodeExamError("Code exam was not found", 404)
-    if exam.get("status") != "ended":
+    if (lifecycle_status if lifecycle_status is not None else exam.get("status")) != "ended":
         raise CodeExamError("Only ended code exams can be regraded", 409)
 
     owner_id = None

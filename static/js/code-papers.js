@@ -11,6 +11,8 @@
   const supported = (q) =>
     (q.language === "java" && ["reflection", "stdio"].includes(q.grading_mode)) ||
     (q.language === "python" && q.grading_mode === "stdio");
+  const uniqueQuestionIds = (ids) => [...new Set((Array.isArray(ids) ? ids : [])
+    .filter((id) => typeof id === "string" && id.length > 0))];
   function paperErrorText(error) {
     const body = error?.body || {};
     if (error?.code === "QUESTION_LIMIT_MISMATCH") {
@@ -30,6 +32,7 @@
   let current = null;
   let selected = [];
   let isNew = false;
+  let createFromPublishedSourceId = null;
   let busy = false;
   let editorOperation = "";
   let editorFeedback = "";
@@ -40,14 +43,21 @@
   const editorTabId = window.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`;
   let viewGeneration = 0;
   let listGeneration = 0;
+  let leaveEditorGuard = null;
+  let beforeUnloadHandler = null;
 
   function beginView() {
+    if (leaveEditorGuard && !leaveEditorGuard()) return null;
+    leaveEditorGuard = null;
+    if (beforeUnloadHandler) window.removeEventListener?.("beforeunload", beforeUnloadHandler);
+    beforeUnloadHandler = null;
     viewGeneration += 1;
     busy = false;
     editorOperation = "";
     editorFeedback = "";
     editorFeedbackError = false;
     stalePaperId = null;
+    createFromPublishedSourceId = null;
     return viewGeneration;
   }
 
@@ -72,58 +82,30 @@
   function renderList() {
     const newButton = h("button", { type: "button", class: "btn btn-primary", on: { click: createNew } },
       h("i", { class: "fa fa-plus" }), " Tạo đề thi");
-    if (papers.some((paper) => paper.schema_version >= 2)) {
-      const cards = papers.map((paper) => {
-        const actions = [];
-        const action = (label, handler, cls = "btn-secondary") => h("button", {
-          type: "button", class: `btn btn-small ${cls}`, on: { click: handler },
-        }, label);
-        if (paper.status === "archived") actions.push(action("Restore", () => restore(paper)));
-        else {
-          actions.push(action(paper.status === "draft" ? "Edit Draft" : "Preview", () =>
-            paper.schema_version >= 2 && paper.status === "draft" ? openEditor(paper.id) : openPaper(paper.id)));
-          if (paper.status === "published") actions.push(action("Edit", () => openEditor(paper.id)));
-          actions.push(action("Archive", () => archive(paper), "btn-ghost"));
-        }
-        actions.push(action("Delete", () => removePaper(paper), "btn-danger"));
-        const identity = paper.schema_version >= 2 ? `Paper ID ${paper.id}` : `Legacy versions: ${paper.version_count}`;
-        const unavailableCount = (paper.warnings || []).length;
-        return h("article", { class: "panel qb-preview-item" },
-          h("div", { class: "panel-heading" }, h("div", {}, h("h3", {}, paper.title),
-            h("span", { class: `status-pill ${paper.status === "published" ? "status-green" : "status-gray"}` }, paper.status)),
-            h("div", { class: "actions-inline" }, ...actions)),
-          h("p", { class: "muted" }, `${paper.question_count} questions · ${identity}`),
-          unavailableCount ? h("p", { class: "alert alert-warning", role: "status" },
-            `⚠ ${unavailableCount} question${unavailableCount === 1 ? " is" : "s are"} unavailable`) : null,
-          h("p", { class: "fine-print" }, `Revision ${paper.revision}`));
-      });
-      listHost.replaceChildren(
-        h("div", { class: "panel-heading" }, h("div", {}, h("h2", {}, "Exam Papers"),
-          h("p", { class: "muted" }, "Each Paper is managed as an independent card.")), newButton),
-        h("div", { class: "qb-picker-list" }, ...cards));
-      return;
-    }
     const rows = papers.map((paper) => {
-      const statusLabel = paper.status === "published" ? "Đã xuất bản" : paper.status === "archived" ? "Lưu trữ" : "Nháp";
+      const statusLabel = paper.status === "published"
+        ? (paper.has_draft ? "Đã xuất bản · Có bản nháp" : "Đã xuất bản")
+        : paper.status === "archived" ? "Lưu trữ" : "Nháp";
       const statusClass = paper.status === "published" ? "status-green" : "status-gray";
       const action = (label, fn, cls = "btn-secondary") => h("button", {
         type: "button", class: `btn btn-small ${cls}`, on: { click: (event) => { event.stopPropagation(); fn(); } },
       }, label);
-      const actions = [action(paper.schema_version >= 2 && paper.status === "draft" ? "Edit" : "Preview", () => {
-        if (paper.schema_version >= 2 && paper.status === "draft") openEditor(paper.id); else openPaper(paper.id);
-      })];
+      const actions = [];
+      if (paper.status === "draft") actions.push(action("Chỉnh sửa", () => openEditor(paper.id)));
+      else if (paper.status === "published") actions.push(action("Mở", () => openPaper(paper.id)));
       if (paper.status === "archived") actions.push(action("Khôi phục", () => restore(paper)));
-      else if (!(paper.schema_version >= 2 && paper.status === "draft")) actions.push(action("Edit", () => openEditor(paper.id)));
+      else if (paper.status === "published" && paper.has_draft) actions.push(action("Chỉnh sửa", () => openEditor(paper.id)));
       if (paper.status !== "archived") actions.push(action("Lưu trữ", () => archive(paper), "btn-ghost"));
       actions.push(action("Xóa", () => removePaper(paper), "btn-danger"));
       const metadata = Object.entries(paper.metadata || {})
         .map(([key, value]) => `${key}: ${typeof value === "string" ? value : JSON.stringify(value)}`)
         .join(" · ") || "—";
       return h("tr", {},
-        h("td", {}, h("strong", {}, paper.title), paper.warnings?.length ? h("span", { class: "qb-change-badge", title: `${paper.warnings.length} câu hỏi nguồn cần lưu ý` }, "!") : null),
+        h("td", {}, h("strong", {}, paper.title),
+          paper.warnings?.length ? h("span", { class: "qb-change-badge", title: `${paper.warnings.length} câu hỏi nguồn cần lưu ý` }, "!") : null),
         h("td", {}, metadata),
         h("td", {}, paper.question_count),
-        h("td", {}, paper.version_count),
+        h("td", {}, paper.version_count ? paper.version_count : "\u2014"),
         h("td", {}, h("span", { class: `status-pill ${statusClass}` }, statusLabel)),
         h("td", {}, h("div", { class: "actions-inline" }, ...actions)));
     });
@@ -142,6 +124,7 @@
 
   async function openPaper(paperId) {
     const generation = beginView();
+    if (generation === null) return;
     editorHost.classList.remove("hidden");
     listHost.classList.add("hidden");
     editorHost.replaceChildren(h("p", { class: "muted pad" }, "Đang tải Paper…"));
@@ -150,7 +133,7 @@
       if (!isCurrentView(generation) || paper?.id !== paperId) return;
       current = paper;
       isNew = false;
-      if (paper.schema_version >= 2 && paper.status === "published") {
+      if (paper.status === "published") {
         await preview(paperId);
         return;
       }
@@ -167,23 +150,23 @@
         h("div", { class: "panel-heading" }, h("div", {}, h("h2", {}, current.title), h("p", { class: "muted" }, `${current.status} · Paper ${current.id} · revision ${current.revision}`)),
           h("div", { class: "form-actions" },
             h("button", { type: "button", class: "btn btn-secondary", on: { click: backToList } }, "Back to Papers"),
-            current.status !== "archived" ? h("button", { type: "button", class: "btn btn-primary", on: { click: () => openEditor(current.id) } }, "Edit Paper") : null)),
+            current.status === "published"
+              ? h("button", { type: "button", class: "btn btn-primary", on: { click: () => openEditor(current.id, { createFromPublished: true }) } }, "\u0043h\u1ec9nh s\u1eeda b\u1ea3n m\u1edbi")
+              : current.status === "draft" ? h("button", { type: "button", class: "btn btn-primary", on: { click: () => openEditor(current.id) } }, "\u0043h\u1ec9nh s\u1eeda") : null)),
         current.preview ? renderPreview(current.preview) : h("p", { class: "muted" }, "No preview available."));
       return;
     }
     const versions = Object.values(current.versions || {}).sort((a, b) => a.version - b.version);
-    const latestVersion = versions[versions.length - 1];
+    const latestVersion = current.versions?.[current.current_version_id] || versions[versions.length - 1];
     const statusInfo = current.status === "archived" ? "Paper đang lưu trữ." : current.status === "published" ? "Paper đã xuất bản; version đã phát hành không thể sửa." : "Paper đang ở trạng thái Nháp.";
-    const versionRows = versions.map((version) => h("section", { class: "qb-preview-item" },
-      h("div", { class: "panel-heading" },
-        h("div", {}, h("h3", {}, `${version.title} · v${version.version}`), h("p", { class: "fine-print" }, `${version.id} · ${version.questions.length} câu · ${version.published_at || ""}`)),
-        h("button", { type: "button", class: "btn btn-small btn-secondary", on: { click: () => preview(current.id, version.id) } }, "Xem version")),
-      ...(version.warnings || []).map((warning) => h("p", { class: "alert alert-warning", role: "status" }, `${warning.title || warning.question_id}: ${warning.warning}`))));
     editorHost.replaceChildren(
       h("div", { class: "panel-heading" }, h("div", {}, h("h2", {}, current.title), h("p", { class: "muted" }, statusInfo)),
         h("div", { class: "form-actions" },
           h("button", { type: "button", class: "btn btn-secondary", on: { click: backToList } }, "Quay lại"),
-          current.status !== "archived" ? h("button", { type: "button", class: "btn btn-primary", on: { click: () => openEditor(current.id) } }, "Chỉnh sửa bản mới") : null,
+          current.status !== "archived" && (current.status !== "published"
+            || (current.current_version_id && current.versions?.[current.current_version_id]))
+            ? h("button", { type: "button", class: "btn btn-primary", on: { click: () => current.status === "published"
+              ? openEditor(current.id, { createFromPublished: true }) : openEditor(current.id) } }, "Chỉnh sửa bản mới") : null,
           current.status === "archived" ? h("button", { type: "button", class: "btn btn-primary", on: { click: () => restore(current) } }, "Khôi phục") : null)),
       h("p", { class: "fine-print", role: "status", "data-role": "paper-version-status" },
         `Paper ${current.id} · revision ${current.revision} · bản xuất bản mới nhất ${latestVersion ? `v${latestVersion.version} (${latestVersion.id})` : "chưa có"}`),
@@ -193,7 +176,8 @@
         ...(current.draft.warnings || []).map((warning) => h("p", { class: "alert alert-warning", role: "status" }, `${warning.title || warning.question_id}: ${warning.warning}`)),
         h("button", { type: "button", class: "btn btn-small btn-secondary", on: { click: () => openEditor(current.id) } }, "Tiếp tục chỉnh sửa bản nháp")) : null,
       h("p", { class: "muted" }, `Metadata: ${JSON.stringify(current.metadata || {})}`),
-      h("div", {}, ...(versionRows.length ? versionRows : [h("p", { class: "empty-cell" }, "Paper chưa có version xuất bản.")])));
+      latestVersion ? h("p", { class: "fine-print" }, `${latestVersion.id} · v${latestVersion.version} · ${latestVersion.questions.length} câu · ${latestVersion.published_at || ""}`)
+        : h("p", { class: "empty-cell" }, "Paper chưa có version xuất bản."));
     if (current.preview) editorHost.append(renderPreview(current.preview));
   }
 
@@ -218,7 +202,7 @@
     const questionsInPreview = version?.questions || draft?.questions || [];
     const sourceWarnings = version?.warnings || previewData.warnings || [];
     return h("section", { class: "qb-preview", role: "region", "aria-label": "Nội dung Paper" },
-      h("h3", {}, version ? `${version.title} · ${version.id}` : "Draft Preview · Xem trước bản nháp"),
+      h("h3", {}, version ? `${version.title} · ${version.id}` : "Published Paper Preview"),
       ...sourceWarnings.map((item) => h("p", { class: "alert alert-warning", role: "status" }, `${item.title || item.question_id}: ${item.warning}`)),
       ...questionsInPreview.map((question, index) => h("article", { class: "qb-preview-item" },
         h("h4", {}, `Câu ${index + 1}: ${question.title || question.question_id}`),
@@ -227,8 +211,10 @@
         question.starter_code ? h("pre", { class: "qb-code" }, question.starter_code) : null)));
   }
 
-  async function openEditor(paperId) {
+  async function openEditor(paperId, { createFromPublished = false } = {}) {
     const generation = beginView();
+    if (generation === null) return;
+    createFromPublishedSourceId = createFromPublished ? paperId : null;
     editorHost.classList.remove("hidden");
     listHost.classList.add("hidden");
     editorHost.replaceChildren(h("p", { class: "muted pad" }, "Đang mở trình chỉnh sửa…"));
@@ -244,11 +230,15 @@
       questions = allBankQuestions.filter((question) => question.status === "published" && supported(question));
       isNew = !paper;
       const activeVersion = paper?.versions?.[paper.current_version_id];
-      selected = [...(paper?.schema_version >= 2 ? (paper.question_ids || paper.questions?.map((q) => q.question_id) || []) : paper?.draft?.question_ids || activeVersion?.questions?.map((q) => q.question_id) || [])];
+      selected = uniqueQuestionIds(paper?.schema_version >= 2
+        ? (paper.question_ids || paper.questions?.map((q) => q.question_id) || [])
+        : createFromPublished
+          ? (activeVersion?.questions?.map((q) => q.question_id) || [])
+          : (paper?.draft?.question_ids || activeVersion?.questions?.map((q) => q.question_id) || []));
       renderEditor();
     } catch (error) {
       if (!isCurrentView(generation)) return;
-      editorHost.replaceChildren(errorBox(error, () => openEditor(paperId)));
+      editorHost.replaceChildren(errorBox(error, () => openEditor(paperId, { createFromPublished })));
     }
   }
 
@@ -259,8 +249,16 @@
     const editorContext = current?.id || "new-paper";
     const cacheKey = `css-paper-editor:${encodeURIComponent(ownerKey)}:${encodeURIComponent(editorContext)}`;
     activeDraftCacheKey = cacheKey;
-    const draft = independent ? current : current?.draft || {};
     const activeVersion = current?.versions?.[current.current_version_id];
+    const draft = createFromPublishedSourceId ? (independent ? current : {
+      title: activeVersion?.title || current?.title || "",
+      metadata: activeVersion?.metadata || {},
+      question_ids: activeVersion?.questions?.map((question) => question.question_id) || [],
+      question_limit: activeVersion?.questions?.length || null,
+      question_filters: {},
+    }) : independent ? current : current?.draft || {};
+    const creatingFromPublished = createFromPublishedSourceId !== null;
+    const creatingPaper = isNew || creatingFromPublished;
     const savedQuestions = new Map((activeVersion?.questions || []).map((q) => [q.question_id, q]));
     const selectedBank = new Map((questions || []).map((q) => [q.id, q]));
     const normalize = (value) => (typeof value === "string" ? value.trim().toLowerCase() : "");
@@ -301,14 +299,16 @@
     const difficultyFilter = h("select", { value: filters.difficulty, "data-filter": "difficulty" },
       ...optionList(difficulties, filters.difficulty, "Mọi độ khó"));
     const tagFilters = new Map();
-    const tagFilterHost = h("div", { class: "qb-filter-tags", "aria-label": "Lọc theo tags" }, ...availableTags.map((tag) => {
+    const tagFilterHost = h("div", { class: "qb-filter-tags", role: "group", "aria-label": "Lọc theo Tags" }, ...availableTags.map((tag) => {
       const checkbox = h("input", { type: "checkbox", checked: filters.tags.has(tag), "data-filter-tag": tag });
-      tagFilters.set(tag, checkbox);
+      const option = h("label", { class: `qb-tag-option${checkbox.checked ? " is-selected" : ""}` }, checkbox, h("span", {}, tag));
+      tagFilters.set(tag, { checkbox, option });
       checkbox.addEventListener("change", (event) => {
         if (event.target.checked) filters.tags.add(tag); else filters.tags.delete(tag);
+        option.classList.toggle("is-selected", event.target.checked);
         refreshFilterResults();
       });
-      return h("label", { class: "checkbox-row" }, checkbox, ` ${tag}`);
+      return option;
     }));
     const quantityInput = h("input", {
       type: "number", min: 1, max: questionBankMax || undefined, step: "any", value: initialQuantity, "data-field": "question-limit",
@@ -324,7 +324,7 @@
         recoveredLocalDraft = true;
         titleInput.value = cached.title ?? titleInput.value;
         metadataInput.value = cached.metadata ?? metadataInput.value;
-        if (Array.isArray(cached.selected)) selected = cached.selected.filter((id) => typeof id === "string");
+        if (Array.isArray(cached.selected)) selected = uniqueQuestionIds(cached.selected);
         quantityInput.value = cached.quantity ?? quantityInput.value;
         for (const key of ["search", "category", "language", "grading_mode", "difficulty"]) {
           if (typeof cached.filters?.[key] === "string") filters[key] = cached.filters[key];
@@ -337,17 +337,20 @@
     languageFilter.value = filters.language;
     typeFilter.value = filters.grading_mode;
     difficultyFilter.value = filters.difficulty;
-    tagFilters.forEach((checkbox, tag) => { checkbox.checked = filters.tags.has(tag); });
+    tagFilters.forEach(({ checkbox, option }, tag) => {
+      checkbox.checked = filters.tags.has(tag);
+      option.classList.toggle("is-selected", checkbox.checked);
+    });
     const counts = h("p", { class: "fine-print", "data-role": "question-counts" });
     const quantityNotice = h("p", { class: "fine-print", role: "status", "data-role": "question-limit-status" });
     const lifecycleStatus = h("div", { class: "alert", role: "status", "data-role": "paper-lifecycle" });
     const operationStatus = h("p", { class: "fine-print", role: "status", "data-role": "paper-operation" });
-    const resetFilters = h("button", { type: "button", class: "btn btn-small btn-ghost", on: { click: () => {
+    const resetFilters = h("button", { type: "button", class: "btn btn-small btn-secondary", disabled: true, "data-role": "clear-question-filters", on: { click: () => {
       filters.search = ""; filters.category = ""; filters.language = ""; filters.grading_mode = ""; filters.difficulty = ""; filters.tags.clear();
       search.value = ""; categoryFilter.value = ""; languageFilter.value = ""; typeFilter.value = ""; difficultyFilter.value = "";
-      tagFilters.forEach((checkbox) => { checkbox.checked = false; });
+      tagFilters.forEach(({ checkbox, option }) => { checkbox.checked = false; option.classList.remove("is-selected"); });
       refreshFilterResults();
-    } } }, "Xóa bộ lọc");
+    } } }, "Xóa bộ lọc câu hỏi");
     const availableHost = h("div", { class: "qb-picker-list" });
     const selectedHost = h("ol", { class: "qb-selected-list" });
     const canEdit = current?.status !== "archived";
@@ -361,11 +364,9 @@
       on: { click: clearSelection } }, "Bỏ chọn tất cả");
     const selectionNotice = h("p", { class: "fine-print", role: "status", "data-role": "selection-status" });
     const previewHost = current?.preview ? renderPreview(current.preview) : h("div", {});
-    const saveButton = h("button", { type: "button", class: "btn btn-primary", disabled: !canEdit || busy, on: { click: save } }, independent && current?.status === "published" ? "Save Changes" : "Save Draft");
-    const previewButton = h("button", { type: "button", class: "btn btn-secondary", disabled: !canEdit || busy || isNew,
-      on: { click: previewSavedDraft } }, "Preview Draft · Xem trước bản nháp");
+    const saveButton = h("button", { type: "button", class: "btn btn-primary", disabled: !canEdit || busy, on: { click: save } }, independent && current?.status === "published" && createFromPublishedSourceId === null ? "Save Changes" : "Save Draft");
     const publishButton = h("button", { type: "button", class: "btn btn-primary", disabled: !canEdit || busy, on: { click: publish } }, independent ? "Publish Paper" : "Publish Version · Xuất bản version");
-    const saveDraftCopyButton = h("button", { type: "button", class: "btn btn-secondary", disabled: !canEdit || busy || !independent || current?.status !== "published", on: { click: saveDraftCopy } }, "Save Draft Copy");
+    const saveDraftCopyButton = h("button", { type: "button", class: "btn btn-secondary", disabled: !canEdit || busy || !independent || current?.status !== "published" || createFromPublishedSourceId !== null, on: { click: saveDraftCopy } }, "Save Draft Copy");
 
     function filteredQuestions() {
       const query = normalize(filters.search);
@@ -410,14 +411,6 @@
       question_ids: serverEditorState.selected, question_limit: serverEditorState.quantity,
       question_filters: serverEditorState.filters,
     });
-    function persistLocalDraft() {
-      if (staleLocalDraft) return;
-      try {
-        localStorage.setItem(cacheKey, JSON.stringify({ base_revision: current?.revision ?? null,
-          title: titleInput.value, metadata: metadataInput.value, selected, quantity: quantityInput.value,
-          filters: { ...filters, tags: [...filters.tags] }, tab_id: editorTabId, saved_at: Date.now() }));
-      } catch { /* Storage can be disabled or full; editing remains available in memory. */ }
-    }
     if (staleLocalDraft) {
       editorFeedback = "A local editing session exists for an older Paper revision. It was not restored; copy or discard it explicitly before continuing.";
       editorFeedbackError = true;
@@ -438,58 +431,93 @@
     };
     window.addEventListener?.("storage", editorStorageHandler);
     function updateLifecycleStatus() {
-      const latest = Object.values(current?.versions || {}).sort((a, b) => b.version - a.version)[0];
+      const versions = Object.values(current?.versions || {})
+        .filter((version) => version && typeof version === "object")
+        .sort((a, b) => (Number.isFinite(Number(b.version)) ? Number(b.version) : -1)
+          - (Number.isFinite(Number(a.version)) ? Number(a.version) : -1));
+      const latest = versions[0] || null;
       const dirty = savedFingerprint === null || editorFingerprint() !== savedFingerprint;
+      if (editorFeedbackError && editorFeedback.startsWith("B\u1ea3n nh\u00e1p c\u1ea7n")
+        && titleInput.value.trim() && draftSelectionIsValid(filteredQuestions())) {
+        editorFeedback = "";
+        editorFeedbackError = false;
+      }
       if (dirty && editorFeedback && !editorFeedbackError && !busy) editorFeedback = "";
-      const state = isNew ? "Chưa lưu · Unsaved Changes" : dirty ? "Có thay đổi chưa lưu · Unsaved Changes" : "Đã lưu · Saved";
-      lifecycleStatus.className = `alert${editorFeedbackError ? " alert-error" : ""}`;
-      lifecycleStatus.replaceChildren(
-        h("span", {}, `${state} · Paper ${current?.id || "chưa có ID"} · draft revision ${current?.revision ?? "chưa có"} · bản xuất bản mới nhất ${latest ? `v${latest.version} (${latest.id})` : "chưa có"}`),
+      const publicationFailedAfterSave = /publishing failed|xu\u1ea5t b\u1ea3n th\u1ea5t b\u1ea1i/i.test(editorFeedback);
+      const saveFailed = editorFeedbackError && !publicationFailedAfterSave
+        && !editorFeedback.startsWith("B\u1ea3n nh\u00e1p c\u1ea7n");
+      const saving = busy && editorOperation === "save";
+      const state = saving ? { key: "saving", label: "\u0110ang l\u01b0u", icon: "fa-circle-o-notch fa-spin" }
+        : saveFailed ? { key: "error", label: "Kh\u00f4ng l\u01b0u \u0111\u01b0\u1ee3c", icon: "fa-exclamation-circle" }
+          : creatingPaper ? { key: "unsaved", label: "Ch\u01b0a l\u01b0u", icon: "fa-circle-o" }
+            : dirty ? { key: "dirty", label: "C\u00f3 thay \u0111\u1ed5i ch\u01b0a l\u01b0u", icon: "fa-exclamation-circle" }
+              : { key: "saved", label: "\u0110\u00e3 l\u01b0u", icon: "fa-check-circle" };
+      const metadata = [];
+      const paperStatus = current?.status === "published" ? "\u0110\u00e3 xu\u1ea5t b\u1ea3n"
+        : current?.status === "archived" ? "L\u01b0u tr\u1eef" : "Nh\u00e1p";
+      if (current?.status) metadata.push(h("span", { class: "paper-status-badge", "data-status": current.status }, paperStatus));
+      if (current?.revision !== null && current?.revision !== undefined && current?.revision !== ""
+        && Number.isFinite(Number(current.revision))) {
+        metadata.push(h("span", { class: "paper-status-meta" }, `L\u1ea7n ch\u1ec9nh s\u1eeda ${current.revision}`));
+      }
+      const fullPaperId = typeof current?.id === "string" && !/^(null|undefined)$/i.test(current.id.trim()) ? current.id.trim() : "";
+      if (fullPaperId) {
+        const shortPaperId = fullPaperId.length > 12 ? `${fullPaperId.slice(0, 8)}\u2026${fullPaperId.slice(-3)}` : fullPaperId;
+        metadata.push(h("span", { class: "paper-status-meta paper-id", title: fullPaperId, "aria-label": `Paper ID ${fullPaperId}` }, `Paper ${shortPaperId}`));
+      }
+      const publicationParts = [];
+      if (latest?.version !== null && latest?.version !== undefined && latest?.version !== ""
+        && Number.isFinite(Number(latest.version))) publicationParts.push(`Phi\u00ean b\u1ea3n ${latest.version}`);
+      const latestId = typeof latest?.id === "string" && !/^(null|undefined)$/i.test(latest.id.trim()) ? latest.id.trim() : "";
+      if (latestId) publicationParts.push(latestId.length > 12 ? `${latestId.slice(0, 8)}\u2026${latestId.slice(-3)}` : latestId);
+      const publicationText = latest
+        ? (publicationParts.length ? `B\u1ea3n xu\u1ea5t b\u1ea3n m\u1edbi nh\u1ea5t: ${publicationParts.join(" \u00b7 ")}` : "\u0110\u00e3 c\u00f3 phi\u00ean b\u1ea3n xu\u1ea5t b\u1ea3n")
+        : current?.schema_version >= 2 && current?.status === "published"
+          ? "Paper hi\u1ec7n \u0111ang \u0111\u01b0\u1ee3c xu\u1ea5t b\u1ea3n" : "Ch\u01b0a c\u00f3 phi\u00ean b\u1ea3n xu\u1ea5t b\u1ea3n";
+      lifecycleStatus.className = `paper-save-status paper-save-status-${state.key}${editorFeedbackError ? " has-feedback-error" : ""}`;
+      lifecycleStatus.replaceChildren(...[
+        h("div", { class: "paper-save-status-primary", "data-status": state.key },
+          h("i", { class: `fa ${state.icon}`, "aria-hidden": "true" }),
+          h("strong", {}, state.label)),
+        metadata.length ? h("div", { class: "paper-save-status-meta" }, ...metadata) : null,
+        h("p", { class: "paper-publication-status" }, publicationText),
         editorFeedback ? h("p", { class: editorFeedbackError ? "alert alert-error" : "fine-print" }, editorFeedback) : null,
         stalePaperId ? h("button", { type: "button", class: "btn btn-small btn-secondary", "data-role": "reload-stale-paper", on: { click: () => {
-          if (window.confirm("Tải lại bản mới nhất sẽ bỏ các thay đổi chưa lưu trên màn hình. Tiếp tục?")) openEditor(stalePaperId);
-        } } }, "Tải lại bản mới nhất") : null,
-      );
-      operationStatus.textContent = editorOperation === "save" ? "Đang lưu bản nháp…"
-        : editorOperation === "preview" ? "Đang tạo Draft Preview…"
-          : editorOperation === "publish" ? "Đang xuất bản version…" : "";
+          if (window.confirm("T\u1ea3i l\u1ea1i b\u1ea3n m\u1edbi nh\u1ea5t s\u1ebd b\u1ecf c\u00e1c thay \u0111\u1ed5i ch\u01b0a l\u01b0u tr\u00ean m\u00e0n h\u00ecnh. Ti\u1ebfp t\u1ee5c?")) openEditor(stalePaperId);
+        } } }, "T\u1ea3i l\u1ea1i b\u1ea3n m\u1edbi nh\u1ea5t") : null,
+      ].filter((node) => node !== null));
+      operationStatus.textContent = editorOperation === "publish" ? "\u0110ang xu\u1ea5t b\u1ea3n phi\u00ean b\u1ea3n\u2026" : "";
       const hasDraftChanges = dirty || isNew;
       const unchangedPublished = independent && current?.status === "published" && !dirty;
       saveButton.disabled = !canEdit || busy || unchangedPublished || !titleInput.value.trim() || !draftSelectionIsValid(filteredQuestions());
       saveDraftCopyButton.disabled = !canEdit || busy || !independent || current?.status !== "published"
         || !titleInput.value.trim() || !draftSelectionIsValid(filteredQuestions());
-      previewButton.disabled = !canEdit || busy || isNew;
       publishButton.disabled = !canEdit || busy || !hasDraftChanges && current?.status === "published"
         || !titleInput.value.trim() || !quantityIsValid(filteredQuestions());
     }
 
     function renderQuestions() {
-      persistLocalDraft();
       const pool = filteredQuestions();
+      const hasActiveFilters = Boolean(filters.search.trim() || filters.category || filters.language
+        || filters.grading_mode || filters.difficulty || filters.tags.size);
+      resetFilters.disabled = !hasActiveFilters;
       quantityInput.max = String(questionBankMax);
       quantityInput.disabled = !canEdit || questionBankMax === 0;
       const quantity = Number(quantityInput.value);
-      const selectedMatchingPool = new Set(pool.map((question) => question.id));
       const selectedMatchingCount = pool.filter((question) => selected.includes(question.id)).length;
       filteredSelection.checked = pool.length > 0 && selectedMatchingCount === pool.length;
       filteredSelection.indeterminate = selectedMatchingCount > 0 && selectedMatchingCount < pool.length;
       filteredSelection.disabled = !canEdit || busy || selectionBusy || pool.length === 0;
-      const withinPool = true;
-      const canSelectMore = Number.isInteger(quantity) && quantity >= 1 && quantity <= pool.length && selected.length < quantity;
+      const canSelectMore = Number.isInteger(quantity) && quantity >= 1 && quantity <= questionBankMax
+        && selected.length < quantity;
       counts.textContent = `Đã chọn ${selected.length}/${quantityInput.value || 0} câu · Có ${pool.length} câu phù hợp bộ lọc.`;
-      if (!pool.length) quantityNotice.textContent = "Không có câu Published phù hợp. Hãy xóa hoặc nới bộ lọc.";
-      else if (!withinPool) quantityNotice.textContent = "Số lượng phải là số nguyên trong giới hạn số câu phù hợp bộ lọc.";
-      else if (quantity > pool.length) quantityNotice.textContent = "Paper cũ có câu được giữ lại ngoài bộ lọc hiện tại; hãy giữ nguyên hoặc bỏ câu rõ ràng trước khi thêm câu mới.";
-      else if (selected.length > quantity) quantityNotice.textContent = "Số câu đã chọn vượt số lượng. Hãy bỏ câu rõ ràng hoặc tăng số lượng; lựa chọn không bị xóa tự động.";
-      else if (selected.length < quantity) quantityNotice.textContent = `Hãy chọn thêm ${quantity - selected.length} câu để đủ số lượng.`;
-      else quantityNotice.textContent = "";
       if (questionBankMax === 0) quantityNotice.textContent = "Question Bank is empty. A valid Question Limit cannot be set, and publishing is unavailable.";
       else if (!quantityInput.value.trim()) quantityNotice.textContent = "Enter a whole-number Question Limit before publishing. Drafts can be saved incomplete.";
       else if (!Number.isInteger(quantity) || quantity < 1 || quantity > questionBankMax) quantityNotice.textContent = `Question Limit must be a whole number from 1 to ${questionBankMax}.`;
       else if (!pool.length) quantityNotice.textContent = "No eligible Published questions match the current filters.";
       else if (selected.length > quantity) quantityNotice.textContent = "Selected question count exceeds Question Limit. Selection was retained.";
       else if (selected.length < quantity) quantityNotice.textContent = `Select ${quantity - selected.length} more question(s) to match Question Limit.`;
-      else quantityNotice.textContent = "";
+      else quantityNotice.textContent = "Question Limit reached. Remove a selected question or increase the limit to add another.";
       const randomCanRun = Number.isInteger(quantity) && quantity >= 1 && quantity <= pool.length;
       randomButton.disabled = !canEdit || busy || selectionBusy || !randomCanRun;
       selectAllButton.disabled = !canEdit || busy || selectionBusy || pool.length === 0;
@@ -502,7 +530,11 @@
       const available = pool.filter((q) => !selected.includes(q.id));
       availableHost.replaceChildren(...(available.length ? available.map((q) => h("div", { class: "qb-item" },
         h("span", { class: "qb-main" }, h("strong", {}, q.title), h("small", {}, `${q.language}/${q.grading_mode} · ${q.total_points} điểm`)),
-            h("button", { type: "button", class: "btn btn-small btn-secondary", disabled: !canEdit || busy || selectionBusy || !canSelectMore, on: { click: () => { selected.push(q.id); renderQuestions(); } } }, "Thêm")))
+            h("button", { type: "button", class: "btn btn-small btn-secondary", disabled: !canEdit || busy || selectionBusy || !canSelectMore, on: { click: () => {
+              if (selected.includes(q.id) || selected.length >= Number(quantityInput.value)) return;
+              selected = [...selected, q.id];
+              renderQuestions();
+            } } }, "Thêm")))
         : [h("p", { class: "empty-cell" }, questions.length ? "Không có câu hỏi phù hợp bộ lọc." : "Không có câu hỏi Published đủ điều kiện.") ]));
 
       selectedHost.replaceChildren(...(selected.length ? selected.map((id, index) => {
@@ -607,8 +639,9 @@
       selectionBusy = true;
       try {
         if (filteredSelection.checked) {
-          const matching = pool.map((question) => question.id).filter((id) => typeof id === "string" && id);
-          selected = [...selected.filter((id) => !matchingIds.has(id)), ...new Set(matching)];
+          const matching = pool.map((question) => question.id)
+            .filter((id) => typeof id === "string" && id && !selected.includes(id));
+          selected = [...selected, ...new Set(matching)];
         } else {
           selected = selected.filter((id) => !matchingIds.has(id));
         }
@@ -628,49 +661,66 @@
     quantityInput.addEventListener("blur", commitQuestionLimit);
     titleInput.addEventListener("input", renderQuestions);
     metadataInput.addEventListener("input", renderQuestions);
-    savedFingerprint = isNew ? null : editorFingerprint();
+    const hasUnsavedEditorState = () => isNew || createFromPublishedSourceId !== null || editorFingerprint() !== savedFingerprint;
+    leaveEditorGuard = () => !hasUnsavedEditorState()
+      || window.confirm("Bạn có thay đổi chưa được lưu thành bản nháp. Rời trình chỉnh sửa sẽ làm mất các thay đổi này. Tiếp tục?");
+    const warnBeforeLeaving = (event) => {
+      if (!isCurrentView(editorGeneration) || !hasUnsavedEditorState()) return;
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    if (beforeUnloadHandler) window.removeEventListener?.("beforeunload", beforeUnloadHandler);
+    beforeUnloadHandler = warnBeforeLeaving;
+    window.addEventListener("beforeunload", beforeUnloadHandler);
+    savedFingerprint = creatingPaper ? null : editorFingerprint();
     renderQuestions();
 
     editorHost.replaceChildren(
-      h("div", { class: "panel-heading" }, h("div", {}, h("h2", {}, isNew ? "Tạo Paper" : `Chỉnh sửa Paper: ${current.title}`), h("p", { class: "muted" }, "Danh sách đã chọn giữ nguyên thứ tự. Câu mới chỉ lấy từ câu hỏi Published.")),
+        h("div", { class: "panel-heading" }, h("div", {}, h("h2", {}, creatingFromPublished ? `Tạo Paper từ ${activeVersion?.id || "Published Version"}` : isNew ? "Tạo Paper" : `Chỉnh sửa Paper: ${current.title}`), h("p", { class: "muted" }, "Danh sách đã chọn giữ nguyên thứ tự. Câu mới chỉ lấy từ câu hỏi Published.")),
         h("div", { class: "form-actions" },
           h("button", { type: "button", class: "btn btn-secondary", on: { click: backToList } }, "Cancel"),
-          saveButton, independent && current?.status === "published" ? saveDraftCopyButton : null,
-          !independent && previewButton, (!independent || current?.status === "draft") ? publishButton : null)),
+          saveButton, independent && current?.status === "published" && createFromPublishedSourceId === null ? saveDraftCopyButton : null,
+          (!independent || current?.status === "draft") ? publishButton : null)),
       lifecycleStatus, operationStatus,
-      isNew ? h("p", { class: "fine-print", role: "status" }, "Lưu bản nháp để có Paper ID và mở Draft Preview.") : null,
+      creatingPaper ? h("p", { class: "fine-print", role: "status" }, creatingFromPublished
+        ? "Lưu thành bản nháp sẽ tạo Paper độc lập; Published Paper gốc không thay đổi."
+        : "Lưu thành bản nháp để tạo Paper ID; các thay đổi sau đó cần được lưu bằng nút Save.") : null,
       current?.status === "archived" ? h("div", { class: "alert alert-warning" }, "Paper đang lưu trữ. Khôi phục Paper trước khi chỉnh sửa.") : null,
-      ...(current?.draft?.warnings || []).map((item) => h("div", { class: "alert alert-warning", role: "status" }, `${item.title || item.question_id}: ${item.warning}`)),
+      ...(!creatingFromPublished ? current?.draft?.warnings || [] : []).map((item) => h("div", { class: "alert alert-warning", role: "status" }, `${item.title || item.question_id}: ${item.warning}`)),
       h("div", { class: "stack-form" }, h("label", { for: "cp-title" }, "Tên Paper"), titleInput, h("label", { for: "cp-metadata" }, "Metadata dạng JSON"), metadataInput),
       h("div", { class: "qb-question-tools" },
-        h("div", { class: "exam-rows" },
-          h("label", {}, "Từ khóa", search),
-          h("label", {}, "Danh mục", categoryFilter),
-          h("label", {}, "Ngôn ngữ", languageFilter),
-          h("label", {}, "Kiểu câu hỏi / chấm", typeFilter),
-          h("label", {}, "Độ khó", difficultyFilter),
-          h("div", {}, h("span", {}, "Tags (khớp bất kỳ)"), tagFilterHost)),
-        resetFilters),
-      quantityInput, counts, quantityNotice,
-      h("div", { class: "qb-selection-tools" },
-        h("label", { class: "checkbox-row" }, filteredSelection, " Chọn/bỏ chọn nhóm câu phù hợp (giữ câu ngoài bộ lọc)"),
-        randomButton, selectAllButton, deselectAllButton, selectionNotice),
+        h("div", { class: "qb-question-filters", role: "search", "aria-label": "Bộ lọc câu hỏi trong Paper" },
+          h("label", { class: "paper-question-filter-field qb-search-filter" }, h("span", {}, "Tìm câu hỏi"), search),
+          h("label", { class: "paper-question-filter-field" }, h("span", {}, "Danh mục"), categoryFilter),
+          h("label", { class: "paper-question-filter-field" }, h("span", {}, "Ngôn ngữ"), languageFilter),
+          h("label", { class: "paper-question-filter-field" }, h("span", {}, "Kiểu câu hỏi / chấm"), typeFilter),
+          h("label", { class: "paper-question-filter-field" }, h("span", {}, "Độ khó"), difficultyFilter),
+          h("div", { class: "paper-tag-filter-field" }, h("span", {}, "Tags · khớp bất kỳ"), tagFilterHost)),
+        h("div", { class: "qb-filter-actions" }, resetFilters)),
       h("div", { class: "exam-builder" },
         h("div", { class: "qb-panel" }, h("h3", {}, "Câu hỏi đã xuất bản"), availableHost),
         h("div", { class: "qb-panel" }, h("h3", {}, `Thứ tự câu hỏi (${selected.length})`), selectedHost)),
+      h("div", { class: "qb-question-summary" },
+        h("label", { class: "paper-question-filter-field qb-question-limit-field" }, h("span", {}, "Question Limit"), quantityInput),
+        h("div", { class: "qb-question-count-summary" }, counts, quantityNotice)),
+      h("div", { class: "qb-selection-tools" },
+        h("label", { class: "checkbox-row" }, filteredSelection, " Chọn/bỏ chọn nhóm câu phù hợp (giữ câu ngoài bộ lọc)"),
+        randomButton, selectAllButton, deselectAllButton, selectionNotice),
       previewHost,
       h("div", { id: "cp-editor-notice", class: "notice hidden" }));
 
-    async function save({ deferRender = false } = {}) {
+    async function save() {
       if (busy) return false;
-      const targetPaperId = current?.id || null;
+      const sourcePaperId = createFromPublishedSourceId;
+      const targetPaperId = sourcePaperId ? null : current?.id || null;
       const expectedRevision = current?.revision;
-      const creating = isNew;
+      const creating = isNew || sourcePaperId !== null;
       let sessionPaperId = targetPaperId;
       const ownsEditor = () => isCurrentView(editorGeneration, sessionPaperId || undefined)
-        && (sessionPaperId !== null || (creating && isNew));
+        && (sessionPaperId !== null || (creating && (isNew || createFromPublishedSourceId === sourcePaperId)));
       const dirty = savedFingerprint === null || editorFingerprint() !== savedFingerprint;
       if (!dirty) return true;
+      const submittedFingerprint = editorFingerprint();
       let metadata;
       try {
         metadata = JSON.parse(metadataInput.value || "{}");
@@ -700,6 +750,7 @@
             ...filters, tags: [...filters.tags],
           },
         };
+        if (!creating) payload.expected_revision = expectedRevision;
         const data = creating
           ? await request("/api/admin/papers/independent", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) })
           : await request(`/api/admin/papers/${encodeURIComponent(targetPaperId)}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...payload, expected_revision: expectedRevision }) });
@@ -707,7 +758,8 @@
           void loadList();
           return false;
         }
-        if (!data.paper?.id || (targetPaperId && data.paper.id !== targetPaperId)) {
+        if (!data.paper?.id || (targetPaperId && data.paper.id !== targetPaperId)
+          || (sourcePaperId && data.paper.id === sourcePaperId)) {
           throw new Error("Save response Paper ID does not match the active Paper.");
         }
         sessionPaperId = data.paper.id;
@@ -736,11 +788,15 @@
         if (editorGeneration === viewGeneration) {
           busy = false;
           editorOperation = "";
+          updateLifecycleStatus();
         }
       }
       if (saved) {
-        if (deferRender) updateLifecycleStatus();
-        else renderEditor();
+        updateLifecycleStatus();
+        if (creating) {
+          if (!ownsEditor()) return false;
+          backToList({ reload: false });
+        }
         return true;
       }
       renderQuestions();
@@ -774,8 +830,10 @@
     async function publish() {
       if (busy) return;
       const generation = editorGeneration;
-      const hadUnsavedChanges = savedFingerprint === null || editorFingerprint() !== savedFingerprint;
-      if (hadUnsavedChanges && !(await save({ deferRender: true }))) return;
+      let attempts = 0;
+      while (savedFingerprint === null || editorFingerprint() !== savedFingerprint) {
+        if (attempts++ >= 3 || !(await save())) return;
+      }
       if (!isCurrentView(generation)) return;
       if (!current || isNew || (!current.draft && current.schema_version < 2)) return;
       const paperId = current.id;
@@ -804,7 +862,7 @@
         editorFeedbackError = false;
         stalePaperId = null;
         await loadList();
-        await renderDetail();
+        await preview(paperId);
         published = true;
       } catch (error) {
         if (!isCurrentView(generation, paperId)) return;
@@ -823,54 +881,8 @@
       if (!published) renderEditor();
     }
 
-    async function previewSavedDraft() {
-      if (busy) return;
-      const generation = editorGeneration;
-      if (isNew || !current?.id) {
-        editorFeedback = "Lưu bản nháp để có Paper ID và mở Draft Preview.";
-        editorFeedbackError = false;
-        updateLifecycleStatus();
-        return;
-      }
-      const paperId = current.id;
-      if (savedFingerprint === null || editorFingerprint() !== savedFingerprint) {
-        if (!(await save({ deferRender: true }))) return;
-      }
-      if (!isCurrentView(generation, paperId) || isNew) return;
-      const expectedRevision = current.revision;
-      busy = true;
-      editorOperation = "preview";
-      editorFeedback = "";
-      editorFeedbackError = false;
-      updateLifecycleStatus();
-      try {
-        const latest = await loadPaper(paperId);
-        if (!isCurrentView(generation, paperId)) return;
-        if (latest.revision !== expectedRevision || current.revision !== expectedRevision) {
-          const conflict = new Error("Paper đã thay đổi ở nơi khác; tải lại trước khi preview.");
-          conflict.status = 409;
-          conflict.code = "PAPER_CHANGED";
-          throw conflict;
-        }
-        const data = await request(`/api/admin/papers/${encodeURIComponent(paperId)}/preview?draft=1`);
-        if (!isCurrentView(generation, paperId)) return;
-        current = { ...current, preview: data.preview };
-        editorFeedback = `Draft Preview được tạo từ revision ${current.revision}; không xuất bản version.`;
-        editorFeedbackError = false;
-      } catch (error) {
-        if (!isCurrentView(generation, paperId)) return;
-        const stale = error.status === 409 && error.code === "PAPER_CHANGED";
-        stalePaperId = stale ? paperId : null;
-        editorFeedback = `Draft Preview thất bại: ${errorText(error)}`;
-        editorFeedbackError = true;
-      } finally {
-        if (generation === viewGeneration) {
-          busy = false;
-          editorOperation = "";
-        }
-      }
-      if (isCurrentView(generation, paperId)) renderEditor();
-    }
+
+
   }
 
   async function archive(paper) {
@@ -899,8 +911,8 @@
     openEditor(null);
   }
 
-  function backToList() {
-    beginView();
+  function backToList({ reload = true } = {}) {
+    if (beginView() === null) return;
     if (editorStorageHandler) window.removeEventListener?.("storage", editorStorageHandler);
     editorStorageHandler = null;
     if (activeDraftCacheKey) {
@@ -911,7 +923,7 @@
     editorHost.replaceChildren();
     listHost.classList.remove("hidden");
     setNotice(notice, "", false);
-    loadList();
+    if (reload) void loadList();
   }
 
   document.addEventListener?.("visibilitychange", () => {

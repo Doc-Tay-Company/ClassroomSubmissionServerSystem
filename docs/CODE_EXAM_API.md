@@ -58,6 +58,33 @@ later edit changes the current draft only. Existing records without
 
 ## Exam configuration and release (admin)
 
+### Results for main exam records
+
+The Results page lists visible code assessments from `exams.json`, not the
+legacy standalone code-exam list. Reading results does not reconcile/import
+legacy exams or migrate submission files.
+
+| Method | Route | Result |
+|---|---|---|
+| `GET` | `/api/admin/exam-results` | `{"exams":[{"id":...,"title":...,"status":...}]}` using main exam IDs and lifecycle states; deleted and file-only exams are excluded. |
+| `GET` | `/api/admin/exam-results/{exam_id}` | Release-scoped `questions`, `submissions`, `matrix`, and `warnings`; optional `student_id` and `question_id` filters. |
+| `POST` | `/api/admin/exam-results/{exam_id}/regrade` | Accepts `submission_id` and optional boolean `use_latest_spec`; validates membership in the selected main exam's release before invoking the existing grader. |
+| `POST` | `/api/admin/exam-results/{exam_id}/regrade-student` | Accepts `student_id`, optional `question_id`, and optional boolean `use_latest_spec`; regrades the latest completed submissions and returns `regraded`, `failed`, and `skipped`. |
+
+All routes require an admin session. Regrading also requires the main exam to
+have ended and the original runtime grading context to remain available.
+Submission membership is determined by the main exam's `release.release_id`,
+not by equating the main exam ID with a submission's internal `exam_id`.
+Frozen runtime snapshots supply question order and per-student denominators;
+they do not populate the exam dropdown. Randomly assigned Papers are combined
+without counting another student's questions in a student's total.
+If a frozen snapshot is missing, stored source, scores, and check results remain
+readable with explicit warnings and unverified totals shown as unavailable.
+Current mutable Papers are never substituted for the released grading snapshot.
+The legacy `/api/admin/code-results` endpoints remain unchanged for existing clients.
+
+### Configuration
+
 Exam sessions use `/api/admin/exam-records`, not the legacy standalone
 question-based Code Exam endpoint:
 
@@ -110,13 +137,13 @@ Starting the release writes each student's `paper_id`, `paper_version_id`, and
 choice; refresh/relogin do not rerandomize it. Question order inside a Paper
 is unchanged.
 
-## Legacy standalone Code Exam APIs
+## Removed standalone Code Exam APIs
 
-`GET /api/admin/code-exams` and `GET /api/admin/code-exams/{id}` remain
-available. `POST /api/admin/code-exams` and `PUT
-/api/admin/code-exams/{id}` retain the legacy `question_ids` contract and
-snapshot currently published questions directly. Historical question-based
-records and assignments are not converted into Paper records.
+The obsolete `Đề thi code` tab and all `/api/admin/code-exams` routes
+(collection GET/POST and detail GET/PUT) have been removed and return 404.
+Manage exams through `/api/admin/exam-records` and view results through
+`/api/admin/exam-results`. Internal Code Exam snapshots, historical assignments,
+and student submission/execution routes are retained; no stored exam data is deleted.
 
 ## Student APIs
 

@@ -17,7 +17,7 @@ const slice = (from, to) => {
 };
 const editorHelpers = slice('  const splitList =', '  function toEditorQuestion(question)');
 const editorQuestion = slice('  function toEditorQuestion(question)', '  let editing = null');
-const payloadBuilder = slice('  function buildPayload()', '  function refreshTotalOn(d)');
+const payloadBuilder = slice('  function buildPayload(', '  function refreshTotalOn(d)');
 
 const context = vm.createContext({});
 vm.runInContext(`

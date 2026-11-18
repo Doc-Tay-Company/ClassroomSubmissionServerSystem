@@ -176,9 +176,9 @@ class PaperDistributionTests(unittest.TestCase):
         exam_snapshot_id = next(iter(storage.read_json("exams.json")[common["id"]]["items"][0]["paper_code_exam_ids"].values()))
         frozen_exam = code_exams.get_code_exam(exam_snapshot_id)
         self.assertEqual([q["question_id"] for q in frozen_exam["questions"]], ["q-1"])
-        current = papers.get_paper(first["id"])
-        papers.update_paper(first["id"], {"expected_revision": current["revision"], "title": "Edited after release",
-            "question_ids": ["q-2"], "question_limit": 1, "question_filters": {}}, "teacher", "127.0.0.1")
+        newer = self._publish_independent_paper("Edited after release", ["q-2"])
+        self.assertNotEqual(newer["id"], first["id"])
+        self.assertEqual(papers.get_paper(first["id"])["questions"][0]["question_id"], "q-1")
         for sid in ("student1", "student2", "student3"):
             exams.start_exam(sid, "", "127.0.0.1")
         student_exam = code_exams.get_student_code_exam("student1")
@@ -196,10 +196,32 @@ class PaperDistributionTests(unittest.TestCase):
         regraded = code_exams.regrade_submission(exam_snapshot_id, submission["id"], "teacher", "127.0.0.1")
         self.assertEqual(regraded["paper_id"], first["id"])
         self.assertNotIn("paper_version_id", regraded)
-        subsequent = self._release("common", [{"paper_id": first["id"]}])
+        subsequent = self._release("common", [{"paper_id": newer["id"]}])
         subsequent_snapshot_id = next(iter(storage.read_json("exams.json")[subsequent["id"]]["items"][0]["paper_code_exam_ids"].values()))
         self.assertEqual([q["question_id"] for q in code_exams.get_code_exam(subsequent_snapshot_id)["questions"]], ["q-2"])
 
+
+    def test_existing_exam_keeps_old_published_version_while_new_exam_uses_new_version(self):
+        paper = papers.create_paper({"title": "Versioned source", "question_ids": ["q-1"]}, "teacher", "127.0.0.1")
+        first = papers.publish_paper(paper["id"], {"expected_revision": paper["revision"]}, "teacher", "127.0.0.1")
+        first_ref = {"paper_id": paper["id"], "paper_version_id": first["current_version_id"]}
+        old_exam = self._release("common", [first_ref])
+        old_release_id = old_exam["release"]["release_id"]
+
+        draft = papers.update_paper(paper["id"], {
+            "expected_revision": first["revision"], "title": "Version two", "question_ids": ["q-2"],
+        }, "teacher", "127.0.0.1")
+        second = papers.publish_paper(paper["id"], {"expected_revision": draft["revision"]}, "teacher", "127.0.0.1")
+        second_ref = {"paper_id": paper["id"], "paper_version_id": second["current_version_id"]}
+        self.assertNotEqual(first_ref["paper_version_id"], second_ref["paper_version_id"])
+        new_exam = self._release("common", [second_ref])
+
+        persisted_exams = storage.read_json("exams.json")
+        self.assertEqual(persisted_exams[old_exam["id"]]["release"]["release_id"], old_release_id)
+        self.assertEqual(persisted_exams[old_exam["id"]]["release"]["paper_pool"], [first_ref])
+        self.assertEqual(persisted_exams[new_exam["id"]]["release"]["paper_pool"], [second_ref])
+        self.assertEqual(papers.get_paper_version_snapshot(paper["id"], first_ref["paper_version_id"])["questions"][0]["question_id"], "q-1")
+        self.assertEqual(papers.get_paper_version_snapshot(paper["id"], second_ref["paper_version_id"])["questions"][0]["question_id"], "q-2")
 
     def test_submission_and_regrade_resolve_the_same_paper_version(self):
         release = self._release("common", [self.paper1])

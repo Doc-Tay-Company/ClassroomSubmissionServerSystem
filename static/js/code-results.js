@@ -7,6 +7,7 @@
   const examSelect = $("cr-exam");
   const studentSelect = $("cr-student");
   const questionSelect = $("cr-question");
+  const clearFiltersButton = $("cr-clear");
   const list = $("cr-list");
   const detail = $("cr-detail");
   const notice = $("cr-notice");
@@ -16,6 +17,7 @@
   let matrix = [];
   let selectedExam = null;
   let selectedSubmission = null;
+  let resultsGeneration = 0;
 
   const el = (tag, text, className) => {
     const node = document.createElement(tag);
@@ -157,7 +159,7 @@
     button.disabled = true;
     setNotice("Đang yêu cầu máy chủ chấm lại...", false);
     try {
-      const response = await window.cssRequest(`/api/admin/code-results/${encodeURIComponent(selectedExam.id)}/regrade`, {
+      const response = await window.cssRequest(`/api/admin/exam-results/${encodeURIComponent(selectedExam.id)}/regrade`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ submission_id: record.id, use_latest_spec: latest }),
@@ -203,6 +205,8 @@
   }
 
   function cellLabel(cell) {
+    if (cell.status === "not_assigned") return "Không được giao";
+    if (cell.status === "unknown") return "Không rõ đề đã giao";
     if (cell.status === "none") return "Chưa nộp";
     if (cell.status === "error") return "Lỗi chấm";
     if (cell.status !== "graded") return "Đang chấm";
@@ -224,7 +228,7 @@
     buttons.forEach((button) => { button.disabled = true; });
     setNotice("Đang yêu cầu máy chủ chấm lại...", false);
     try {
-      const response = await window.cssRequest(`/api/admin/code-results/${encodeURIComponent(selectedExam.id)}/regrade-student`, {
+      const response = await window.cssRequest(`/api/admin/exam-results/${encodeURIComponent(selectedExam.id)}/regrade-student`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ student_id: studentId, ...(questionId ? { question_id: questionId } : {}), use_latest_spec: latest }),
@@ -296,6 +300,7 @@
   }
 
   async function loadResults() {
+    const generation = ++resultsGeneration;
     if (!examSelect.value) {
       detail.classList.add("hidden");
       submissions = [];
@@ -308,23 +313,31 @@
     selectedExam = exams.find((exam) => exam.id === examSelect.value);
     if (!selectedExam) return;
     detail.classList.add("hidden");
-    const params = new URLSearchParams({ exam_id: selectedExam.id });
+    const examId = selectedExam.id;
+    const params = new URLSearchParams();
     if (studentSelect.value) params.set("student_id", studentSelect.value);
     if (questionSelect.value) params.set("question_id", questionSelect.value);
     list.replaceChildren(el("p", "Đang tải bài nộp..."));
+    matrix = [];
+    renderMatrix();
     try {
-      const response = await window.cssRequest(`/api/admin/code-results?${params.toString()}`);
+      const response = await window.cssRequest(`/api/admin/exam-results/${encodeURIComponent(examId)}?${params.toString()}`);
+      if (generation !== resultsGeneration) return;
       submissions = response.submissions || [];
       matrix = response.matrix || [];
-      selectedExam = { ...selectedExam, status: response.status || selectedExam.status };
+      selectedExam = { ...selectedExam, status: response.status || selectedExam.status, questions: response.questions || [] };
+      updateQuestionFilter();
       renderMatrix();
       renderList();
-      if (studentSelect.value || questionSelect.value) {
+      if (response.warnings?.length) {
+        setNotice(response.warnings.join(" "), true);
+      } else if (studentSelect.value || questionSelect.value) {
         setNotice(submissions.length ? "" : "Không có bài nộp nào khớp với bộ lọc.", false);
       } else {
         setNotice("", false);
       }
     } catch (error) {
+      if (generation !== resultsGeneration) return;
       list.replaceChildren(requestError(error, loadResults));
       setNotice(error.status === 403 ? "Bạn không có quyền xem kết quả code." : "", error.status === 403);
     }
@@ -346,10 +359,10 @@
     list.replaceChildren(el("p", "Đang tải đề thi và danh sách sinh viên..."));
     try {
       const [examData, accountData] = await Promise.all([
-        window.cssRequest("/api/admin/code-exams"),
+        window.cssRequest("/api/admin/exam-results"),
         window.cssRequest("/api/admin/accounts"),
       ]);
-      exams = examData.code_exams || [];
+      exams = examData.exams || [];
       students = new Map((accountData.students || []).map((student) => [student.student_id, student.full_name || student.student_id]));
       examSelect.replaceChildren(el("option", "Chọn đề thi"));
       examSelect.options[0].value = "";
@@ -379,11 +392,18 @@
 
   examSelect.addEventListener("change", () => {
     selectedExam = exams.find((exam) => exam.id === examSelect.value);
+    clearFiltersButton.disabled = !examSelect.value;
     updateQuestionFilter();
-    loadResults();
+    return loadResults();
   });
   studentSelect.addEventListener("change", loadResults);
   questionSelect.addEventListener("change", loadResults);
   $("cr-refresh").addEventListener("click", loadResults);
+  clearFiltersButton.addEventListener("click", () => {
+    if (!examSelect.value) return;
+    studentSelect.value = "";
+    questionSelect.value = "";
+    return loadResults();
+  });
   initialize();
 })();

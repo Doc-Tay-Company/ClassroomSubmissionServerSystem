@@ -111,43 +111,6 @@ def _normalize_question_filters(value) -> dict:
     return result
 
 
-def _question_tags(question: Mapping) -> list[str]:
-    raw = question.get("tags", [])
-    if isinstance(raw, str):
-        values = raw.split(",")
-    elif isinstance(raw, list):
-        values = raw
-    else:
-        values = []
-    return [tag.strip().casefold() for tag in values if isinstance(tag, str) and tag.strip()]
-
-
-def _question_matches_filters(question: Mapping, filters: Mapping) -> bool:
-    for key in ("category", "difficulty"):
-        requested = filters.get(key, "")
-        actual = question.get(key)
-        actual = actual.strip().casefold() if isinstance(actual, str) else ""
-        if requested and actual != requested:
-            return False
-    for key in ("language", "grading_mode"):
-        requested = filters.get(key, "")
-        actual = question.get(key)
-        actual = actual.strip().casefold() if isinstance(actual, str) else ""
-        if requested and actual != requested:
-            return False
-    wanted_tags = filters.get("tags", [])
-    if wanted_tags and not set(wanted_tags).intersection(_question_tags(question)):
-        return False
-    search = filters.get("search", "")
-    if search:
-        haystack = " ".join(
-            [str(question.get("title") or ""), str(question.get("id") or ""), *_question_tags(question)]
-        ).casefold()
-        if search not in haystack:
-            return False
-    return True
-
-
 def _is_eligible_question(question_id: str, question: Mapping) -> bool:
     if question.get("status") != "published" or (question.get("language"), question.get("grading_mode")) not in _SUPPORTED_CODE_KINDS:
         return False
@@ -156,17 +119,6 @@ def _is_eligible_question(question_id: str, question: Mapping) -> bool:
     except (QuestionError, KeyError, TypeError, ValueError):
         return False
     return True
-
-
-def _filtered_eligible_questions(filters: Mapping) -> dict[str, dict]:
-    bank = read_json("questions.json")
-    return {
-        question_id: question
-        for question_id, question in bank.items()
-        if isinstance(question, Mapping)
-        and _is_eligible_question(question_id, question)
-        and _question_matches_filters(question, filters)
-    }
 
 
 def _validate_question_selection(
@@ -189,16 +141,10 @@ def _validate_question_selection(
             {"expected_count": question_limit, "actual_count": len(question_ids)},
         )
 
-    pool = _filtered_eligible_questions(filters)
     previous_ids = previous_ids or set()
     newly_added = [question_id for question_id in question_ids if question_id not in previous_ids]
-    grandfathered = [question_id for question_id in question_ids if question_id in previous_ids and question_id not in pool]
-    if question_limit is not None and question_limit > len(pool) + len(grandfathered):
-        raise PaperError("question_limit exceeds the eligible filtered question pool", 422, "QUESTION_LIMIT_EXCEEDS_POOL")
     if newly_added:
         _validate_new_questions(newly_added)
-        if any(question_id not in pool for question_id in newly_added):
-            raise PaperError("New questions must match the selected filters", 422, "QUESTION_FILTER_MISMATCH")
     return question_limit, filters, newly_added
 
 
@@ -289,6 +235,7 @@ def list_papers() -> list[dict]:
                 "id": paper["id"], "title": paper.get("title", ""),
                 "metadata": deepcopy(paper.get("metadata", {})), "status": paper.get("status", "draft"),
                 "revision": paper.get("revision", 1), "question_count": len(questions) or len(paper.get("question_ids", [])),
+                "has_draft": False, "current_version_id": None, "version_count": 0,
                 "source_status": source_status, "warnings": [item for item in source_status if item["warning"]],
                 "updated_at": paper.get("updated_at"), "schema_version": 2,
             })
@@ -307,7 +254,8 @@ def list_papers() -> list[dict]:
             "id": paper["id"],
             "title": paper.get("title", ""),
             "metadata": deepcopy(paper.get("metadata", {})),
-            "status": paper.get("status", "draft"),
+            "status": "published" if paper.get("versions") and paper.get("status") != "archived" else paper.get("status", "draft"),
+            "has_draft": isinstance(paper.get("draft"), Mapping),
             "revision": paper.get("revision", 1),
             "current_version_id": current_id,
             "version_count": len(paper.get("versions", {})),
@@ -502,6 +450,11 @@ def update_paper(paper_id: str, payload: Mapping, actor: str, ip: str) -> dict:
         _require_revision(paper, payload)
         if paper.get("status") == "archived":
             raise PaperError("Archived papers cannot be edited; restore the paper first", 409)
+        if paper.get("schema_version", 1) >= 2 and paper.get("status") == "published":
+            raise PaperError(
+                "Published Papers are immutable; create an independent Paper to make changes",
+                409, "PAPER_PUBLISHED_IMMUTABLE",
+            )
         if paper.get("schema_version", 1) >= 2:
             title = _validate_title(payload.get("title", paper.get("title")))
             metadata = _validate_metadata(payload.get("metadata", paper.get("metadata", {})))
@@ -536,6 +489,8 @@ def update_paper(paper_id: str, payload: Mapping, actor: str, ip: str) -> dict:
             "title": paper.get("title", ""),
             "metadata": deepcopy(paper.get("metadata", {})),
             "question_ids": [item["question_id"] for item in paper.get("versions", {}).get(paper.get("current_version_id"), {}).get("questions", [])],
+            "question_limit": len(paper.get("versions", {}).get(paper.get("current_version_id"), {}).get("questions", [])) or None,
+            "question_filters": {},
         }
         title = _validate_title(payload.get("title", draft.get("title")))
         metadata = _validate_metadata(payload.get("metadata", draft.get("metadata", {})))
@@ -554,7 +509,7 @@ def update_paper(paper_id: str, payload: Mapping, actor: str, ip: str) -> dict:
             **paper,
             "title": title,
             "metadata": metadata,
-            "status": "draft",
+            "status": "published" if paper.get("versions") else "draft",
             "revision": paper.get("revision", 1) + 1,
             "draft": {
                 "title": title,
@@ -666,6 +621,7 @@ def publish_paper(paper_id: str, payload: Mapping, actor: str, ip: str) -> dict:
             "metadata": deepcopy(draft.get("metadata", {})),
             "status": "published",
             "revision": paper.get("revision", 1) + 1,
+            "draft": None,
             "current_version_id": version["id"],
             "versions": {**paper.get("versions", {}), version["id"]: version},
             "updated_at": utc_now(),

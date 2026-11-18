@@ -30,13 +30,13 @@ The builder supports these source-backed fields:
 
 Different filter dimensions combine with AND. Empty filter values impose no condition. Category, difficulty and tags are optional metadata; absent values do not match a non-empty filter. Reset filters clears all dimensions. Changing a filter does not remove selected IDs; selected Questions outside the active pool remain visible and labeled.
 
-`question_limit` is an integer quantity with minimum 1 when set. The UI presents the filtered-pool count as its maximum and requires an exact selection count before publishing. A draft may be saved with zero or fewer than the configured number of selected Questions. The backend independently checks type, ID uniqueness, eligible Question status and filter membership for newly added IDs. It rejects an invalid quantity and rejects publication unless there is at least one selected Question and `question_limit == len(question_ids)`. Existing selected IDs retained from a prior draft can be grandfathered when source status/filter membership changes; they are not silently removed.
+`question_limit` is an integer quantity with minimum 1 and maximum equal to the full Question Bank size. Filters control which eligible Questions are visible; they do not constrain the ordered `question_ids` selection. A draft can therefore retain or add Questions across filter changes, even when some selected Questions do not match the last saved filter. The backend validates Question ID uniqueness, eligibility for newly added Questions, filter metadata shape and quantity bounds. A draft may be saved with zero or fewer than the configured number of selected Questions. Publishing requires at least one selected Question and `question_limit == len(question_ids)`.
 
 ### Random and Select All
 
 - **Choose Random N** is explicit and samples exactly N unique IDs without replacement from the currently loaded eligible, filtered pool. It is disabled when the pool cannot supply N. It replaces the current list after confirmation.
-- **Select all matching Questions** selects the entire current filtered pool from the unpaginated Question response, deduplicates IDs, replaces the current list after confirmation and sets `question_limit` to that count.
-- The filtered-group checkbox adds or removes matching IDs while retaining selected IDs outside the filter. Its checked/partial state reflects the matching pool. **Deselect all** clears the full selection after confirmation.
+- **Select all matching Questions** selects the entire current filtered pool from the unpaginated Question response, deduplicates IDs, replaces the current list after confirmation and leaves `question_limit` unchanged.
+- The filtered-group checkbox appends matching IDs without reordering existing selections, or removes only matching IDs while retaining IDs outside the filter. Its checked/partial state reflects the matching pool. **Deselect all** clears the full selection after confirmation.
 - The selected list stores the explicit ordered Question IDs. Manual reordering changes that order. Save, reload, preview and publish consume these IDs and do not randomize again. Random selection is not a server-side randomization endpoint and has no persisted seed.
 
 ## Paper draft, preview and publication

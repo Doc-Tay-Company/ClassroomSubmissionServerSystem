@@ -14,7 +14,7 @@ class Element {
     this.className = attrs.class || '';
     this.type = attrs.type || '';
     this.name = attrs.name || '';
-    this.value = attrs.value ?? '';
+    this.value = attrs.value ?? (this.tagName === 'SELECT' ? (children.find((child) => child?.attrs?.selected)?.attrs?.value ?? children.find((child) => child?.tagName === 'option')?.attrs?.value ?? '') : '');
     this.checked = Boolean(attrs.checked);
     this.disabled = Boolean(attrs.disabled);
     this.style = {};
@@ -22,7 +22,7 @@ class Element {
     this.classList = { add() {}, remove() {}, contains: () => false };
   }
   append(...items) { this.children.push(...items.filter((item) => item != null)); }
-  replaceChildren(...items) { this.children = items.filter((item) => item != null); }
+  replaceChildren(...items) { this.children = items.map((item) => item instanceof Element ? item : String(item)); }
   addEventListener(type, fn) { this.listeners[type] = fn; }
   async dispatch(type) {
     const handler = this.listeners[type];
@@ -106,6 +106,10 @@ async function openEditor(existing = null, options = {}) {
       if (url === '/api/admin/questions') return { questions: [] };
       if (url === '/api/admin/papers') return { papers: options.papers || [] };
       if (url === '/api/admin/exam-records') return { exams: [] };
+      if (url === `/api/admin/exam-records/${existing?.id}/preview`) return { preview: options.preview || {
+        distribution_mode: 'common', paper_versions: [{ paper_id: 'paper-legacy-id', paper_version_id: 'paper-legacy-id:v4',
+          title: 'Legacy Instructor Paper', questions: [] }],
+      } };
       if (url === `/api/admin/exam-records/${existing.id}`) return { exam: existing };
       throw new Error(`Unexpected GET ${url}`);
     }
@@ -140,6 +144,7 @@ async function openEditor(existing = null, options = {}) {
     radio(value) { return root.querySelector(`input[name="exam-item-type"][value="${value}"]`); },
     select: async (value) => { const radio = root.querySelector(`input[name="exam-item-type"][value="${value}"]`); assert(radio, `missing radio ${value}`); radio.checked = true; await radio.dispatch('change'); },
     async fillBasics() {
+      assert(root.querySelector('.exam-search-field'), 'create/edit participant search uses the shared labeled filter control');
       const title = root.findAll((node) => node.tagName === 'INPUT' && String(node.attrs.placeholder || '').startsWith('Ví dụ:'))[0];
       assert(title, 'missing exam title input'); title.value = 'New Exam'; await title.dispatch('input');
       const duration = root.findAll((node) => node.tagName === 'INPUT' && node.attrs.min === 1 && node.attrs.max === 1440)[0];
@@ -149,28 +154,88 @@ async function openEditor(existing = null, options = {}) {
     },
     async save() { const button = root.querySelectorAll('button').find((item) => item.textContent.includes('Lưu nháp')); assert(button, 'missing Save Draft button'); await button.dispatch('click'); },
     paperChoice(id) { return root.findAll((node) => node.tagName === 'LABEL' && node.className.includes('paper-choice')).find((label) => label.children[0]?.attrs.type === 'checkbox' && label.textContent.includes(id))?.children[0]; },
+    paperMode() { return root.findAll((node) => node.tagName === 'SELECT' && node.children.some((child) => child.attrs?.value === 'common') && node.children.some((child) => child.attrs?.value === 'random'))[0] || null; },
+    paperChoices() { return root.findAll((node) => node.tagName === 'LABEL' && node.className.includes('paper-choice')); },
     async saveChanges() { const button = root.querySelectorAll('button').find((item) => item.textContent.includes('Lưu thay đổi')); assert(button, 'missing Save Changes button'); await button.dispatch('click'); },
     panelText() { return root.textContent; },
   };
 }
 
+async function testExamListFilters() {
+  const root = new Element('main');
+  const records = [
+    { id: 'exam-midterm', title: 'Midterm Gamma', tag: 'midterm', status: 'draft', config: config(), items: [] },
+    { id: 'exam-final', title: 'Final Beta', tag: 'final', status: 'ended', config: config(), items: [] },
+  ];
+  const document = { getElementById: (id) => id === 'exams-root' ? root : null };
+  const window = {
+    cssUi: { h, errorBox: (error) => h('div', {}, error.message), errorText: (error) => error.message, setNotice() {} },
+    cssRequest: async (url) => { assert.strictEqual(url, '/api/admin/exam-records'); return { exams: records }; },
+    addEventListener() {},
+  };
+  const context = { window, document, URLSearchParams, history: { replaceState() {} }, location: { search: '?section=exams', href: '' },
+    setTimeout, clearTimeout, console, Set, Map, Date, Number, String, Boolean, Math, Promise };
+  vm.createContext(context);
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '../static/js/exams.js'), 'utf8'), context);
+  await new Promise((resolve) => setImmediate(resolve));
+  const fields = root.querySelectorAll('.exam-filter-field');
+  assert.strictEqual(fields.length, 3, 'exam list has labeled search, tag and status filters');
+  const search = root.findAll((node) => node.tagName === 'INPUT' && node.type === 'search')[0];
+  const selects = root.findAll((node) => node.tagName === 'SELECT');
+  assert(search && selects.length === 2, 'all existing Exam list controls render');
+  search.value = 'Beta'; await search.dispatch('input');
+  selects[0].value = 'final'; await selects[0].dispatch('change');
+  selects[1].value = 'ended'; await selects[1].dispatch('change');
+  const cards = root.findAll((node) => node.tagName === 'ARTICLE');
+  assert.strictEqual(cards.length, 1, 'existing search, tag and status filters combine');
+  assert(cards[0].textContent.includes('Final Beta'), 'combined filters return the matching Exam');
+  console.log('PASS Exam list filters and shared labeled controls');
+}
+
 async function main() {
   const empty = await openEditor();
+  assert(!empty.panelText().includes('null'), 'new Exam render does not display null for the absent warning above configuration');
   assert(empty.radio('code') && empty.radio('zip') && empty.radio(''), 'selector remains visible in empty state');
   assert.strictEqual(empty.radio('code').checked, false);
   assert(!empty.panelText().includes('Chế độ phân phối Paper'));
   assert(!empty.panelText().includes('Đề dùng để phân phối'));
+  assert(!empty.panelText().includes('Khi nộp lại') && !empty.panelText().includes('Loại file được chấp nhận'),
+    'file submission settings stay hidden until ZIP is selected');
   const publishButton = empty.root.querySelectorAll('button').find((item) => item.textContent.includes('Phát đề'));
   assert(publishButton, 'missing Publish button'); await publishButton.dispatch('click');
   assert(empty.toasts.some((message) => message.includes('chọn Bài code hoặc Bài nộp file')), 'missing clear validation for empty type');
   await empty.select('code');
   assert(empty.panelText().includes('Chế độ phân phối Paper'), 'selecting Code renders Code configuration');
   assert(!empty.panelText().includes('Đề dùng để phân phối'), 'Code selection hides ZIP configuration only');
+  assert(!empty.panelText().includes('Khi nộp lại') && !empty.root.querySelector('[data-field="ext"]'),
+    'Code selection hides file submission settings');
   await empty.select('zip');
   assert(empty.panelText().includes('Đề dùng để phân phối'), 'switching to ZIP renders ZIP configuration');
   assert(!empty.panelText().includes('Chế độ phân phối Paper'), 'ZIP selection hides Code configuration only');
+  const zipSection = empty.root.findAll((node) => node.tagName === 'SECTION'
+    && node.children.some((child) => child.tagName === 'H3' && child.textContent.includes('Bài nộp file')))[0];
+  assert(zipSection, 'ZIP configuration section exists');
+  assert(zipSection.textContent.indexOf('Khi nộp lại') > zipSection.textContent.indexOf('Đề dùng để phân phối'),
+    'resubmission setting appears below the distribution controls in the ZIP section');
+  assert(zipSection.textContent.includes('Loại file được chấp nhận'), 'accepted file types appear in the ZIP section');
+  const overwrite = zipSection.findAll((node) => node.tagName === 'SELECT'
+    && node.children.some((child) => child.attrs?.value === 'false'))[0];
+  overwrite.value = 'false'; await overwrite.dispatch('change');
+  const extensions = zipSection.querySelector('[data-field="ext"]');
+  extensions.value = '.pdf .docx'; await extensions.dispatch('input');
   await empty.select('code');
   assert(empty.panelText().includes('Chế độ phân phối Paper'), 'switching back to Code works');
+  assert(!empty.panelText().includes('Khi nộp lại') && !empty.root.querySelector('[data-field="ext"]'),
+    'switching back to Code hides file submission settings again');
+  await empty.select('zip');
+  assert.strictEqual(empty.root.querySelector('[data-field="ext"]').value, '.pdf .docx',
+    'file submission settings survive switching item types');
+  await empty.fillBasics();
+  await empty.save();
+  const zipPayload = JSON.parse(empty.calls.filter((call) => call.options.method).at(-1).options.body);
+  assert.strictEqual(zipPayload.config.overwrite_previous, false, 'moved resubmission control still saves its value');
+  assert.strictEqual(zipPayload.config.accepted_submission_extensions, '.pdf .docx', 'moved extensions control still saves its value');
+  await empty.select('code');
   await empty.fillBasics();
   await empty.save();
   const createdPayload = JSON.parse(empty.calls.filter((call) => call.options.method).at(-1).options.body);
@@ -217,6 +282,8 @@ async function main() {
   const papers = [
     { id: 'paper-a', title: 'Paper A', schema_version: 2, status: 'published', question_count: 1 },
     { id: 'paper-b', title: 'Paper B', schema_version: 2, status: 'published', question_count: 1 },
+    { id: 'paper-legacy-id', title: 'Legacy Instructor Paper', status: 'published', revision: 18,
+      current_version_id: 'paper-legacy-id:v4', version_count: 4, question_count: 4 },
   ];
   const independentCode = {
     item_id: 'independent-code', type: 'code',
@@ -224,6 +291,35 @@ async function main() {
     question_ids: [], show_final_score_immediately: false, allow_pretest: true,
     max_pretest_runs: 20, pretest_cooldown_seconds: 2,
   };
+  const randomEditor = await openEditor(null, { papers });
+  await randomEditor.select('code');
+  assert.strictEqual(randomEditor.paperMode().value, 'common', 'Code Paper distribution defaults to COMMON');
+  randomEditor.paperMode().value = 'random';
+  await randomEditor.paperMode().dispatch('change');
+  assert.strictEqual(randomEditor.paperMode().value, 'random', 'RANDOM mode survives rerender');
+  for (const title of ['Paper A', 'Paper B']) {
+    const choice = randomEditor.paperChoices().find((label) => label.textContent.includes(title));
+    assert(choice, 'RANDOM pool includes ' + title);
+    choice.children[0].checked = true;
+    await choice.children[0].dispatch('change');
+  }
+  await randomEditor.fillBasics();
+  await randomEditor.save();
+  const randomPayload = JSON.parse(randomEditor.calls.filter((call) => call.options.method).at(-1).options.body);
+  assert.strictEqual(randomPayload.items[0].distribution.mode, 'random');
+  assert.deepStrictEqual(randomPayload.items[0].distribution.paper_versions, [{ paper_id: 'paper-a' }, { paper_id: 'paper-b' }]);
+  const reopenedRandom = await openEditor(randomEditor.saved, { papers, editMode: true });
+  assert.strictEqual(reopenedRandom.paperMode().value, 'random', 'RANDOM configuration hydrates after reopening');
+  assert.strictEqual(reopenedRandom.paperChoices().filter((label) => label.children[0].checked).length, 2, 'saved RANDOM pool hydrates');
+  reopenedRandom.paperMode().value = 'common';
+  await reopenedRandom.paperMode().dispatch('change');
+  assert.strictEqual(reopenedRandom.paperMode().value, 'common');
+  assert.strictEqual(reopenedRandom.paperChoices().filter((label) => label.children[0].checked).length, 1, 'COMMON retains one Paper');
+  await reopenedRandom.save();
+  const commonPayload = JSON.parse(reopenedRandom.calls.filter((call) => call.options.method).at(-1).options.body);
+  assert.strictEqual(commonPayload.items[0].distribution.mode, 'common');
+  assert.strictEqual(commonPayload.items[0].distribution.paper_versions.length, 1);
+
   const draftSelection = await openEditor(null, { papers });
   await draftSelection.select('code');
   const draftPaper = draftSelection.paperChoice('Paper B');
@@ -234,6 +330,38 @@ async function main() {
   await draftSelection.save();
   const draftPayload = JSON.parse(draftSelection.calls.filter((call) => call.options.method).at(-1).options.body);
   assert.deepStrictEqual(draftPayload.items[0].distribution.paper_versions, [{ paper_id: 'paper-b' }]);
+
+  const legacySelection = await openEditor(null, { papers });
+  await legacySelection.select('code');
+  const legacyChoice = legacySelection.paperChoice('Legacy Instructor Paper');
+  assert(legacyChoice, 'legacy Published Paper remains identifiable by its title');
+  legacyChoice.checked = true;
+  await legacyChoice.dispatch('change');
+  assert(legacySelection.panelText().includes('Legacy Instructor Paper'), 'Paper selection displays the teacher facing title');
+  assert(!legacySelection.panelText().includes('paper-legacy-id') && !legacySelection.panelText().includes('v4')
+    && !legacySelection.panelText().includes('18'), 'legacy selection hides Paper ID, version ID, and Paper revision');
+  assert(!legacySelection.root.findAll((node) => node.attrs['aria-label']).some((node) =>
+    /paper-legacy-id|v4|revision\s*18/i.test(node.attrs['aria-label'])), 'accessible labels do not expose Paper identifiers');
+  await legacySelection.fillBasics();
+  await legacySelection.save();
+  const legacyPayload = JSON.parse(legacySelection.calls.filter((call) => call.options.method).at(-1).options.body);
+  assert.deepStrictEqual(legacyPayload.items[0].distribution.paper_versions,
+    [{ paper_id: 'paper-legacy-id', paper_version_id: 'paper-legacy-id:v4' }], 'legacy internal Paper references remain in the Exam API payload');
+
+  const legacyExam = examRecord([{ ...independentCode,
+    distribution: { mode: 'common', paper_versions: [{ paper_id: 'paper-legacy-id', paper_version_id: 'paper-legacy-id:v3' }] },
+  }], { status: 'distributed' });
+  const legacyPreview = await openEditor(legacyExam, { papers, editMode: true });
+  const previewButton = legacyPreview.root.querySelectorAll('button').find((item) => item.textContent.includes('Xem trước Paper'));
+  assert(previewButton, 'Exam editing keeps the Paper preview action');
+  await previewButton.dispatch('click');
+  assert(legacyPreview.panelText().includes('Legacy Instructor Paper'), 'Paper preview remains identifiable by title');
+  assert(!legacyPreview.panelText().includes('paper-legacy-id') && !legacyPreview.panelText().includes('v4'),
+    'Exam Paper preview hides Paper ID and version ID');
+  await legacyPreview.saveChanges();
+  const legacyEditPayload = JSON.parse(legacyPreview.calls.filter((call) => call.options.method).at(-1).options.body);
+  assert.deepStrictEqual(legacyEditPayload.items[0].distribution.paper_versions,
+    [{ paper_id: 'paper-legacy-id', paper_version_id: 'paper-legacy-id:v3' }], 'editing a historical Exam preserves its original Paper version reference');
 
   const published = examRecord([independentCode], { status: 'distributed', revision: 7, release: { release_id: 'release-1', applied: true } });
   const publishedEdit = await openEditor(published, { papers, editMode: true });
@@ -251,6 +379,7 @@ async function main() {
   assert(startedPaper && startedPaper.disabled, 'Started Exam keeps Paper controls locked');
   assert(!started.root.querySelectorAll('button').some((item) => item.textContent.includes('Lưu thay đổi')), 'Started Exam has no Save Changes action');
 
+  await testExamListFilters();
   console.log('PASS Draft and Published Paper selection editing; Started Exam remains locked');
   console.log('PASS Exam Code/ZIP selector UI state regressions');
 }

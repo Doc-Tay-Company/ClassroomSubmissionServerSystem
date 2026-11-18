@@ -208,8 +208,6 @@ bên dưới là đặc tả nền; khi cần acceptance evidence hãy xem
 | GET | `/api/admin/exam-records/{id}/preview` | Admin | Student-safe preview; Paper mode trả selected `paper_versions` |
 | POST | `/api/admin/exam-records/{id}/update` | Admin | Cập nhật draft/chưa áp dụng release theo quy tắc lifecycle |
 | POST | `/api/admin/exam-records/{id}/{publish\|start\|end\|revoke\|copy\|delete}` | Admin | Quản lý release và trạng thái exam |
-| GET | `/api/admin/code-exams` | Admin | Danh sách Code Exam, gồm record Paper và legacy |
-| POST | `/api/admin/code-exams` | Admin | Tạo Code Exam question-based theo API legacy |
 | GET | `/api/admin/code-results?exam_id=...` | Admin | Kết quả bài code |
 | POST | `/api/admin/code-results/{exam_id}/regrade` | Admin | Chấm lại một submission sau khi kỳ thi kết thúc |
 | POST | `/api/student/code/run` | Sinh viên | Chạy pretest visible |

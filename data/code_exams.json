@@ -1,1902 +1,298 @@
 {
-  "mock-code-exam-001": {
-    "id": "mock-code-exam-001",
-    "title": "Mock Python Echo Exam",
+  "200ea0e9d161479388aa32d9cf7f45ab": {
+    "id": "200ea0e9d161479388aa32d9cf7f45ab",
+    "schema_version": 2,
     "status": "started",
-    "release_id": "mock-release-001",
-    "created_by": "admin-mock",
-    "created_at": "2026-11-04T12:00:00+00:00",
-    "updated_at": "2026-11-04T12:05:00+00:00",
-    "distributed_at": "2026-11-04T12:04:00+00:00",
-    "started_at": "2026-11-04T12:05:00+00:00",
-    "show_final_score_immediately": false,
+    "release_id": "bbffe58d82ee49d296b4863a45ce21e4",
+    "general_exam_id": "4976d1b22eea44a68eabac128cb6289a",
+    "paper_ref": {
+      "paper_id": "fc740fdac6a94fc8ad5221c005340a9e"
+    },
+    "paper_snapshot": {
+      "id": "fc740fdac6a94fc8ad5221c005340a9e",
+      "title": "JSD-1999",
+      "metadata": {},
+      "questions": [
+        {
+          "title": "Arithmetic Summary",
+          "statement": "Read two signed 32-bit integers a and b. Print exactly one line in this format: sum=<a+b>;diff=<a-b>;product=<a*b>. Do not add spaces around separators.",
+          "language": "java",
+          "grading_mode": "stdio",
+          "target_class": "Main",
+          "target_package": "",
+          "target_file": "Main.java",
+          "starter_code": "import java.util.Scanner;\n\npublic class Main {\n    public static void main(String[] args) {\n        Scanner scanner = new Scanner(System.in);\n        int a = scanner.nextInt();\n        int b = scanner.nextInt();\n        // Print the required arithmetic summary.\n    }\n}\n",
+          "time_limit_seconds": 5.0,
+          "memory_limit_mb": 256,
+          "max_output_bytes": 65536,
+          "allow_pretest": true,
+          "max_pretest_runs": 20,
+          "category": "Arithmetic",
+          "tags": [
+            "java",
+            "stdio",
+            "formatting"
+          ],
+          "difficulty": "easy",
+          "practice_enabled": false,
+          "tests": [
+            {
+              "id": "j01-positive",
+              "stdin": "12 5\n",
+              "expected_stdout": "sum=17;diff=7;product=60\n",
+              "points": 25,
+              "is_visible": true
+            },
+            {
+              "id": "j01-negative",
+              "stdin": "-3 8\n",
+              "expected_stdout": "sum=5;diff=-11;product=-24\n",
+              "points": 25,
+              "is_visible": true
+            },
+            {
+              "id": "j01-zero",
+              "stdin": "0 19\n",
+              "expected_stdout": "sum=19;diff=-19;product=0\n",
+              "points": 25,
+              "is_visible": false
+            },
+            {
+              "id": "j01-small",
+              "stdin": "-4 -6\n",
+              "expected_stdout": "sum=-10;diff=2;product=24\n",
+              "points": 25,
+              "is_visible": true
+            }
+          ],
+          "total_points": 100,
+          "problem_kind": "java_stdio",
+          "id": "65cf650fab404ab385f3c236ad2506a5",
+          "status": "published",
+          "source": {
+            "created_by": "minh",
+            "created_at": "2026-11-18T12:08:35+00:00",
+            "updated_by": "minh",
+            "updated_at": "2026-11-18T12:08:35+00:00"
+          },
+          "usage_count": 0,
+          "version": 1,
+          "validation": {
+            "spec_hash": "d214bf1fbcb881530356965b2c2ab8ced9959fe4454d172eb85297118ca35c17",
+            "passed": true,
+            "validated_at": "2026-11-18T12:08:35+00:00",
+            "validated_by": "minh",
+            "sample_sha256": "2ced83b9a99af1e7271786721fe492a3c77259c3579756b23f10a15bd3875c53",
+            "verdict": "AC",
+            "score": 100,
+            "total_points": 100
+          },
+          "practice_revision": "842e83e182bc47acb0fe64899dd9308e",
+          "question_id": "65cf650fab404ab385f3c236ad2506a5",
+          "snapshot_version": 1,
+          "snapshot_at": "2026-11-18T12:14:14+00:00",
+          "order": 0
+        },
+        {
+          "title": "Comparable Ranked Label",
+          "statement": "Create class model.RankedLabel with private int rank and private String label, plus a public constructor RankedLabel(int rank, String label). Implement Comparable<RankedLabel>; compareTo orders by rank ascending, then by label lexicographically. Override compareTo with public int compareTo(RankedLabel other). The supported Reflection checks verify the interface contract, declared override signature, and comparison outcomes.",
+          "language": "java",
+          "grading_mode": "reflection",
+          "target_class": "model.RankedLabel",
+          "target_package": "model",
+          "target_file": "RankedLabel.java",
+          "starter_code": "package model;\n\npublic class RankedLabel {\n    // Implement Comparable<RankedLabel>, its ordering, fields, and constructor.\n}\n",
+          "time_limit_seconds": 5.0,
+          "memory_limit_mb": 256,
+          "max_output_bytes": 65536,
+          "allow_pretest": true,
+          "max_pretest_runs": 20,
+          "category": "Java Reflection",
+          "tags": [
+            "java",
+            "reflection",
+            "interfaces",
+            "overriding"
+          ],
+          "difficulty": "hard",
+          "practice_enabled": false,
+          "checks": [
+            {
+              "id": "r03-comparable-interface",
+              "kind": "implements",
+              "points": 20,
+              "is_visible": true,
+              "interface": "java.lang.Comparable"
+            },
+            {
+              "id": "r03-rank-field",
+              "kind": "field",
+              "points": 15,
+              "is_visible": true,
+              "name": "rank",
+              "type": "int",
+              "modifier": "private"
+            },
+            {
+              "id": "r03-compare-override",
+              "kind": "method",
+              "points": 20,
+              "is_visible": true,
+              "name": "compareTo",
+              "return_type": "int",
+              "parameter_types": [
+                "model.RankedLabel"
+              ],
+              "modifier": "public"
+            },
+            {
+              "id": "r03-ordering",
+              "kind": "comparable",
+              "points": 30,
+              "is_visible": true,
+              "instances": [
+                {
+                  "constructor_parameter_types": [
+                    "int",
+                    "String"
+                  ],
+                  "constructor_args": [
+                    2,
+                    "Beta"
+                  ]
+                },
+                {
+                  "constructor_parameter_types": [
+                    "int",
+                    "String"
+                  ],
+                  "constructor_args": [
+                    1,
+                    "Zulu"
+                  ]
+                },
+                {
+                  "constructor_parameter_types": [
+                    "int",
+                    "String"
+                  ],
+                  "constructor_args": [
+                    2,
+                    "Alpha"
+                  ]
+                }
+              ],
+              "comparisons": [
+                {
+                  "left": 1,
+                  "right": 0,
+                  "expected_sign": -1
+                },
+                {
+                  "left": 2,
+                  "right": 0,
+                  "expected_sign": -1
+                }
+              ],
+              "expected_order": [
+                1,
+                2,
+                0
+              ]
+            },
+            {
+              "id": "r03-tie-label",
+              "kind": "comparable",
+              "points": 15,
+              "is_visible": false,
+              "instances": [
+                {
+                  "constructor_parameter_types": [
+                    "int",
+                    "String"
+                  ],
+                  "constructor_args": [
+                    4,
+                    "A"
+                  ]
+                },
+                {
+                  "constructor_parameter_types": [
+                    "int",
+                    "String"
+                  ],
+                  "constructor_args": [
+                    4,
+                    "B"
+                  ]
+                }
+              ],
+              "comparisons": [
+                {
+                  "left": 0,
+                  "right": 1,
+                  "expected_sign": -1
+                }
+              ]
+            }
+          ],
+          "total_points": 100,
+          "problem_kind": "java_reflection",
+          "id": "10f7ee74c8d44381a3f5ddad08979f8b",
+          "status": "published",
+          "source": {
+            "created_by": "minh",
+            "created_at": "2026-11-18T12:10:23+00:00",
+            "updated_by": "minh",
+            "updated_at": "2026-11-18T12:10:23+00:00"
+          },
+          "usage_count": 0,
+          "version": 1,
+          "validation": {
+            "spec_hash": "cd2d5c84ee83c2d08d55abe503e2d3b4d313226a1583bdba5692c2e982ec5693",
+            "passed": true,
+            "validated_at": "2026-11-18T12:10:23+00:00",
+            "validated_by": "minh",
+            "sample_sha256": "5f27b4e708703aee072b4998968fd1f7f364cc78e8cc337f58b744bb113f0650",
+            "verdict": "AC",
+            "score": 100,
+            "total_points": 100
+          },
+          "practice_revision": "1418d6c1caa24720b740b08413719f1b",
+          "question_id": "10f7ee74c8d44381a3f5ddad08979f8b",
+          "snapshot_version": 1,
+          "snapshot_at": "2026-11-18T12:14:14+00:00",
+          "order": 1
+        }
+      ]
+    },
+    "created_by": "minh",
+    "created_at": "2026-11-18T12:15:04+00:00",
+    "updated_at": "2026-11-18T12:16:14+00:00",
+    "title": "JSD Dai Chien",
+    "show_final_score_immediately": true,
     "allow_pretest": true,
     "max_pretest_runs": 20,
     "pretest_cooldown_seconds": 2.0,
     "submission_policy": "configurable",
-    "max_submissions": 2,
-    "questions": [
-      {
-        "id": "mock-echo-question-001",
-        "question_id": "mock-echo-question-001",
-        "title": "Echo the input",
-        "statement": "Read one line from standard input and print it unchanged.",
-        "language": "python",
-        "grading_mode": "stdio",
-        "starter_code": "",
-        "time_limit_seconds": 2.0,
-        "memory_limit_mb": 128,
-        "max_output_bytes": 4096,
-        "allow_pretest": true,
-        "max_pretest_runs": 20,
-        "total_points": 10,
-        "tests": [
-          {
-            "id": "visible-echo",
-            "stdin": "hello\n",
-            "expected_stdout": "hello\n",
-            "is_visible": true,
-            "points": 8,
-            "compare_mode": "exact"
-          },
-          {
-            "id": "hidden-echo",
-            "stdin": "hidden case\n",
-            "expected_stdout": "hidden case\n",
-            "is_visible": false,
-            "points": 2,
-            "compare_mode": "exact"
-          }
-        ],
-        "status": "published",
-        "version": 1,
-        "snapshot_version": 1,
-        "snapshot_at": "2026-11-04T12:00:00+00:00",
-        "order": 0
-      }
-    ]
+    "max_submissions": 1,
+    "distributed_at": "2026-11-18T12:15:04+00:00",
+    "started_at": "2026-11-18T12:16:14+00:00"
   },
-  "4c1d2273c107403482859f88c5d554b8": {
-    "id": "4c1d2273c107403482859f88c5d554b8",
-    "title": "JSD",
+  "b90886b1af4a47edb708fc9c1008c63f": {
+    "id": "b90886b1af4a47edb708fc9c1008c63f",
+    "schema_version": 2,
     "status": "started",
-    "release_id": "d842e69919ed4d0cb529e71d9c1d10e1",
-    "created_by": "kakashi",
-    "created_at": "2026-11-05T16:35:43+00:00",
-    "updated_at": "2026-11-05T16:36:46+00:00",
-    "show_final_score_immediately": true,
-    "allow_pretest": true,
-    "max_pretest_runs": 20,
-    "pretest_cooldown_seconds": 2.0,
-    "submission_policy": "configurable",
-    "max_submissions": 1,
-    "questions": [
-      {
-        "title": "Lớp Rectangle (mẫu nhập JSON)",
-        "statement": "Tạo class Rectangle trong package model với: private double width, private double height; constructor public Rectangle(double width, double height); getArea() trả về width * height; setWidth(double) ném IllegalArgumentException khi giá trị âm; toString() trả về Rectangle{width=<width>, height=<height>}; Rectangle implements Comparable<Rectangle>, so sánh theo diện tích tăng dần.",
-        "language": "java",
-        "grading_mode": "reflection",
-        "target_class": "model.Rectangle",
-        "target_package": "model",
-        "target_file": "Rectangle.java",
-        "starter_code": "package model;\n\npublic class Rectangle {\n    // TODO\n}\n",
-        "time_limit_seconds": 5.0,
-        "memory_limit_mb": 256,
-        "max_output_bytes": 65536,
-        "allow_pretest": true,
-        "max_pretest_runs": 20,
-        "category": "OOP",
-        "tags": [
-          "oop",
-          "java",
-          "import-test"
-        ],
-        "difficulty": "easy",
-        "checks": [
-          {
-            "id": "field-width",
-            "kind": "field",
-            "points": 10,
-            "is_visible": true,
-            "name": "width",
-            "type": "double",
-            "modifier": "private"
-          },
-          {
-            "id": "field-height",
-            "kind": "field",
-            "points": 10,
-            "is_visible": true,
-            "name": "height",
-            "type": "double",
-            "modifier": "private"
-          },
-          {
-            "id": "ctor",
-            "kind": "constructor",
-            "points": 10,
-            "is_visible": true,
-            "parameter_types": [
-              "double",
-              "double"
-            ],
-            "modifier": "public"
-          },
-          {
-            "id": "method-getArea",
-            "kind": "method",
-            "points": 10,
-            "is_visible": true,
-            "name": "getArea",
-            "return_type": "double",
-            "parameter_types": [],
-            "modifier": "public"
-          },
-          {
-            "id": "behavior-area",
-            "kind": "behavior",
-            "points": 20,
-            "is_visible": true,
-            "setup": [],
-            "expect_return": 12,
-            "constructor_parameter_types": [
-              "double",
-              "double"
-            ],
-            "constructor_args": [
-              3,
-              4
-            ],
-            "method": "getArea",
-            "parameter_types": [],
-            "args": []
-          },
-          {
-            "id": "behavior-negative-width",
-            "kind": "behavior",
-            "points": 15,
-            "is_visible": false,
-            "setup": [],
-            "expect_exception": "java.lang.IllegalArgumentException",
-            "constructor_parameter_types": [
-              "double",
-              "double"
-            ],
-            "constructor_args": [
-              3,
-              4
-            ],
-            "method": "setWidth",
-            "parameter_types": [
-              "double"
-            ],
-            "args": [
-              -1
-            ]
-          },
-          {
-            "id": "tostring",
-            "kind": "toString",
-            "points": 15,
-            "is_visible": true,
-            "setup": [],
-            "constructor_parameter_types": [
-              "double",
-              "double"
-            ],
-            "constructor_args": [
-              3,
-              4
-            ],
-            "template": "Rectangle{width={width}, height={height}}"
-          },
-          {
-            "id": "comparable",
-            "kind": "comparable",
-            "points": 10,
-            "is_visible": false,
-            "instances": [
-              {
-                "constructor_parameter_types": [
-                  "double",
-                  "double"
-                ],
-                "constructor_args": [
-                  1,
-                  2
-                ]
-              },
-              {
-                "constructor_parameter_types": [
-                  "double",
-                  "double"
-                ],
-                "constructor_args": [
-                  3,
-                  4
-                ]
-              },
-              {
-                "constructor_parameter_types": [
-                  "double",
-                  "double"
-                ],
-                "constructor_args": [
-                  3,
-                  4
-                ]
-              },
-              {
-                "constructor_parameter_types": [
-                  "double",
-                  "double"
-                ],
-                "constructor_args": [
-                  1,
-                  2
-                ]
-              },
-              {
-                "constructor_parameter_types": [
-                  "double",
-                  "double"
-                ],
-                "constructor_args": [
-                  2,
-                  6
-                ]
-              },
-              {
-                "constructor_parameter_types": [
-                  "double",
-                  "double"
-                ],
-                "constructor_args": [
-                  3,
-                  4
-                ]
-              }
-            ],
-            "comparisons": [
-              {
-                "left": 0,
-                "right": 1,
-                "expected_sign": -1
-              },
-              {
-                "left": 2,
-                "right": 3,
-                "expected_sign": 1
-              },
-              {
-                "left": 4,
-                "right": 5,
-                "expected_sign": 0
-              }
-            ]
-          }
-        ],
-        "total_points": 100,
-        "problem_kind": "java_reflection",
-        "sample_source": "package model;\n\npublic class Rectangle implements Comparable<Rectangle> {\n    private double width;\n    private double height;\n\n    public Rectangle(double width, double height) { this.width = width; this.height = height; }\n\n    public double getArea() { return width * height; }\n\n    public void setWidth(double width) {\n        if (width < 0) throw new IllegalArgumentException(\"width\");\n        this.width = width;\n    }\n\n    @Override public String toString() { return \"Rectangle{width=\" + width + \", height=\" + height + \"}\"; }\n\n    @Override public int compareTo(Rectangle o) { return Double.compare(getArea(), o.getArea()); }\n}",
-        "id": "30589207701942de8d63303314729211",
-        "status": "published",
-        "source": {
-          "created_by": "kakashi",
-          "created_at": "2026-11-04T15:19:05+00:00",
-          "updated_at": "2026-11-05T16:07:46+00:00",
-          "updated_by": "quyencorn"
-        },
-        "usage_count": 4,
-        "version": 10,
-        "validation": {
-          "spec_hash": "2b0a5b04fb200f2733e1ba26fda70b6e7294cd94094c38b36b5f93a6c9362665",
-          "passed": true,
-          "validated_at": "2026-11-05T16:07:43+00:00",
-          "validated_by": "quyencorn",
-          "sample_sha256": "c8c8aac1c29e39870b1a6d9b954db914ff091bb35e669520e6e94c019257f453",
-          "verdict": "AC",
-          "score": 100,
-          "total_points": 100
-        },
-        "question_id": "30589207701942de8d63303314729211",
-        "snapshot_version": 10,
-        "snapshot_at": "2026-11-05T16:35:43+00:00",
-        "order": 0
-      },
-      {
-        "title": "Lớp Rectangle (mẫu nhập JSON)",
-        "statement": "Tạo class Rectangle trong package model với: private double width, private double height; constructor public Rectangle(double width, double height); getArea() trả về width * height; setWidth(double) ném IllegalArgumentException khi giá trị âm; toString() trả về Rectangle{width=<width>, height=<height>}; Rectangle implements Comparable<Rectangle>, so sánh theo diện tích tăng dần.",
-        "language": "java",
-        "grading_mode": "reflection",
-        "target_class": "model.Rectangle",
-        "target_package": "model",
-        "target_file": "Rectangle.java",
-        "starter_code": "package model;\n\npublic class Rectangle {\n    // TODO\n}\n",
-        "time_limit_seconds": 5.0,
-        "memory_limit_mb": 256,
-        "max_output_bytes": 65536,
-        "allow_pretest": true,
-        "max_pretest_runs": 20,
-        "category": "OOP",
-        "tags": [
-          "oop",
-          "java",
-          "import-test"
-        ],
-        "difficulty": "easy",
-        "checks": [
-          {
-            "id": "field-width",
-            "kind": "field",
-            "points": 10,
-            "is_visible": true,
-            "name": "width",
-            "type": "double",
-            "modifier": "private"
-          },
-          {
-            "id": "field-height",
-            "kind": "field",
-            "points": 10,
-            "is_visible": true,
-            "name": "height",
-            "type": "double",
-            "modifier": "private"
-          },
-          {
-            "id": "ctor",
-            "kind": "constructor",
-            "points": 10,
-            "is_visible": true,
-            "parameter_types": [
-              "double",
-              "double"
-            ],
-            "modifier": "public"
-          },
-          {
-            "id": "method-getArea",
-            "kind": "method",
-            "points": 10,
-            "is_visible": true,
-            "name": "getArea",
-            "return_type": "double",
-            "parameter_types": [],
-            "modifier": "public"
-          },
-          {
-            "id": "behavior-area",
-            "kind": "behavior",
-            "points": 20,
-            "is_visible": true,
-            "setup": [],
-            "expect_return": 12,
-            "constructor_parameter_types": [
-              "double",
-              "double"
-            ],
-            "constructor_args": [
-              3,
-              4
-            ],
-            "method": "getArea",
-            "parameter_types": [],
-            "args": []
-          },
-          {
-            "id": "behavior-negative-width",
-            "kind": "behavior",
-            "points": 15,
-            "is_visible": false,
-            "setup": [],
-            "expect_exception": "java.lang.IllegalArgumentException",
-            "constructor_parameter_types": [
-              "double",
-              "double"
-            ],
-            "constructor_args": [
-              3,
-              4
-            ],
-            "method": "setWidth",
-            "parameter_types": [
-              "double"
-            ],
-            "args": [
-              -1
-            ]
-          },
-          {
-            "id": "tostring",
-            "kind": "toString",
-            "points": 15,
-            "is_visible": true,
-            "setup": [],
-            "constructor_parameter_types": [
-              "double",
-              "double"
-            ],
-            "constructor_args": [
-              3,
-              4
-            ],
-            "template": "Rectangle{width={width}, height={height}}"
-          },
-          {
-            "id": "comparable",
-            "kind": "comparable",
-            "points": 10,
-            "is_visible": false,
-            "instances": [
-              {
-                "constructor_parameter_types": [
-                  "double",
-                  "double"
-                ],
-                "constructor_args": [
-                  1,
-                  2
-                ]
-              },
-              {
-                "constructor_parameter_types": [
-                  "double",
-                  "double"
-                ],
-                "constructor_args": [
-                  3,
-                  4
-                ]
-              },
-              {
-                "constructor_parameter_types": [
-                  "double",
-                  "double"
-                ],
-                "constructor_args": [
-                  3,
-                  4
-                ]
-              },
-              {
-                "constructor_parameter_types": [
-                  "double",
-                  "double"
-                ],
-                "constructor_args": [
-                  1,
-                  2
-                ]
-              },
-              {
-                "constructor_parameter_types": [
-                  "double",
-                  "double"
-                ],
-                "constructor_args": [
-                  2,
-                  6
-                ]
-              },
-              {
-                "constructor_parameter_types": [
-                  "double",
-                  "double"
-                ],
-                "constructor_args": [
-                  3,
-                  4
-                ]
-              }
-            ],
-            "comparisons": [
-              {
-                "left": 0,
-                "right": 1,
-                "expected_sign": -1
-              },
-              {
-                "left": 2,
-                "right": 3,
-                "expected_sign": 1
-              },
-              {
-                "left": 4,
-                "right": 5,
-                "expected_sign": 0
-              }
-            ]
-          }
-        ],
-        "total_points": 100,
-        "problem_kind": "java_reflection",
-        "id": "cb5af90b14db4c4aa5c8c0b8f3fbd7d8",
-        "status": "published",
-        "source": {
-          "created_by": "quyencorn",
-          "created_at": "2026-11-05T09:46:34+00:00",
-          "updated_at": "2026-11-05T16:32:22+00:00",
-          "updated_by": "kakashi"
-        },
-        "usage_count": 0,
-        "version": 4,
-        "validation": {
-          "spec_hash": "0b4bd4e147422b123462583bafefa96b61efc12f4d34cb21e428e1e55693e3ee",
-          "passed": true,
-          "validated_at": "2026-11-05T16:32:15+00:00",
-          "validated_by": "kakashi",
-          "sample_sha256": "c8c8aac1c29e39870b1a6d9b954db914ff091bb35e669520e6e94c019257f453",
-          "verdict": "AC",
-          "score": 100,
-          "total_points": 100
-        },
-        "question_id": "cb5af90b14db4c4aa5c8c0b8f3fbd7d8",
-        "snapshot_version": 4,
-        "snapshot_at": "2026-11-05T16:35:43+00:00",
-        "order": 1
-      },
-      {
-        "title": "Lớp Rectangle (mẫu nhập JSON)",
-        "statement": "Tạo class Rectangle trong package model với: private double width, private double height; constructor public Rectangle(double width, double height); getArea() trả về width * height; setWidth(double) ném IllegalArgumentException khi giá trị âm; toString() trả về Rectangle{width=<width>, height=<height>}; Rectangle implements Comparable<Rectangle>, so sánh theo diện tích tăng dần.",
-        "language": "java",
-        "grading_mode": "reflection",
-        "target_class": "model.Rectangle",
-        "target_package": "model",
-        "target_file": "Rectangle.java",
-        "starter_code": "package model;\n\npublic class Rectangle {\n    // TODO\n}\n",
-        "time_limit_seconds": 5.0,
-        "memory_limit_mb": 256,
-        "max_output_bytes": 65536,
-        "allow_pretest": true,
-        "max_pretest_runs": 20,
-        "category": "OOP",
-        "tags": [
-          "oop",
-          "java",
-          "import-test"
-        ],
-        "difficulty": "easy",
-        "checks": [
-          {
-            "id": "field-width",
-            "kind": "field",
-            "points": 10,
-            "is_visible": true,
-            "name": "width",
-            "type": "double",
-            "modifier": "private"
-          },
-          {
-            "id": "field-height",
-            "kind": "field",
-            "points": 10,
-            "is_visible": true,
-            "name": "height",
-            "type": "double",
-            "modifier": "private"
-          },
-          {
-            "id": "ctor",
-            "kind": "constructor",
-            "points": 10,
-            "is_visible": true,
-            "parameter_types": [
-              "double",
-              "double"
-            ],
-            "modifier": "public"
-          },
-          {
-            "id": "method-getArea",
-            "kind": "method",
-            "points": 10,
-            "is_visible": true,
-            "name": "getArea",
-            "return_type": "double",
-            "parameter_types": [],
-            "modifier": "public"
-          },
-          {
-            "id": "behavior-area",
-            "kind": "behavior",
-            "points": 20,
-            "is_visible": true,
-            "setup": [],
-            "expect_return": 12,
-            "constructor_parameter_types": [
-              "double",
-              "double"
-            ],
-            "constructor_args": [
-              3,
-              4
-            ],
-            "method": "getArea",
-            "parameter_types": [],
-            "args": []
-          },
-          {
-            "id": "behavior-negative-width",
-            "kind": "behavior",
-            "points": 15,
-            "is_visible": false,
-            "setup": [],
-            "expect_exception": "java.lang.IllegalArgumentException",
-            "constructor_parameter_types": [
-              "double",
-              "double"
-            ],
-            "constructor_args": [
-              3,
-              4
-            ],
-            "method": "setWidth",
-            "parameter_types": [
-              "double"
-            ],
-            "args": [
-              -1
-            ]
-          },
-          {
-            "id": "tostring",
-            "kind": "toString",
-            "points": 15,
-            "is_visible": true,
-            "setup": [],
-            "constructor_parameter_types": [
-              "double",
-              "double"
-            ],
-            "constructor_args": [
-              3,
-              4
-            ],
-            "template": "Rectangle{width={width}, height={height}}"
-          },
-          {
-            "id": "comparable",
-            "kind": "comparable",
-            "points": 10,
-            "is_visible": false,
-            "instances": [
-              {
-                "constructor_parameter_types": [
-                  "double",
-                  "double"
-                ],
-                "constructor_args": [
-                  1,
-                  2
-                ]
-              },
-              {
-                "constructor_parameter_types": [
-                  "double",
-                  "double"
-                ],
-                "constructor_args": [
-                  3,
-                  4
-                ]
-              },
-              {
-                "constructor_parameter_types": [
-                  "double",
-                  "double"
-                ],
-                "constructor_args": [
-                  3,
-                  4
-                ]
-              },
-              {
-                "constructor_parameter_types": [
-                  "double",
-                  "double"
-                ],
-                "constructor_args": [
-                  1,
-                  2
-                ]
-              },
-              {
-                "constructor_parameter_types": [
-                  "double",
-                  "double"
-                ],
-                "constructor_args": [
-                  2,
-                  6
-                ]
-              },
-              {
-                "constructor_parameter_types": [
-                  "double",
-                  "double"
-                ],
-                "constructor_args": [
-                  3,
-                  4
-                ]
-              }
-            ],
-            "comparisons": [
-              {
-                "left": 0,
-                "right": 1,
-                "expected_sign": -1
-              },
-              {
-                "left": 2,
-                "right": 3,
-                "expected_sign": 1
-              },
-              {
-                "left": 4,
-                "right": 5,
-                "expected_sign": 0
-              }
-            ]
-          }
-        ],
-        "total_points": 100,
-        "problem_kind": "java_reflection",
-        "id": "87794e55529843e180e05c656553eb5c",
-        "status": "published",
-        "source": {
-          "created_by": "quyencorn",
-          "created_at": "2026-11-05T12:22:18+00:00",
-          "updated_at": "2026-11-05T16:33:00+00:00",
-          "updated_by": "kakashi"
-        },
-        "usage_count": 0,
-        "version": 3,
-        "validation": {
-          "spec_hash": "0b4bd4e147422b123462583bafefa96b61efc12f4d34cb21e428e1e55693e3ee",
-          "passed": true,
-          "validated_at": "2026-11-05T16:32:56+00:00",
-          "validated_by": "kakashi",
-          "sample_sha256": "c8c8aac1c29e39870b1a6d9b954db914ff091bb35e669520e6e94c019257f453",
-          "verdict": "AC",
-          "score": 100,
-          "total_points": 100
-        },
-        "question_id": "87794e55529843e180e05c656553eb5c",
-        "snapshot_version": 3,
-        "snapshot_at": "2026-11-05T16:35:43+00:00",
-        "order": 2
-      },
-      {
-        "title": "Lớp Rectangle (mẫu nhập JSON)",
-        "statement": "Tạo class Rectangle trong package model với: private double width, private double height; constructor public Rectangle(double width, double height); getArea() trả về width * height; setWidth(double) ném IllegalArgumentException khi giá trị âm; toString() trả về Rectangle{width=<width>, height=<height>}; Rectangle implements Comparable<Rectangle>, so sánh theo diện tích tăng dần.",
-        "language": "java",
-        "grading_mode": "reflection",
-        "target_class": "model.Rectangle",
-        "target_package": "model",
-        "target_file": "Rectangle.java",
-        "starter_code": "package model;\n\npublic class Rectangle {\n    // TODO\n}\n",
-        "time_limit_seconds": 5.0,
-        "memory_limit_mb": 256,
-        "max_output_bytes": 65536,
-        "allow_pretest": true,
-        "max_pretest_runs": 20,
-        "category": "OOP",
-        "tags": [
-          "oop",
-          "java",
-          "import-test"
-        ],
-        "difficulty": "easy",
-        "checks": [
-          {
-            "id": "field-width",
-            "kind": "field",
-            "points": 10,
-            "is_visible": true,
-            "name": "width",
-            "type": "double",
-            "modifier": "private"
-          },
-          {
-            "id": "field-height",
-            "kind": "field",
-            "points": 10,
-            "is_visible": true,
-            "name": "height",
-            "type": "double",
-            "modifier": "private"
-          },
-          {
-            "id": "ctor",
-            "kind": "constructor",
-            "points": 10,
-            "is_visible": true,
-            "parameter_types": [
-              "double",
-              "double"
-            ],
-            "modifier": "public"
-          },
-          {
-            "id": "method-getArea",
-            "kind": "method",
-            "points": 10,
-            "is_visible": true,
-            "name": "getArea",
-            "return_type": "double",
-            "parameter_types": [],
-            "modifier": "public"
-          },
-          {
-            "id": "behavior-area",
-            "kind": "behavior",
-            "points": 20,
-            "is_visible": true,
-            "setup": [],
-            "expect_return": 12,
-            "constructor_parameter_types": [
-              "double",
-              "double"
-            ],
-            "constructor_args": [
-              3,
-              4
-            ],
-            "method": "getArea",
-            "parameter_types": [],
-            "args": []
-          },
-          {
-            "id": "behavior-negative-width",
-            "kind": "behavior",
-            "points": 15,
-            "is_visible": false,
-            "setup": [],
-            "expect_exception": "java.lang.IllegalArgumentException",
-            "constructor_parameter_types": [
-              "double",
-              "double"
-            ],
-            "constructor_args": [
-              3,
-              4
-            ],
-            "method": "setWidth",
-            "parameter_types": [
-              "double"
-            ],
-            "args": [
-              -1
-            ]
-          },
-          {
-            "id": "tostring",
-            "kind": "toString",
-            "points": 15,
-            "is_visible": true,
-            "setup": [],
-            "constructor_parameter_types": [
-              "double",
-              "double"
-            ],
-            "constructor_args": [
-              3,
-              4
-            ],
-            "template": "Rectangle{width={width}, height={height}}"
-          },
-          {
-            "id": "comparable",
-            "kind": "comparable",
-            "points": 10,
-            "is_visible": false,
-            "instances": [
-              {
-                "constructor_parameter_types": [
-                  "double",
-                  "double"
-                ],
-                "constructor_args": [
-                  1,
-                  2
-                ]
-              },
-              {
-                "constructor_parameter_types": [
-                  "double",
-                  "double"
-                ],
-                "constructor_args": [
-                  3,
-                  4
-                ]
-              },
-              {
-                "constructor_parameter_types": [
-                  "double",
-                  "double"
-                ],
-                "constructor_args": [
-                  3,
-                  4
-                ]
-              },
-              {
-                "constructor_parameter_types": [
-                  "double",
-                  "double"
-                ],
-                "constructor_args": [
-                  1,
-                  2
-                ]
-              },
-              {
-                "constructor_parameter_types": [
-                  "double",
-                  "double"
-                ],
-                "constructor_args": [
-                  2,
-                  6
-                ]
-              },
-              {
-                "constructor_parameter_types": [
-                  "double",
-                  "double"
-                ],
-                "constructor_args": [
-                  3,
-                  4
-                ]
-              }
-            ],
-            "comparisons": [
-              {
-                "left": 0,
-                "right": 1,
-                "expected_sign": -1
-              },
-              {
-                "left": 2,
-                "right": 3,
-                "expected_sign": 1
-              },
-              {
-                "left": 4,
-                "right": 5,
-                "expected_sign": 0
-              }
-            ]
-          }
-        ],
-        "total_points": 100,
-        "problem_kind": "java_reflection",
-        "id": "ee4200f0b6f744c9a7f6b8b0d7937fe5",
-        "status": "published",
-        "source": {
-          "created_by": "quyencorn",
-          "created_at": "2026-11-05T15:02:42+00:00",
-          "updated_at": "2026-11-05T16:33:24+00:00",
-          "updated_by": "kakashi"
-        },
-        "usage_count": 0,
-        "version": 4,
-        "validation": {
-          "spec_hash": "0b4bd4e147422b123462583bafefa96b61efc12f4d34cb21e428e1e55693e3ee",
-          "passed": true,
-          "validated_at": "2026-11-05T16:33:21+00:00",
-          "validated_by": "kakashi",
-          "sample_sha256": "c8c8aac1c29e39870b1a6d9b954db914ff091bb35e669520e6e94c019257f453",
-          "verdict": "AC",
-          "score": 100,
-          "total_points": 100
-        },
-        "question_id": "ee4200f0b6f744c9a7f6b8b0d7937fe5",
-        "snapshot_version": 4,
-        "snapshot_at": "2026-11-05T16:35:43+00:00",
-        "order": 3
-      }
-    ],
-    "distributed_at": "2026-11-05T16:35:43+00:00",
-    "started_at": "2026-11-05T16:36:46+00:00"
-  },
-  "97c4bced0e9e482fa23044377cf547b2": {
-    "id": "97c4bced0e9e482fa23044377cf547b2",
-    "status": "ended",
-    "release_id": "19a8cb9ad3484369b734e9c23002a117",
-    "created_by": "sasuke",
-    "created_at": "2026-11-06T06:41:02+00:00",
-    "updated_at": "2026-11-14T18:35:21+00:00",
-    "title": "JSD (bản sao)",
-    "show_final_score_immediately": true,
-    "allow_pretest": true,
-    "max_pretest_runs": 20,
-    "pretest_cooldown_seconds": 2.0,
-    "submission_policy": "configurable",
-    "max_submissions": 1,
-    "questions": [
-      {
-        "title": "Lớp Rectangle (mẫu nhập JSON)",
-        "statement": "Tạo class Rectangle trong package model với: private double width, private double height; constructor public Rectangle(double width, double height); getArea() trả về width * height; setWidth(double) ném IllegalArgumentException khi giá trị âm; toString() trả về Rectangle{width=<width>, height=<height>}; Rectangle implements Comparable<Rectangle>, so sánh theo diện tích tăng dần.",
-        "language": "java",
-        "grading_mode": "reflection",
-        "target_class": "model.Rectangle",
-        "target_package": "model",
-        "target_file": "Rectangle.java",
-        "starter_code": "package model;\n\npublic class Rectangle {\n    // TODO\n}\n",
-        "time_limit_seconds": 5.0,
-        "memory_limit_mb": 256,
-        "max_output_bytes": 65536,
-        "allow_pretest": true,
-        "max_pretest_runs": 20,
-        "category": "OOP",
-        "tags": [
-          "oop",
-          "java",
-          "import-test"
-        ],
-        "difficulty": "easy",
-        "checks": [
-          {
-            "id": "field-width",
-            "kind": "field",
-            "points": 10,
-            "is_visible": true,
-            "name": "width",
-            "type": "double",
-            "modifier": "private"
-          },
-          {
-            "id": "field-height",
-            "kind": "field",
-            "points": 10,
-            "is_visible": true,
-            "name": "height",
-            "type": "double",
-            "modifier": "private"
-          },
-          {
-            "id": "ctor",
-            "kind": "constructor",
-            "points": 10,
-            "is_visible": true,
-            "parameter_types": [
-              "double",
-              "double"
-            ],
-            "modifier": "public"
-          },
-          {
-            "id": "method-getArea",
-            "kind": "method",
-            "points": 10,
-            "is_visible": true,
-            "name": "getArea",
-            "return_type": "double",
-            "parameter_types": [],
-            "modifier": "public"
-          },
-          {
-            "id": "behavior-area",
-            "kind": "behavior",
-            "points": 20,
-            "is_visible": true,
-            "setup": [],
-            "expect_return": 12,
-            "constructor_parameter_types": [
-              "double",
-              "double"
-            ],
-            "constructor_args": [
-              3,
-              4
-            ],
-            "method": "getArea",
-            "parameter_types": [],
-            "args": []
-          },
-          {
-            "id": "behavior-negative-width",
-            "kind": "behavior",
-            "points": 15,
-            "is_visible": false,
-            "setup": [],
-            "expect_exception": "java.lang.IllegalArgumentException",
-            "constructor_parameter_types": [
-              "double",
-              "double"
-            ],
-            "constructor_args": [
-              3,
-              4
-            ],
-            "method": "setWidth",
-            "parameter_types": [
-              "double"
-            ],
-            "args": [
-              -1
-            ]
-          },
-          {
-            "id": "tostring",
-            "kind": "toString",
-            "points": 15,
-            "is_visible": true,
-            "setup": [],
-            "constructor_parameter_types": [
-              "double",
-              "double"
-            ],
-            "constructor_args": [
-              3,
-              4
-            ],
-            "template": "Rectangle{width={width}, height={height}}"
-          },
-          {
-            "id": "comparable",
-            "kind": "comparable",
-            "points": 10,
-            "is_visible": false,
-            "instances": [
-              {
-                "constructor_parameter_types": [
-                  "double",
-                  "double"
-                ],
-                "constructor_args": [
-                  1,
-                  2
-                ]
-              },
-              {
-                "constructor_parameter_types": [
-                  "double",
-                  "double"
-                ],
-                "constructor_args": [
-                  3,
-                  4
-                ]
-              },
-              {
-                "constructor_parameter_types": [
-                  "double",
-                  "double"
-                ],
-                "constructor_args": [
-                  3,
-                  4
-                ]
-              },
-              {
-                "constructor_parameter_types": [
-                  "double",
-                  "double"
-                ],
-                "constructor_args": [
-                  1,
-                  2
-                ]
-              },
-              {
-                "constructor_parameter_types": [
-                  "double",
-                  "double"
-                ],
-                "constructor_args": [
-                  2,
-                  6
-                ]
-              },
-              {
-                "constructor_parameter_types": [
-                  "double",
-                  "double"
-                ],
-                "constructor_args": [
-                  3,
-                  4
-                ]
-              }
-            ],
-            "comparisons": [
-              {
-                "left": 0,
-                "right": 1,
-                "expected_sign": -1
-              },
-              {
-                "left": 2,
-                "right": 3,
-                "expected_sign": 1
-              },
-              {
-                "left": 4,
-                "right": 5,
-                "expected_sign": 0
-              }
-            ]
-          }
-        ],
-        "total_points": 100,
-        "problem_kind": "java_reflection",
-        "sample_source": "package model;\n\npublic class Rectangle implements Comparable<Rectangle> {\n    private double width;\n    private double height;\n\n    public Rectangle(double width, double height) { this.width = width; this.height = height; }\n\n    public double getArea() { return width * height; }\n\n    public void setWidth(double width) {\n        if (width < 0) throw new IllegalArgumentException(\"width\");\n        this.width = width;\n    }\n\n    @Override public String toString() { return \"Rectangle{width=\" + width + \", height=\" + height + \"}\"; }\n\n    @Override public int compareTo(Rectangle o) { return Double.compare(getArea(), o.getArea()); }\n}",
-        "id": "30589207701942de8d63303314729211",
-        "status": "published",
-        "source": {
-          "created_by": "kakashi",
-          "created_at": "2026-11-04T15:19:05+00:00",
-          "updated_at": "2026-11-06T02:52:58+00:00",
-          "updated_by": "sapa"
-        },
-        "usage_count": 11,
-        "version": 12,
-        "validation": {
-          "spec_hash": "2b0a5b04fb200f2733e1ba26fda70b6e7294cd94094c38b36b5f93a6c9362665",
-          "passed": true,
-          "validated_at": "2026-11-06T02:52:49+00:00",
-          "validated_by": "sapa",
-          "sample_sha256": "c8c8aac1c29e39870b1a6d9b954db914ff091bb35e669520e6e94c019257f453",
-          "verdict": "AC",
-          "score": 100,
-          "total_points": 100
-        },
-        "question_id": "30589207701942de8d63303314729211",
-        "snapshot_version": 12,
-        "snapshot_at": "2026-11-06T06:41:02+00:00",
-        "order": 0
-      },
-      {
-        "title": "Lớp Rectangle (mẫu nhập JSON)",
-        "statement": "Tạo class Rectangle trong package model với: private double width, private double height; constructor public Rectangle(double width, double height); getArea() trả về width * height; setWidth(double) ném IllegalArgumentException khi giá trị âm; toString() trả về Rectangle{width=<width>, height=<height>}; Rectangle implements Comparable<Rectangle>, so sánh theo diện tích tăng dần.",
-        "language": "java",
-        "grading_mode": "reflection",
-        "target_class": "model.Rectangle",
-        "target_package": "model",
-        "target_file": "Rectangle.java",
-        "starter_code": "package model;\n\npublic class Rectangle {\n    // TODO\n}\n",
-        "time_limit_seconds": 5.0,
-        "memory_limit_mb": 256,
-        "max_output_bytes": 65536,
-        "allow_pretest": true,
-        "max_pretest_runs": 20,
-        "category": "OOP",
-        "tags": [
-          "oop",
-          "java",
-          "import-test"
-        ],
-        "difficulty": "easy",
-        "checks": [
-          {
-            "id": "field-width",
-            "kind": "field",
-            "points": 10,
-            "is_visible": true,
-            "name": "width",
-            "type": "double",
-            "modifier": "private"
-          },
-          {
-            "id": "field-height",
-            "kind": "field",
-            "points": 10,
-            "is_visible": true,
-            "name": "height",
-            "type": "double",
-            "modifier": "private"
-          },
-          {
-            "id": "ctor",
-            "kind": "constructor",
-            "points": 10,
-            "is_visible": true,
-            "parameter_types": [
-              "double",
-              "double"
-            ],
-            "modifier": "public"
-          },
-          {
-            "id": "method-getArea",
-            "kind": "method",
-            "points": 10,
-            "is_visible": true,
-            "name": "getArea",
-            "return_type": "double",
-            "parameter_types": [],
-            "modifier": "public"
-          },
-          {
-            "id": "behavior-area",
-            "kind": "behavior",
-            "points": 20,
-            "is_visible": true,
-            "setup": [],
-            "expect_return": 12,
-            "constructor_parameter_types": [
-              "double",
-              "double"
-            ],
-            "constructor_args": [
-              3,
-              4
-            ],
-            "method": "getArea",
-            "parameter_types": [],
-            "args": []
-          },
-          {
-            "id": "behavior-negative-width",
-            "kind": "behavior",
-            "points": 15,
-            "is_visible": false,
-            "setup": [],
-            "expect_exception": "java.lang.IllegalArgumentException",
-            "constructor_parameter_types": [
-              "double",
-              "double"
-            ],
-            "constructor_args": [
-              3,
-              4
-            ],
-            "method": "setWidth",
-            "parameter_types": [
-              "double"
-            ],
-            "args": [
-              -1
-            ]
-          },
-          {
-            "id": "tostring",
-            "kind": "toString",
-            "points": 15,
-            "is_visible": true,
-            "setup": [],
-            "constructor_parameter_types": [
-              "double",
-              "double"
-            ],
-            "constructor_args": [
-              3,
-              4
-            ],
-            "template": "Rectangle{width={width}, height={height}}"
-          },
-          {
-            "id": "comparable",
-            "kind": "comparable",
-            "points": 10,
-            "is_visible": false,
-            "instances": [
-              {
-                "constructor_parameter_types": [
-                  "double",
-                  "double"
-                ],
-                "constructor_args": [
-                  1,
-                  2
-                ]
-              },
-              {
-                "constructor_parameter_types": [
-                  "double",
-                  "double"
-                ],
-                "constructor_args": [
-                  3,
-                  4
-                ]
-              },
-              {
-                "constructor_parameter_types": [
-                  "double",
-                  "double"
-                ],
-                "constructor_args": [
-                  3,
-                  4
-                ]
-              },
-              {
-                "constructor_parameter_types": [
-                  "double",
-                  "double"
-                ],
-                "constructor_args": [
-                  1,
-                  2
-                ]
-              },
-              {
-                "constructor_parameter_types": [
-                  "double",
-                  "double"
-                ],
-                "constructor_args": [
-                  2,
-                  6
-                ]
-              },
-              {
-                "constructor_parameter_types": [
-                  "double",
-                  "double"
-                ],
-                "constructor_args": [
-                  3,
-                  4
-                ]
-              }
-            ],
-            "comparisons": [
-              {
-                "left": 0,
-                "right": 1,
-                "expected_sign": -1
-              },
-              {
-                "left": 2,
-                "right": 3,
-                "expected_sign": 1
-              },
-              {
-                "left": 4,
-                "right": 5,
-                "expected_sign": 0
-              }
-            ]
-          }
-        ],
-        "total_points": 100,
-        "problem_kind": "java_reflection",
-        "id": "cb5af90b14db4c4aa5c8c0b8f3fbd7d8",
-        "status": "published",
-        "source": {
-          "created_by": "quyencorn",
-          "created_at": "2026-11-05T09:46:34+00:00",
-          "updated_at": "2026-11-06T02:54:00+00:00",
-          "updated_by": "sapa"
-        },
-        "usage_count": 7,
-        "version": 5,
-        "validation": {
-          "spec_hash": "0b4bd4e147422b123462583bafefa96b61efc12f4d34cb21e428e1e55693e3ee",
-          "passed": true,
-          "validated_at": "2026-11-06T02:53:50+00:00",
-          "validated_by": "sapa",
-          "sample_sha256": "c8c8aac1c29e39870b1a6d9b954db914ff091bb35e669520e6e94c019257f453",
-          "verdict": "AC",
-          "score": 100,
-          "total_points": 100
-        },
-        "question_id": "cb5af90b14db4c4aa5c8c0b8f3fbd7d8",
-        "snapshot_version": 5,
-        "snapshot_at": "2026-11-06T06:41:02+00:00",
-        "order": 1
-      },
-      {
-        "title": "Lớp Rectangle (mẫu nhập JSON)",
-        "statement": "Tạo class Rectangle trong package model với: private double width, private double height; constructor public Rectangle(double width, double height); getArea() trả về width * height; setWidth(double) ném IllegalArgumentException khi giá trị âm; toString() trả về Rectangle{width=<width>, height=<height>}; Rectangle implements Comparable<Rectangle>, so sánh theo diện tích tăng dần.",
-        "language": "java",
-        "grading_mode": "reflection",
-        "target_class": "model.Rectangle",
-        "target_package": "model",
-        "target_file": "Rectangle.java",
-        "starter_code": "package model;\n\npublic class Rectangle {\n    // TODO\n}\n",
-        "time_limit_seconds": 5.0,
-        "memory_limit_mb": 256,
-        "max_output_bytes": 65536,
-        "allow_pretest": true,
-        "max_pretest_runs": 20,
-        "category": "OOP",
-        "tags": [
-          "oop",
-          "java",
-          "import-test"
-        ],
-        "difficulty": "easy",
-        "checks": [
-          {
-            "id": "field-width",
-            "kind": "field",
-            "points": 10,
-            "is_visible": true,
-            "name": "width",
-            "type": "double",
-            "modifier": "private"
-          },
-          {
-            "id": "field-height",
-            "kind": "field",
-            "points": 10,
-            "is_visible": true,
-            "name": "height",
-            "type": "double",
-            "modifier": "private"
-          },
-          {
-            "id": "ctor",
-            "kind": "constructor",
-            "points": 10,
-            "is_visible": true,
-            "parameter_types": [
-              "double",
-              "double"
-            ],
-            "modifier": "public"
-          },
-          {
-            "id": "method-getArea",
-            "kind": "method",
-            "points": 10,
-            "is_visible": true,
-            "name": "getArea",
-            "return_type": "double",
-            "parameter_types": [],
-            "modifier": "public"
-          },
-          {
-            "id": "behavior-area",
-            "kind": "behavior",
-            "points": 20,
-            "is_visible": true,
-            "setup": [],
-            "expect_return": 12,
-            "constructor_parameter_types": [
-              "double",
-              "double"
-            ],
-            "constructor_args": [
-              3,
-              4
-            ],
-            "method": "getArea",
-            "parameter_types": [],
-            "args": []
-          },
-          {
-            "id": "behavior-negative-width",
-            "kind": "behavior",
-            "points": 15,
-            "is_visible": false,
-            "setup": [],
-            "expect_exception": "java.lang.IllegalArgumentException",
-            "constructor_parameter_types": [
-              "double",
-              "double"
-            ],
-            "constructor_args": [
-              3,
-              4
-            ],
-            "method": "setWidth",
-            "parameter_types": [
-              "double"
-            ],
-            "args": [
-              -1
-            ]
-          },
-          {
-            "id": "tostring",
-            "kind": "toString",
-            "points": 15,
-            "is_visible": true,
-            "setup": [],
-            "constructor_parameter_types": [
-              "double",
-              "double"
-            ],
-            "constructor_args": [
-              3,
-              4
-            ],
-            "template": "Rectangle{width={width}, height={height}}"
-          },
-          {
-            "id": "comparable",
-            "kind": "comparable",
-            "points": 10,
-            "is_visible": false,
-            "instances": [
-              {
-                "constructor_parameter_types": [
-                  "double",
-                  "double"
-                ],
-                "constructor_args": [
-                  1,
-                  2
-                ]
-              },
-              {
-                "constructor_parameter_types": [
-                  "double",
-                  "double"
-                ],
-                "constructor_args": [
-                  3,
-                  4
-                ]
-              },
-              {
-                "constructor_parameter_types": [
-                  "double",
-                  "double"
-                ],
-                "constructor_args": [
-                  3,
-                  4
-                ]
-              },
-              {
-                "constructor_parameter_types": [
-                  "double",
-                  "double"
-                ],
-                "constructor_args": [
-                  1,
-                  2
-                ]
-              },
-              {
-                "constructor_parameter_types": [
-                  "double",
-                  "double"
-                ],
-                "constructor_args": [
-                  2,
-                  6
-                ]
-              },
-              {
-                "constructor_parameter_types": [
-                  "double",
-                  "double"
-                ],
-                "constructor_args": [
-                  3,
-                  4
-                ]
-              }
-            ],
-            "comparisons": [
-              {
-                "left": 0,
-                "right": 1,
-                "expected_sign": -1
-              },
-              {
-                "left": 2,
-                "right": 3,
-                "expected_sign": 1
-              },
-              {
-                "left": 4,
-                "right": 5,
-                "expected_sign": 0
-              }
-            ]
-          }
-        ],
-        "total_points": 100,
-        "problem_kind": "java_reflection",
-        "id": "ee4200f0b6f744c9a7f6b8b0d7937fe5",
-        "status": "published",
-        "source": {
-          "created_by": "quyencorn",
-          "created_at": "2026-11-05T15:02:42+00:00",
-          "updated_at": "2026-11-05T16:33:24+00:00",
-          "updated_by": "kakashi"
-        },
-        "usage_count": 9,
-        "version": 4,
-        "validation": {
-          "spec_hash": "0b4bd4e147422b123462583bafefa96b61efc12f4d34cb21e428e1e55693e3ee",
-          "passed": true,
-          "validated_at": "2026-11-05T16:33:21+00:00",
-          "validated_by": "kakashi",
-          "sample_sha256": "c8c8aac1c29e39870b1a6d9b954db914ff091bb35e669520e6e94c019257f453",
-          "verdict": "AC",
-          "score": 100,
-          "total_points": 100
-        },
-        "question_id": "ee4200f0b6f744c9a7f6b8b0d7937fe5",
-        "snapshot_version": 4,
-        "snapshot_at": "2026-11-06T06:41:02+00:00",
-        "order": 2
-      }
-    ],
-    "distributed_at": "2026-11-06T06:41:02+00:00",
-    "started_at": "2026-11-13T03:37:16+00:00",
-    "ended_at": "2026-11-14T18:35:21+00:00"
-  },
-  "f283d00825844a97b234f6187d702121": {
-    "id": "f283d00825844a97b234f6187d702121",
-    "schema_version": 2,
-    "status": "ended",
-    "release_id": "65f9bac000584439a57b508fc51776a3",
-    "general_exam_id": "8edb178189ca49de894c63acfcfa6061",
+    "release_id": "bbffe58d82ee49d296b4863a45ce21e4",
+    "general_exam_id": "4976d1b22eea44a68eabac128cb6289a",
     "paper_ref": {
-      "paper_id": "e2864110eddd46d19006c5aba026b7a1"
+      "paper_id": "8909bf5d07064de2b2fdd9f8b37218e2"
     },
     "paper_snapshot": {
-      "id": "e2864110eddd46d19006c5aba026b7a1",
-      "title": "ATI",
+      "id": "8909bf5d07064de2b2fdd9f8b37218e2",
+      "title": "JSD-2000",
       "metadata": {},
       "questions": [
-        {
-          "title": "Arithmetic Summary 2",
-          "statement": "Read two signed 32-bit integers a and b. Print exactly one line in this format: sum=<a+b>;diff=<a-b>;product=<a*b>. Do not add spaces around separators.",
-          "language": "java",
-          "grading_mode": "stdio",
-          "target_class": "Main",
-          "target_package": "",
-          "target_file": "Main.java",
-          "starter_code": "import java.util.Scanner;\n\npublic class Main {\n    public static void main(String[] args) {\n        Scanner scanner = new Scanner(System.in);\n        int a = scanner.nextInt();\n        int b = scanner.nextInt();\n        // Print the required arithmetic summary.\n    }\n}\n",
-          "time_limit_seconds": 5.0,
-          "memory_limit_mb": 256,
-          "max_output_bytes": 65536,
-          "allow_pretest": true,
-          "max_pretest_runs": 20,
-          "category": "Arithmetic",
-          "tags": [
-            "java",
-            "stdio",
-            "formatting"
-          ],
-          "difficulty": "easy",
-          "practice_enabled": true,
-          "tests": [
-            {
-              "id": "j01-positive",
-              "stdin": "12 5\n",
-              "expected_stdout": "sum=17;diff=7;product=60\n",
-              "points": 25,
-              "is_visible": true
-            },
-            {
-              "id": "j01-negative",
-              "stdin": "-3 8\n",
-              "expected_stdout": "sum=5;diff=-11;product=-24\n",
-              "points": 25,
-              "is_visible": true
-            },
-            {
-              "id": "j01-zero",
-              "stdin": "0 19\n",
-              "expected_stdout": "sum=19;diff=-19;product=0\n",
-              "points": 25,
-              "is_visible": false
-            },
-            {
-              "id": "j01-small",
-              "stdin": "-4 -6\n",
-              "expected_stdout": "sum=-10;diff=2;product=24\n",
-              "points": 25,
-              "is_visible": true
-            }
-          ],
-          "total_points": 100,
-          "problem_kind": "java_stdio",
-          "sample_source": "import java.util.Scanner;\n\npublic class Main {\n    public static void main(String[] args) {\n        Scanner scanner = new Scanner(System.in);\n        int a = scanner.nextInt();\n        int b = scanner.nextInt();\n\n        System.out.println(\"sum=\" + (a + b)\n                + \";diff=\" + (a - b)\n                + \";product=\" + (a * b));\n    }\n}",
-          "id": "cfe3b5ce315a4b9e80b762d6e58203eb",
-          "status": "published",
-          "source": {
-            "created_by": "naruto",
-            "created_at": "2026-11-16T07:42:23+00:00",
-            "updated_by": "naruto",
-            "updated_at": "2026-11-16T07:49:29+00:00"
-          },
-          "usage_count": 0,
-          "version": 5,
-          "validation": {
-            "spec_hash": "7337cfb391997fe5476d7375f99e4fc9bdd45bf1faf441c037b2a9fa7d2f84c1",
-            "passed": true,
-            "validated_at": "2026-11-16T07:49:29+00:00",
-            "validated_by": "naruto",
-            "sample_sha256": "2ced83b9a99af1e7271786721fe492a3c77259c3579756b23f10a15bd3875c53",
-            "verdict": "AC",
-            "score": 100,
-            "total_points": 100
-          },
-          "practice_revision": "d8e67f32edfc4bce861f405a7155c075",
-          "question_id": "cfe3b5ce315a4b9e80b762d6e58203eb",
-          "snapshot_version": 5,
-          "snapshot_at": "2026-11-16T07:51:16+00:00",
-          "order": 0
-        },
-        {
-          "title": "Arithmetic Summary 3",
-          "statement": "Read two signed 32-bit integers a and b. Print exactly one line in this format: sum=<a+b>;diff=<a-b>;product=<a*b>. Do not add spaces around separators.",
-          "language": "java",
-          "grading_mode": "stdio",
-          "target_class": "Main",
-          "target_package": "",
-          "target_file": "Main.java",
-          "starter_code": "import java.util.Scanner;\n\npublic class Main {\n    public static void main(String[] args) {\n        Scanner scanner = new Scanner(System.in);\n        int a = scanner.nextInt();\n        int b = scanner.nextInt();\n        // Print the required arithmetic summary.\n    }\n}\n",
-          "time_limit_seconds": 5.0,
-          "memory_limit_mb": 256,
-          "max_output_bytes": 65536,
-          "allow_pretest": true,
-          "max_pretest_runs": 20,
-          "category": "Arithmetic",
-          "tags": [
-            "java",
-            "stdio",
-            "formatting"
-          ],
-          "difficulty": "easy",
-          "practice_enabled": true,
-          "tests": [
-            {
-              "id": "j01-positive",
-              "stdin": "12 5\n",
-              "expected_stdout": "sum=17;diff=7;product=60\n",
-              "points": 25,
-              "is_visible": true
-            },
-            {
-              "id": "j01-negative",
-              "stdin": "-3 8\n",
-              "expected_stdout": "sum=5;diff=-11;product=-24\n",
-              "points": 25,
-              "is_visible": true
-            },
-            {
-              "id": "j01-zero",
-              "stdin": "0 19\n",
-              "expected_stdout": "sum=19;diff=-19;product=0\n",
-              "points": 25,
-              "is_visible": false
-            },
-            {
-              "id": "j01-small",
-              "stdin": "-4 -6\n",
-              "expected_stdout": "sum=-10;diff=2;product=24\n",
-              "points": 25,
-              "is_visible": true
-            }
-          ],
-          "total_points": 100,
-          "problem_kind": "java_stdio",
-          "id": "778d8f8928d24343aac1c0524856106d",
-          "sample_source": "import java.util.Scanner;\n\npublic class Main {\n    public static void main(String[] args) {\n        Scanner scanner = new Scanner(System.in);\n        int a = scanner.nextInt();\n        int b = scanner.nextInt();\n\n        System.out.println(\"sum=\" + (a + b)\n                + \";diff=\" + (a - b)\n                + \";product=\" + (a * b));\n    }\n}",
-          "status": "published",
-          "source": {
-            "created_by": "naruto",
-            "created_at": "2026-11-16T07:42:38+00:00",
-            "updated_by": "naruto",
-            "updated_at": "2026-11-16T07:47:24+00:00"
-          },
-          "usage_count": 0,
-          "version": 4,
-          "validation": {
-            "spec_hash": "23c505fc9912b6fe7375f46c3cce571765f8e764b7dc0407c19f712ffd3e0c60",
-            "passed": true,
-            "validated_at": "2026-11-16T07:47:24+00:00",
-            "validated_by": "naruto",
-            "sample_sha256": "2ced83b9a99af1e7271786721fe492a3c77259c3579756b23f10a15bd3875c53",
-            "verdict": "AC",
-            "score": 100,
-            "total_points": 100
-          },
-          "practice_revision": "e91b31242d50472b9151d4e677bd62a9",
-          "question_id": "778d8f8928d24343aac1c0524856106d",
-          "snapshot_version": 4,
-          "snapshot_at": "2026-11-16T07:51:16+00:00",
-          "order": 1
-        },
         {
           "title": "Arithmetic Summary",
           "statement": "Read two signed 32-bit integers a and b. Print exactly one line in this format: sum=<a+b>;diff=<a-b>;product=<a*b>. Do not add spaces around separators.",
@@ -1951,864 +347,294 @@
           ],
           "total_points": 100,
           "problem_kind": "java_stdio",
-          "sample_source": "import java.util.Scanner;\n\npublic class Main {\n    public static void main(String[] args) {\n        Scanner scanner = new Scanner(System.in);\n        int a = scanner.nextInt();\n        int b = scanner.nextInt();\n\n        System.out.println(\"sum=\" + (a + b)\n                + \";diff=\" + (a - b)\n                + \";product=\" + (a * b));\n    }\n}",
-          "id": "abf15daf5e734c07ac049821af780598",
+          "id": "65cf650fab404ab385f3c236ad2506a5",
           "status": "published",
           "source": {
-            "created_by": "naruto",
-            "created_at": "2026-11-16T07:35:00+00:00",
-            "updated_by": "naruto",
-            "updated_at": "2026-11-16T07:35:10+00:00"
+            "created_by": "minh",
+            "created_at": "2026-11-18T12:08:35+00:00",
+            "updated_by": "minh",
+            "updated_at": "2026-11-18T12:08:35+00:00"
           },
           "usage_count": 0,
-          "version": 2,
+          "version": 1,
           "validation": {
-            "spec_hash": "2047dc07ce6a8923d216579c1e231b72f168b9606c93885b5d2c42b3494ce5eb",
+            "spec_hash": "d214bf1fbcb881530356965b2c2ab8ced9959fe4454d172eb85297118ca35c17",
             "passed": true,
-            "validated_at": "2026-11-16T07:35:10+00:00",
-            "validated_by": "naruto",
+            "validated_at": "2026-11-18T12:08:35+00:00",
+            "validated_by": "minh",
             "sample_sha256": "2ced83b9a99af1e7271786721fe492a3c77259c3579756b23f10a15bd3875c53",
             "verdict": "AC",
             "score": 100,
             "total_points": 100
           },
-          "practice_revision": "bf09c80e89354e2ab4f1aa58fd955439",
-          "question_id": "abf15daf5e734c07ac049821af780598",
-          "snapshot_version": 2,
-          "snapshot_at": "2026-11-16T07:51:16+00:00",
+          "practice_revision": "842e83e182bc47acb0fe64899dd9308e",
+          "question_id": "65cf650fab404ab385f3c236ad2506a5",
+          "snapshot_version": 1,
+          "snapshot_at": "2026-11-18T12:13:10+00:00",
+          "order": 0
+        },
+        {
+          "title": "Comparable Ranked Label",
+          "statement": "Create class model.RankedLabel with private int rank and private String label, plus a public constructor RankedLabel(int rank, String label). Implement Comparable<RankedLabel>; compareTo orders by rank ascending, then by label lexicographically. Override compareTo with public int compareTo(RankedLabel other). The supported Reflection checks verify the interface contract, declared override signature, and comparison outcomes.",
+          "language": "java",
+          "grading_mode": "reflection",
+          "target_class": "model.RankedLabel",
+          "target_package": "model",
+          "target_file": "RankedLabel.java",
+          "starter_code": "package model;\n\npublic class RankedLabel {\n    // Implement Comparable<RankedLabel>, its ordering, fields, and constructor.\n}\n",
+          "time_limit_seconds": 5.0,
+          "memory_limit_mb": 256,
+          "max_output_bytes": 65536,
+          "allow_pretest": true,
+          "max_pretest_runs": 20,
+          "category": "Java Reflection",
+          "tags": [
+            "java",
+            "reflection",
+            "interfaces",
+            "overriding"
+          ],
+          "difficulty": "hard",
+          "practice_enabled": false,
+          "checks": [
+            {
+              "id": "r03-comparable-interface",
+              "kind": "implements",
+              "points": 20,
+              "is_visible": true,
+              "interface": "java.lang.Comparable"
+            },
+            {
+              "id": "r03-rank-field",
+              "kind": "field",
+              "points": 15,
+              "is_visible": true,
+              "name": "rank",
+              "type": "int",
+              "modifier": "private"
+            },
+            {
+              "id": "r03-compare-override",
+              "kind": "method",
+              "points": 20,
+              "is_visible": true,
+              "name": "compareTo",
+              "return_type": "int",
+              "parameter_types": [
+                "model.RankedLabel"
+              ],
+              "modifier": "public"
+            },
+            {
+              "id": "r03-ordering",
+              "kind": "comparable",
+              "points": 30,
+              "is_visible": true,
+              "instances": [
+                {
+                  "constructor_parameter_types": [
+                    "int",
+                    "String"
+                  ],
+                  "constructor_args": [
+                    2,
+                    "Beta"
+                  ]
+                },
+                {
+                  "constructor_parameter_types": [
+                    "int",
+                    "String"
+                  ],
+                  "constructor_args": [
+                    1,
+                    "Zulu"
+                  ]
+                },
+                {
+                  "constructor_parameter_types": [
+                    "int",
+                    "String"
+                  ],
+                  "constructor_args": [
+                    2,
+                    "Alpha"
+                  ]
+                }
+              ],
+              "comparisons": [
+                {
+                  "left": 1,
+                  "right": 0,
+                  "expected_sign": -1
+                },
+                {
+                  "left": 2,
+                  "right": 0,
+                  "expected_sign": -1
+                }
+              ],
+              "expected_order": [
+                1,
+                2,
+                0
+              ]
+            },
+            {
+              "id": "r03-tie-label",
+              "kind": "comparable",
+              "points": 15,
+              "is_visible": false,
+              "instances": [
+                {
+                  "constructor_parameter_types": [
+                    "int",
+                    "String"
+                  ],
+                  "constructor_args": [
+                    4,
+                    "A"
+                  ]
+                },
+                {
+                  "constructor_parameter_types": [
+                    "int",
+                    "String"
+                  ],
+                  "constructor_args": [
+                    4,
+                    "B"
+                  ]
+                }
+              ],
+              "comparisons": [
+                {
+                  "left": 0,
+                  "right": 1,
+                  "expected_sign": -1
+                }
+              ]
+            }
+          ],
+          "total_points": 100,
+          "problem_kind": "java_reflection",
+          "id": "10f7ee74c8d44381a3f5ddad08979f8b",
+          "status": "published",
+          "source": {
+            "created_by": "minh",
+            "created_at": "2026-11-18T12:10:23+00:00",
+            "updated_by": "minh",
+            "updated_at": "2026-11-18T12:10:23+00:00"
+          },
+          "usage_count": 0,
+          "version": 1,
+          "validation": {
+            "spec_hash": "cd2d5c84ee83c2d08d55abe503e2d3b4d313226a1583bdba5692c2e982ec5693",
+            "passed": true,
+            "validated_at": "2026-11-18T12:10:23+00:00",
+            "validated_by": "minh",
+            "sample_sha256": "5f27b4e708703aee072b4998968fd1f7f364cc78e8cc337f58b744bb113f0650",
+            "verdict": "AC",
+            "score": 100,
+            "total_points": 100
+          },
+          "practice_revision": "1418d6c1caa24720b740b08413719f1b",
+          "question_id": "10f7ee74c8d44381a3f5ddad08979f8b",
+          "snapshot_version": 1,
+          "snapshot_at": "2026-11-18T12:13:10+00:00",
+          "order": 1
+        },
+        {
+          "title": "Integer Ledger",
+          "statement": "Read two signed integers a and b separated by whitespace. Print three lines: their sum, a minus b, and their product, in that order. Inputs fit the signed 32-bit range.",
+          "language": "python",
+          "grading_mode": "stdio",
+          "target_file": "solution.py",
+          "starter_code": "a, b = map(int, input().split())\n# Print sum, difference, and product on separate lines.\n",
+          "time_limit_seconds": 2.0,
+          "memory_limit_mb": 128,
+          "max_output_bytes": 65536,
+          "allow_pretest": true,
+          "max_pretest_runs": 20,
+          "category": "Arithmetic",
+          "tags": [
+            "python",
+            "integer",
+            "stdio"
+          ],
+          "difficulty": "easy",
+          "practice_enabled": false,
+          "tests": [
+            {
+              "id": "p01-small",
+              "stdin": "7 3\n",
+              "expected_stdout": "10\n4\n21\n",
+              "points": 25,
+              "is_visible": true
+            },
+            {
+              "id": "p01-negative",
+              "stdin": "-8 5\n",
+              "expected_stdout": "-3\n-13\n-40\n",
+              "points": 25,
+              "is_visible": true
+            },
+            {
+              "id": "p01-zero",
+              "stdin": "0 0\n",
+              "expected_stdout": "0\n0\n0\n",
+              "points": 25,
+              "is_visible": false
+            },
+            {
+              "id": "p01-large",
+              "stdin": "100000 200000\n",
+              "expected_stdout": "300000\n-100000\n20000000000\n",
+              "points": 25,
+              "is_visible": true
+            }
+          ],
+          "total_points": 100,
+          "problem_kind": "python_stdio",
+          "id": "5f2e352fa72c428986ab949ef80b5e13",
+          "status": "published",
+          "source": {
+            "created_by": "minh",
+            "created_at": "2026-11-18T12:09:34+00:00",
+            "updated_by": "minh",
+            "updated_at": "2026-11-18T12:09:34+00:00"
+          },
+          "usage_count": 0,
+          "version": 1,
+          "validation": {
+            "spec_hash": "737a38ce6404b713d59da4238252f43b15192c68ea73dbcea63c66c7d4852fb3",
+            "passed": true,
+            "validated_at": "2026-11-18T12:09:34+00:00",
+            "validated_by": "minh",
+            "sample_sha256": "d764066afec1b49123ee168b0296531ea01bdaa9ac3d47f03720ae53c18bc0cb",
+            "verdict": "AC",
+            "score": 100,
+            "total_points": 100
+          },
+          "practice_revision": "df779090849d49b29689d21a90c227e3",
+          "question_id": "5f2e352fa72c428986ab949ef80b5e13",
+          "snapshot_version": 1,
+          "snapshot_at": "2026-11-18T12:13:10+00:00",
           "order": 2
         }
       ]
     },
-    "created_by": "naruto",
-    "created_at": "2026-11-16T07:52:01+00:00",
-    "updated_at": "2026-11-16T08:16:10+00:00",
-    "title": "SAI",
+    "created_by": "minh",
+    "created_at": "2026-11-18T12:15:04+00:00",
+    "updated_at": "2026-11-18T12:16:14+00:00",
+    "title": "JSD Dai Chien",
     "show_final_score_immediately": true,
     "allow_pretest": true,
     "max_pretest_runs": 20,
     "pretest_cooldown_seconds": 2.0,
     "submission_policy": "configurable",
     "max_submissions": 1,
-    "distributed_at": "2026-11-16T07:52:01+00:00",
-    "started_at": "2026-11-16T07:52:24+00:00",
-    "ended_at": "2026-11-16T08:16:10+00:00"
-  },
-  "71802d77ff3749bcbae2d1556cc33ecb": {
-    "id": "71802d77ff3749bcbae2d1556cc33ecb",
-    "schema_version": 2,
-    "status": "distributed",
-    "release_id": "e57ba1806d26421e880bad6a32736c97",
-    "general_exam_id": "123101b1c513495cb4482f7854ad67a7",
-    "paper_ref": {
-      "paper_id": "e2864110eddd46d19006c5aba026b7a1"
-    },
-    "paper_snapshot": {
-      "id": "e2864110eddd46d19006c5aba026b7a1",
-      "title": "ATI",
-      "metadata": {},
-      "questions": [
-        {
-          "title": "Arithmetic Summary 2",
-          "statement": "Read two signed 32-bit integers a and b. Print exactly one line in this format: sum=<a+b>;diff=<a-b>;product=<a*b>. Do not add spaces around separators.",
-          "language": "java",
-          "grading_mode": "stdio",
-          "target_class": "Main",
-          "target_package": "",
-          "target_file": "Main.java",
-          "starter_code": "import java.util.Scanner;\n\npublic class Main {\n    public static void main(String[] args) {\n        Scanner scanner = new Scanner(System.in);\n        int a = scanner.nextInt();\n        int b = scanner.nextInt();\n        // Print the required arithmetic summary.\n    }\n}\n",
-          "time_limit_seconds": 5.0,
-          "memory_limit_mb": 256,
-          "max_output_bytes": 65536,
-          "allow_pretest": true,
-          "max_pretest_runs": 20,
-          "category": "Arithmetic",
-          "tags": [
-            "java",
-            "stdio",
-            "formatting"
-          ],
-          "difficulty": "easy",
-          "practice_enabled": true,
-          "tests": [
-            {
-              "id": "j01-positive",
-              "stdin": "12 5\n",
-              "expected_stdout": "sum=17;diff=7;product=60\n",
-              "points": 25,
-              "is_visible": true
-            },
-            {
-              "id": "j01-negative",
-              "stdin": "-3 8\n",
-              "expected_stdout": "sum=5;diff=-11;product=-24\n",
-              "points": 25,
-              "is_visible": true
-            },
-            {
-              "id": "j01-zero",
-              "stdin": "0 19\n",
-              "expected_stdout": "sum=19;diff=-19;product=0\n",
-              "points": 25,
-              "is_visible": false
-            },
-            {
-              "id": "j01-small",
-              "stdin": "-4 -6\n",
-              "expected_stdout": "sum=-10;diff=2;product=24\n",
-              "points": 25,
-              "is_visible": true
-            }
-          ],
-          "total_points": 100,
-          "problem_kind": "java_stdio",
-          "sample_source": "import java.util.Scanner;\n\npublic class Main {\n    public static void main(String[] args) {\n        Scanner scanner = new Scanner(System.in);\n        int a = scanner.nextInt();\n        int b = scanner.nextInt();\n\n        System.out.println(\"sum=\" + (a + b)\n                + \";diff=\" + (a - b)\n                + \";product=\" + (a * b));\n    }\n}",
-          "id": "cfe3b5ce315a4b9e80b762d6e58203eb",
-          "status": "published",
-          "source": {
-            "created_by": "naruto",
-            "created_at": "2026-11-16T07:42:23+00:00",
-            "updated_by": "naruto",
-            "updated_at": "2026-11-16T07:49:29+00:00"
-          },
-          "usage_count": 0,
-          "version": 5,
-          "validation": {
-            "spec_hash": "7337cfb391997fe5476d7375f99e4fc9bdd45bf1faf441c037b2a9fa7d2f84c1",
-            "passed": true,
-            "validated_at": "2026-11-16T07:49:29+00:00",
-            "validated_by": "naruto",
-            "sample_sha256": "2ced83b9a99af1e7271786721fe492a3c77259c3579756b23f10a15bd3875c53",
-            "verdict": "AC",
-            "score": 100,
-            "total_points": 100
-          },
-          "practice_revision": "d8e67f32edfc4bce861f405a7155c075",
-          "question_id": "cfe3b5ce315a4b9e80b762d6e58203eb",
-          "snapshot_version": 5,
-          "snapshot_at": "2026-11-16T07:51:16+00:00",
-          "order": 0
-        },
-        {
-          "title": "Arithmetic Summary 3",
-          "statement": "Read two signed 32-bit integers a and b. Print exactly one line in this format: sum=<a+b>;diff=<a-b>;product=<a*b>. Do not add spaces around separators.",
-          "language": "java",
-          "grading_mode": "stdio",
-          "target_class": "Main",
-          "target_package": "",
-          "target_file": "Main.java",
-          "starter_code": "import java.util.Scanner;\n\npublic class Main {\n    public static void main(String[] args) {\n        Scanner scanner = new Scanner(System.in);\n        int a = scanner.nextInt();\n        int b = scanner.nextInt();\n        // Print the required arithmetic summary.\n    }\n}\n",
-          "time_limit_seconds": 5.0,
-          "memory_limit_mb": 256,
-          "max_output_bytes": 65536,
-          "allow_pretest": true,
-          "max_pretest_runs": 20,
-          "category": "Arithmetic",
-          "tags": [
-            "java",
-            "stdio",
-            "formatting"
-          ],
-          "difficulty": "easy",
-          "practice_enabled": true,
-          "tests": [
-            {
-              "id": "j01-positive",
-              "stdin": "12 5\n",
-              "expected_stdout": "sum=17;diff=7;product=60\n",
-              "points": 25,
-              "is_visible": true
-            },
-            {
-              "id": "j01-negative",
-              "stdin": "-3 8\n",
-              "expected_stdout": "sum=5;diff=-11;product=-24\n",
-              "points": 25,
-              "is_visible": true
-            },
-            {
-              "id": "j01-zero",
-              "stdin": "0 19\n",
-              "expected_stdout": "sum=19;diff=-19;product=0\n",
-              "points": 25,
-              "is_visible": false
-            },
-            {
-              "id": "j01-small",
-              "stdin": "-4 -6\n",
-              "expected_stdout": "sum=-10;diff=2;product=24\n",
-              "points": 25,
-              "is_visible": true
-            }
-          ],
-          "total_points": 100,
-          "problem_kind": "java_stdio",
-          "id": "778d8f8928d24343aac1c0524856106d",
-          "sample_source": "import java.util.Scanner;\n\npublic class Main {\n    public static void main(String[] args) {\n        Scanner scanner = new Scanner(System.in);\n        int a = scanner.nextInt();\n        int b = scanner.nextInt();\n\n        System.out.println(\"sum=\" + (a + b)\n                + \";diff=\" + (a - b)\n                + \";product=\" + (a * b));\n    }\n}",
-          "status": "published",
-          "source": {
-            "created_by": "naruto",
-            "created_at": "2026-11-16T07:42:38+00:00",
-            "updated_by": "naruto",
-            "updated_at": "2026-11-16T07:47:24+00:00"
-          },
-          "usage_count": 0,
-          "version": 4,
-          "validation": {
-            "spec_hash": "23c505fc9912b6fe7375f46c3cce571765f8e764b7dc0407c19f712ffd3e0c60",
-            "passed": true,
-            "validated_at": "2026-11-16T07:47:24+00:00",
-            "validated_by": "naruto",
-            "sample_sha256": "2ced83b9a99af1e7271786721fe492a3c77259c3579756b23f10a15bd3875c53",
-            "verdict": "AC",
-            "score": 100,
-            "total_points": 100
-          },
-          "practice_revision": "e91b31242d50472b9151d4e677bd62a9",
-          "question_id": "778d8f8928d24343aac1c0524856106d",
-          "snapshot_version": 4,
-          "snapshot_at": "2026-11-16T07:51:16+00:00",
-          "order": 1
-        },
-        {
-          "title": "Arithmetic Summary",
-          "statement": "Read two signed 32-bit integers a and b. Print exactly one line in this format: sum=<a+b>;diff=<a-b>;product=<a*b>. Do not add spaces around separators.",
-          "language": "java",
-          "grading_mode": "stdio",
-          "target_class": "Main",
-          "target_package": "",
-          "target_file": "Main.java",
-          "starter_code": "import java.util.Scanner;\n\npublic class Main {\n    public static void main(String[] args) {\n        Scanner scanner = new Scanner(System.in);\n        int a = scanner.nextInt();\n        int b = scanner.nextInt();\n        // Print the required arithmetic summary.\n    }\n}\n",
-          "time_limit_seconds": 5.0,
-          "memory_limit_mb": 256,
-          "max_output_bytes": 65536,
-          "allow_pretest": true,
-          "max_pretest_runs": 20,
-          "category": "Arithmetic",
-          "tags": [
-            "java",
-            "stdio",
-            "formatting"
-          ],
-          "difficulty": "easy",
-          "practice_enabled": false,
-          "tests": [
-            {
-              "id": "j01-positive",
-              "stdin": "12 5\n",
-              "expected_stdout": "sum=17;diff=7;product=60\n",
-              "points": 25,
-              "is_visible": true
-            },
-            {
-              "id": "j01-negative",
-              "stdin": "-3 8\n",
-              "expected_stdout": "sum=5;diff=-11;product=-24\n",
-              "points": 25,
-              "is_visible": true
-            },
-            {
-              "id": "j01-zero",
-              "stdin": "0 19\n",
-              "expected_stdout": "sum=19;diff=-19;product=0\n",
-              "points": 25,
-              "is_visible": false
-            },
-            {
-              "id": "j01-small",
-              "stdin": "-4 -6\n",
-              "expected_stdout": "sum=-10;diff=2;product=24\n",
-              "points": 25,
-              "is_visible": true
-            }
-          ],
-          "total_points": 100,
-          "problem_kind": "java_stdio",
-          "sample_source": "import java.util.Scanner;\n\npublic class Main {\n    public static void main(String[] args) {\n        Scanner scanner = new Scanner(System.in);\n        int a = scanner.nextInt();\n        int b = scanner.nextInt();\n\n        System.out.println(\"sum=\" + (a + b)\n                + \";diff=\" + (a - b)\n                + \";product=\" + (a * b));\n    }\n}",
-          "id": "abf15daf5e734c07ac049821af780598",
-          "status": "published",
-          "source": {
-            "created_by": "naruto",
-            "created_at": "2026-11-16T07:35:00+00:00",
-            "updated_by": "naruto",
-            "updated_at": "2026-11-16T07:35:10+00:00"
-          },
-          "usage_count": 0,
-          "version": 2,
-          "validation": {
-            "spec_hash": "2047dc07ce6a8923d216579c1e231b72f168b9606c93885b5d2c42b3494ce5eb",
-            "passed": true,
-            "validated_at": "2026-11-16T07:35:10+00:00",
-            "validated_by": "naruto",
-            "sample_sha256": "2ced83b9a99af1e7271786721fe492a3c77259c3579756b23f10a15bd3875c53",
-            "verdict": "AC",
-            "score": 100,
-            "total_points": 100
-          },
-          "practice_revision": "bf09c80e89354e2ab4f1aa58fd955439",
-          "question_id": "abf15daf5e734c07ac049821af780598",
-          "snapshot_version": 2,
-          "snapshot_at": "2026-11-16T07:51:16+00:00",
-          "order": 2
-        }
-      ]
-    },
-    "created_by": "naruto",
-    "created_at": "2026-11-16T08:16:34+00:00",
-    "updated_at": "2026-11-16T08:16:34+00:00",
-    "title": "SAI (bản sao)",
-    "show_final_score_immediately": true,
-    "allow_pretest": true,
-    "max_pretest_runs": 20,
-    "pretest_cooldown_seconds": 2.0,
-    "submission_policy": "configurable",
-    "max_submissions": 1,
-    "distributed_at": "2026-11-16T08:16:34+00:00"
-  },
-  "76c9a66437fa4e8281d18ee977ba6fde": {
-    "id": "76c9a66437fa4e8281d18ee977ba6fde",
-    "schema_version": 2,
-    "status": "ended",
-    "release_id": "f03f153acf3c4f32bc5c3510d5f45c1c",
-    "general_exam_id": "037827bd86e34082ae3ee47fbc926a05",
-    "paper_ref": {
-      "paper_id": "e2864110eddd46d19006c5aba026b7a1"
-    },
-    "paper_snapshot": {
-      "id": "e2864110eddd46d19006c5aba026b7a1",
-      "title": "ATI",
-      "metadata": {},
-      "questions": [
-        {
-          "title": "Arithmetic Summary 2",
-          "statement": "Read two signed 32-bit integers a and b. Print exactly one line in this format: sum=<a+b>;diff=<a-b>;product=<a*b>. Do not add spaces around separators.",
-          "language": "java",
-          "grading_mode": "stdio",
-          "target_class": "Main",
-          "target_package": "",
-          "target_file": "Main.java",
-          "starter_code": "import java.util.Scanner;\n\npublic class Main {\n    public static void main(String[] args) {\n        Scanner scanner = new Scanner(System.in);\n        int a = scanner.nextInt();\n        int b = scanner.nextInt();\n        // Print the required arithmetic summary.\n    }\n}\n",
-          "time_limit_seconds": 5.0,
-          "memory_limit_mb": 256,
-          "max_output_bytes": 65536,
-          "allow_pretest": true,
-          "max_pretest_runs": 20,
-          "category": "Arithmetic",
-          "tags": [
-            "java",
-            "stdio",
-            "formatting"
-          ],
-          "difficulty": "easy",
-          "practice_enabled": true,
-          "tests": [
-            {
-              "id": "j01-positive",
-              "stdin": "12 5\n",
-              "expected_stdout": "sum=17;diff=7;product=60\n",
-              "points": 25,
-              "is_visible": true
-            },
-            {
-              "id": "j01-negative",
-              "stdin": "-3 8\n",
-              "expected_stdout": "sum=5;diff=-11;product=-24\n",
-              "points": 25,
-              "is_visible": true
-            },
-            {
-              "id": "j01-zero",
-              "stdin": "0 19\n",
-              "expected_stdout": "sum=19;diff=-19;product=0\n",
-              "points": 25,
-              "is_visible": false
-            },
-            {
-              "id": "j01-small",
-              "stdin": "-4 -6\n",
-              "expected_stdout": "sum=-10;diff=2;product=24\n",
-              "points": 25,
-              "is_visible": true
-            }
-          ],
-          "total_points": 100,
-          "problem_kind": "java_stdio",
-          "sample_source": "import java.util.Scanner;\n\npublic class Main {\n    public static void main(String[] args) {\n        Scanner scanner = new Scanner(System.in);\n        int a = scanner.nextInt();\n        int b = scanner.nextInt();\n\n        System.out.println(\"sum=\" + (a + b)\n                + \";diff=\" + (a - b)\n                + \";product=\" + (a * b));\n    }\n}",
-          "id": "cfe3b5ce315a4b9e80b762d6e58203eb",
-          "status": "published",
-          "source": {
-            "created_by": "naruto",
-            "created_at": "2026-11-16T07:42:23+00:00",
-            "updated_by": "naruto",
-            "updated_at": "2026-11-16T07:49:29+00:00"
-          },
-          "usage_count": 0,
-          "version": 5,
-          "validation": {
-            "spec_hash": "7337cfb391997fe5476d7375f99e4fc9bdd45bf1faf441c037b2a9fa7d2f84c1",
-            "passed": true,
-            "validated_at": "2026-11-16T07:49:29+00:00",
-            "validated_by": "naruto",
-            "sample_sha256": "2ced83b9a99af1e7271786721fe492a3c77259c3579756b23f10a15bd3875c53",
-            "verdict": "AC",
-            "score": 100,
-            "total_points": 100
-          },
-          "practice_revision": "d8e67f32edfc4bce861f405a7155c075",
-          "question_id": "cfe3b5ce315a4b9e80b762d6e58203eb",
-          "snapshot_version": 5,
-          "snapshot_at": "2026-11-16T07:51:16+00:00",
-          "order": 0
-        },
-        {
-          "title": "Arithmetic Summary 3",
-          "statement": "Read two signed 32-bit integers a and b. Print exactly one line in this format: sum=<a+b>;diff=<a-b>;product=<a*b>. Do not add spaces around separators.",
-          "language": "java",
-          "grading_mode": "stdio",
-          "target_class": "Main",
-          "target_package": "",
-          "target_file": "Main.java",
-          "starter_code": "import java.util.Scanner;\n\npublic class Main {\n    public static void main(String[] args) {\n        Scanner scanner = new Scanner(System.in);\n        int a = scanner.nextInt();\n        int b = scanner.nextInt();\n        // Print the required arithmetic summary.\n    }\n}\n",
-          "time_limit_seconds": 5.0,
-          "memory_limit_mb": 256,
-          "max_output_bytes": 65536,
-          "allow_pretest": true,
-          "max_pretest_runs": 20,
-          "category": "Arithmetic",
-          "tags": [
-            "java",
-            "stdio",
-            "formatting"
-          ],
-          "difficulty": "easy",
-          "practice_enabled": true,
-          "tests": [
-            {
-              "id": "j01-positive",
-              "stdin": "12 5\n",
-              "expected_stdout": "sum=17;diff=7;product=60\n",
-              "points": 25,
-              "is_visible": true
-            },
-            {
-              "id": "j01-negative",
-              "stdin": "-3 8\n",
-              "expected_stdout": "sum=5;diff=-11;product=-24\n",
-              "points": 25,
-              "is_visible": true
-            },
-            {
-              "id": "j01-zero",
-              "stdin": "0 19\n",
-              "expected_stdout": "sum=19;diff=-19;product=0\n",
-              "points": 25,
-              "is_visible": false
-            },
-            {
-              "id": "j01-small",
-              "stdin": "-4 -6\n",
-              "expected_stdout": "sum=-10;diff=2;product=24\n",
-              "points": 25,
-              "is_visible": true
-            }
-          ],
-          "total_points": 100,
-          "problem_kind": "java_stdio",
-          "id": "778d8f8928d24343aac1c0524856106d",
-          "sample_source": "import java.util.Scanner;\n\npublic class Main {\n    public static void main(String[] args) {\n        Scanner scanner = new Scanner(System.in);\n        int a = scanner.nextInt();\n        int b = scanner.nextInt();\n\n        System.out.println(\"sum=\" + (a + b)\n                + \";diff=\" + (a - b)\n                + \";product=\" + (a * b));\n    }\n}",
-          "status": "published",
-          "source": {
-            "created_by": "naruto",
-            "created_at": "2026-11-16T07:42:38+00:00",
-            "updated_by": "naruto",
-            "updated_at": "2026-11-16T07:47:24+00:00"
-          },
-          "usage_count": 0,
-          "version": 4,
-          "validation": {
-            "spec_hash": "23c505fc9912b6fe7375f46c3cce571765f8e764b7dc0407c19f712ffd3e0c60",
-            "passed": true,
-            "validated_at": "2026-11-16T07:47:24+00:00",
-            "validated_by": "naruto",
-            "sample_sha256": "2ced83b9a99af1e7271786721fe492a3c77259c3579756b23f10a15bd3875c53",
-            "verdict": "AC",
-            "score": 100,
-            "total_points": 100
-          },
-          "practice_revision": "e91b31242d50472b9151d4e677bd62a9",
-          "question_id": "778d8f8928d24343aac1c0524856106d",
-          "snapshot_version": 4,
-          "snapshot_at": "2026-11-16T07:51:16+00:00",
-          "order": 1
-        },
-        {
-          "title": "Arithmetic Summary",
-          "statement": "Read two signed 32-bit integers a and b. Print exactly one line in this format: sum=<a+b>;diff=<a-b>;product=<a*b>. Do not add spaces around separators.",
-          "language": "java",
-          "grading_mode": "stdio",
-          "target_class": "Main",
-          "target_package": "",
-          "target_file": "Main.java",
-          "starter_code": "import java.util.Scanner;\n\npublic class Main {\n    public static void main(String[] args) {\n        Scanner scanner = new Scanner(System.in);\n        int a = scanner.nextInt();\n        int b = scanner.nextInt();\n        // Print the required arithmetic summary.\n    }\n}\n",
-          "time_limit_seconds": 5.0,
-          "memory_limit_mb": 256,
-          "max_output_bytes": 65536,
-          "allow_pretest": true,
-          "max_pretest_runs": 20,
-          "category": "Arithmetic",
-          "tags": [
-            "java",
-            "stdio",
-            "formatting"
-          ],
-          "difficulty": "easy",
-          "practice_enabled": false,
-          "tests": [
-            {
-              "id": "j01-positive",
-              "stdin": "12 5\n",
-              "expected_stdout": "sum=17;diff=7;product=60\n",
-              "points": 25,
-              "is_visible": true
-            },
-            {
-              "id": "j01-negative",
-              "stdin": "-3 8\n",
-              "expected_stdout": "sum=5;diff=-11;product=-24\n",
-              "points": 25,
-              "is_visible": true
-            },
-            {
-              "id": "j01-zero",
-              "stdin": "0 19\n",
-              "expected_stdout": "sum=19;diff=-19;product=0\n",
-              "points": 25,
-              "is_visible": false
-            },
-            {
-              "id": "j01-small",
-              "stdin": "-4 -6\n",
-              "expected_stdout": "sum=-10;diff=2;product=24\n",
-              "points": 25,
-              "is_visible": true
-            }
-          ],
-          "total_points": 100,
-          "problem_kind": "java_stdio",
-          "sample_source": "import java.util.Scanner;\n\npublic class Main {\n    public static void main(String[] args) {\n        Scanner scanner = new Scanner(System.in);\n        int a = scanner.nextInt();\n        int b = scanner.nextInt();\n\n        System.out.println(\"sum=\" + (a + b)\n                + \";diff=\" + (a - b)\n                + \";product=\" + (a * b));\n    }\n}",
-          "id": "abf15daf5e734c07ac049821af780598",
-          "status": "published",
-          "source": {
-            "created_by": "naruto",
-            "created_at": "2026-11-16T07:35:00+00:00",
-            "updated_by": "naruto",
-            "updated_at": "2026-11-16T07:35:10+00:00"
-          },
-          "usage_count": 0,
-          "version": 2,
-          "validation": {
-            "spec_hash": "2047dc07ce6a8923d216579c1e231b72f168b9606c93885b5d2c42b3494ce5eb",
-            "passed": true,
-            "validated_at": "2026-11-16T07:35:10+00:00",
-            "validated_by": "naruto",
-            "sample_sha256": "2ced83b9a99af1e7271786721fe492a3c77259c3579756b23f10a15bd3875c53",
-            "verdict": "AC",
-            "score": 100,
-            "total_points": 100
-          },
-          "practice_revision": "bf09c80e89354e2ab4f1aa58fd955439",
-          "question_id": "abf15daf5e734c07ac049821af780598",
-          "snapshot_version": 2,
-          "snapshot_at": "2026-11-16T07:51:16+00:00",
-          "order": 2
-        }
-      ]
-    },
-    "created_by": "naruto",
-    "created_at": "2026-11-16T10:18:51+00:00",
-    "updated_at": "2026-11-16T10:22:58+00:00",
-    "title": "JAV",
-    "show_final_score_immediately": false,
-    "allow_pretest": true,
-    "max_pretest_runs": 20,
-    "pretest_cooldown_seconds": 2.0,
-    "submission_policy": "configurable",
-    "max_submissions": 1,
-    "distributed_at": "2026-11-16T10:18:51+00:00",
-    "started_at": "2026-11-16T10:19:02+00:00",
-    "ended_at": "2026-11-16T10:22:58+00:00"
-  },
-  "1b9853f1895a44f097e13d37c8482238": {
-    "id": "1b9853f1895a44f097e13d37c8482238",
-    "schema_version": 2,
-    "status": "ended",
-    "release_id": "cdbccfbf713143f58fb190eb964c3c56",
-    "general_exam_id": "ad4eccbc9daf4fe69fdf8a6ab4e15f39",
-    "paper_ref": {
-      "paper_id": "e2864110eddd46d19006c5aba026b7a1"
-    },
-    "paper_snapshot": {
-      "id": "e2864110eddd46d19006c5aba026b7a1",
-      "title": "ATI",
-      "metadata": {},
-      "questions": [
-        {
-          "title": "Arithmetic Summary 2",
-          "statement": "Read two signed 32-bit integers a and b. Print exactly one line in this format: sum=<a+b>;diff=<a-b>;product=<a*b>. Do not add spaces around separators.",
-          "language": "java",
-          "grading_mode": "stdio",
-          "target_class": "Main",
-          "target_package": "",
-          "target_file": "Main.java",
-          "starter_code": "import java.util.Scanner;\n\npublic class Main {\n    public static void main(String[] args) {\n        Scanner scanner = new Scanner(System.in);\n        int a = scanner.nextInt();\n        int b = scanner.nextInt();\n        // Print the required arithmetic summary.\n    }\n}\n",
-          "time_limit_seconds": 5.0,
-          "memory_limit_mb": 256,
-          "max_output_bytes": 65536,
-          "allow_pretest": true,
-          "max_pretest_runs": 20,
-          "category": "Arithmetic",
-          "tags": [
-            "java",
-            "stdio",
-            "formatting"
-          ],
-          "difficulty": "easy",
-          "practice_enabled": true,
-          "tests": [
-            {
-              "id": "j01-positive",
-              "stdin": "12 5\n",
-              "expected_stdout": "sum=17;diff=7;product=60\n",
-              "points": 25,
-              "is_visible": true
-            },
-            {
-              "id": "j01-negative",
-              "stdin": "-3 8\n",
-              "expected_stdout": "sum=5;diff=-11;product=-24\n",
-              "points": 25,
-              "is_visible": true
-            },
-            {
-              "id": "j01-zero",
-              "stdin": "0 19\n",
-              "expected_stdout": "sum=19;diff=-19;product=0\n",
-              "points": 25,
-              "is_visible": false
-            },
-            {
-              "id": "j01-small",
-              "stdin": "-4 -6\n",
-              "expected_stdout": "sum=-10;diff=2;product=24\n",
-              "points": 25,
-              "is_visible": true
-            }
-          ],
-          "total_points": 100,
-          "problem_kind": "java_stdio",
-          "sample_source": "import java.util.Scanner;\n\npublic class Main {\n    public static void main(String[] args) {\n        Scanner scanner = new Scanner(System.in);\n        int a = scanner.nextInt();\n        int b = scanner.nextInt();\n\n        System.out.println(\"sum=\" + (a + b)\n                + \";diff=\" + (a - b)\n                + \";product=\" + (a * b));\n    }\n}",
-          "id": "cfe3b5ce315a4b9e80b762d6e58203eb",
-          "status": "published",
-          "source": {
-            "created_by": "naruto",
-            "created_at": "2026-11-16T07:42:23+00:00",
-            "updated_by": "naruto",
-            "updated_at": "2026-11-16T07:49:29+00:00"
-          },
-          "usage_count": 0,
-          "version": 5,
-          "validation": {
-            "spec_hash": "7337cfb391997fe5476d7375f99e4fc9bdd45bf1faf441c037b2a9fa7d2f84c1",
-            "passed": true,
-            "validated_at": "2026-11-16T07:49:29+00:00",
-            "validated_by": "naruto",
-            "sample_sha256": "2ced83b9a99af1e7271786721fe492a3c77259c3579756b23f10a15bd3875c53",
-            "verdict": "AC",
-            "score": 100,
-            "total_points": 100
-          },
-          "practice_revision": "d8e67f32edfc4bce861f405a7155c075",
-          "question_id": "cfe3b5ce315a4b9e80b762d6e58203eb",
-          "snapshot_version": 5,
-          "snapshot_at": "2026-11-16T07:51:16+00:00",
-          "order": 0
-        },
-        {
-          "title": "Arithmetic Summary 3",
-          "statement": "Read two signed 32-bit integers a and b. Print exactly one line in this format: sum=<a+b>;diff=<a-b>;product=<a*b>. Do not add spaces around separators.",
-          "language": "java",
-          "grading_mode": "stdio",
-          "target_class": "Main",
-          "target_package": "",
-          "target_file": "Main.java",
-          "starter_code": "import java.util.Scanner;\n\npublic class Main {\n    public static void main(String[] args) {\n        Scanner scanner = new Scanner(System.in);\n        int a = scanner.nextInt();\n        int b = scanner.nextInt();\n        // Print the required arithmetic summary.\n    }\n}\n",
-          "time_limit_seconds": 5.0,
-          "memory_limit_mb": 256,
-          "max_output_bytes": 65536,
-          "allow_pretest": true,
-          "max_pretest_runs": 20,
-          "category": "Arithmetic",
-          "tags": [
-            "java",
-            "stdio",
-            "formatting"
-          ],
-          "difficulty": "easy",
-          "practice_enabled": true,
-          "tests": [
-            {
-              "id": "j01-positive",
-              "stdin": "12 5\n",
-              "expected_stdout": "sum=17;diff=7;product=60\n",
-              "points": 25,
-              "is_visible": true
-            },
-            {
-              "id": "j01-negative",
-              "stdin": "-3 8\n",
-              "expected_stdout": "sum=5;diff=-11;product=-24\n",
-              "points": 25,
-              "is_visible": true
-            },
-            {
-              "id": "j01-zero",
-              "stdin": "0 19\n",
-              "expected_stdout": "sum=19;diff=-19;product=0\n",
-              "points": 25,
-              "is_visible": false
-            },
-            {
-              "id": "j01-small",
-              "stdin": "-4 -6\n",
-              "expected_stdout": "sum=-10;diff=2;product=24\n",
-              "points": 25,
-              "is_visible": true
-            }
-          ],
-          "total_points": 100,
-          "problem_kind": "java_stdio",
-          "id": "778d8f8928d24343aac1c0524856106d",
-          "sample_source": "import java.util.Scanner;\n\npublic class Main {\n    public static void main(String[] args) {\n        Scanner scanner = new Scanner(System.in);\n        int a = scanner.nextInt();\n        int b = scanner.nextInt();\n\n        System.out.println(\"sum=\" + (a + b)\n                + \";diff=\" + (a - b)\n                + \";product=\" + (a * b));\n    }\n}",
-          "status": "published",
-          "source": {
-            "created_by": "naruto",
-            "created_at": "2026-11-16T07:42:38+00:00",
-            "updated_by": "naruto",
-            "updated_at": "2026-11-16T07:47:24+00:00"
-          },
-          "usage_count": 0,
-          "version": 4,
-          "validation": {
-            "spec_hash": "23c505fc9912b6fe7375f46c3cce571765f8e764b7dc0407c19f712ffd3e0c60",
-            "passed": true,
-            "validated_at": "2026-11-16T07:47:24+00:00",
-            "validated_by": "naruto",
-            "sample_sha256": "2ced83b9a99af1e7271786721fe492a3c77259c3579756b23f10a15bd3875c53",
-            "verdict": "AC",
-            "score": 100,
-            "total_points": 100
-          },
-          "practice_revision": "e91b31242d50472b9151d4e677bd62a9",
-          "question_id": "778d8f8928d24343aac1c0524856106d",
-          "snapshot_version": 4,
-          "snapshot_at": "2026-11-16T07:51:16+00:00",
-          "order": 1
-        },
-        {
-          "title": "Arithmetic Summary",
-          "statement": "Read two signed 32-bit integers a and b. Print exactly one line in this format: sum=<a+b>;diff=<a-b>;product=<a*b>. Do not add spaces around separators.",
-          "language": "java",
-          "grading_mode": "stdio",
-          "target_class": "Main",
-          "target_package": "",
-          "target_file": "Main.java",
-          "starter_code": "import java.util.Scanner;\n\npublic class Main {\n    public static void main(String[] args) {\n        Scanner scanner = new Scanner(System.in);\n        int a = scanner.nextInt();\n        int b = scanner.nextInt();\n        // Print the required arithmetic summary.\n    }\n}\n",
-          "time_limit_seconds": 5.0,
-          "memory_limit_mb": 256,
-          "max_output_bytes": 65536,
-          "allow_pretest": true,
-          "max_pretest_runs": 20,
-          "category": "Arithmetic",
-          "tags": [
-            "java",
-            "stdio",
-            "formatting"
-          ],
-          "difficulty": "easy",
-          "practice_enabled": false,
-          "tests": [
-            {
-              "id": "j01-positive",
-              "stdin": "12 5\n",
-              "expected_stdout": "sum=17;diff=7;product=60\n",
-              "points": 25,
-              "is_visible": true
-            },
-            {
-              "id": "j01-negative",
-              "stdin": "-3 8\n",
-              "expected_stdout": "sum=5;diff=-11;product=-24\n",
-              "points": 25,
-              "is_visible": true
-            },
-            {
-              "id": "j01-zero",
-              "stdin": "0 19\n",
-              "expected_stdout": "sum=19;diff=-19;product=0\n",
-              "points": 25,
-              "is_visible": false
-            },
-            {
-              "id": "j01-small",
-              "stdin": "-4 -6\n",
-              "expected_stdout": "sum=-10;diff=2;product=24\n",
-              "points": 25,
-              "is_visible": true
-            }
-          ],
-          "total_points": 100,
-          "problem_kind": "java_stdio",
-          "sample_source": "import java.util.Scanner;\n\npublic class Main {\n    public static void main(String[] args) {\n        Scanner scanner = new Scanner(System.in);\n        int a = scanner.nextInt();\n        int b = scanner.nextInt();\n\n        System.out.println(\"sum=\" + (a + b)\n                + \";diff=\" + (a - b)\n                + \";product=\" + (a * b));\n    }\n}",
-          "id": "abf15daf5e734c07ac049821af780598",
-          "status": "published",
-          "source": {
-            "created_by": "naruto",
-            "created_at": "2026-11-16T07:35:00+00:00",
-            "updated_by": "naruto",
-            "updated_at": "2026-11-16T07:35:10+00:00"
-          },
-          "usage_count": 0,
-          "version": 2,
-          "validation": {
-            "spec_hash": "2047dc07ce6a8923d216579c1e231b72f168b9606c93885b5d2c42b3494ce5eb",
-            "passed": true,
-            "validated_at": "2026-11-16T07:35:10+00:00",
-            "validated_by": "naruto",
-            "sample_sha256": "2ced83b9a99af1e7271786721fe492a3c77259c3579756b23f10a15bd3875c53",
-            "verdict": "AC",
-            "score": 100,
-            "total_points": 100
-          },
-          "practice_revision": "bf09c80e89354e2ab4f1aa58fd955439",
-          "question_id": "abf15daf5e734c07ac049821af780598",
-          "snapshot_version": 2,
-          "snapshot_at": "2026-11-16T07:51:16+00:00",
-          "order": 2
-        }
-      ]
-    },
-    "created_by": "naruto",
-    "created_at": "2026-11-17T02:24:56+00:00",
-    "updated_at": "2026-11-17T02:30:06+00:00",
-    "title": "HXH",
-    "show_final_score_immediately": true,
-    "allow_pretest": true,
-    "max_pretest_runs": 20,
-    "pretest_cooldown_seconds": 2.0,
-    "submission_policy": "configurable",
-    "max_submissions": 1,
-    "distributed_at": "2026-11-17T02:24:56+00:00",
-    "started_at": "2026-11-17T02:26:59+00:00",
-    "ended_at": "2026-11-17T02:30:06+00:00"
+    "distributed_at": "2026-11-18T12:15:04+00:00",
+    "started_at": "2026-11-18T12:16:14+00:00"
   }
 }

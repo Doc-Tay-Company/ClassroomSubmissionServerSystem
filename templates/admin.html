@@ -23,8 +23,6 @@
                     class="fa fa-database"></i><span>Ngân hàng câu hỏi</span></a>
             <a class="{{ 'active' if section == 'exam-management' and tab == 'papers' else '' }}" href="/admin?section=exam-management&tab=papers"><i
                     class="fa fa-files-o"></i><span>Quản lý đề thi</span></a>
-            <a class="{{ 'active' if section == 'exam-management' and tab == 'exams' else '' }}" href="/admin?section=exam-management&tab=exams"><i
-                    class="fa fa-file-code-o"></i><span>Đề thi code</span></a>
             <a class="{{ 'active' if section == 'exam-management' and tab == 'results' else '' }}" href="/admin?section=exam-management&tab=results"><i
                     class="fa fa-bar-chart"></i><span>Kết quả code</span></a>
             <p class="sidebar-label">KỲ THI</p>
@@ -321,7 +319,6 @@
                 <nav class="tab-bar" aria-label="Quản lý đề thi">
                     <a class="tab-link {{ 'active' if tab == 'questions' else '' }}" href="/admin?section=exam-management&tab=questions">Ngân hàng câu hỏi</a>
                     <a class="tab-link {{ 'active' if tab == 'papers' else '' }}" href="/admin?section=exam-management&tab=papers">Quản lý đề thi</a>
-                    <a class="tab-link {{ 'active' if tab == 'exams' else '' }}" href="/admin?section=exam-management&tab=exams">Đề thi code</a>
                     <a class="tab-link {{ 'active' if tab == 'results' else '' }}" href="/admin?section=exam-management&tab=results">Kết quả code</a>
                 </nav>
                 {% if tab == 'papers' %}
@@ -330,22 +327,18 @@
                     <div id="cp-list"></div>
                     <div id="cp-editor" class="hidden"></div>
                 </div>
-                {% elif tab == 'exams' %}
-                <div id="code-exams-view">
-                    <div class="panel-heading"><h2>Đề thi code</h2>
-                        <a class="btn btn-primary btn-small" href="/admin?section=exams"><i class="fa fa-calendar"></i> Quản lý trong mục Kỳ thi</a></div>
-                    <p class="muted">Đề thi code nay được tạo trong mục Kỳ thi. Danh sách dưới đây chỉ để xem.</p>
-                    <div id="ce-list" class="table-scroll"></div>
-                </div>
                 {% elif tab == 'results' %}
                 <div id="code-results-view">
                     <div class="panel-heading"><div><h2>Kết quả bài code</h2>
                         <p class="muted">Dữ liệu lấy từ bài nộp đã được máy chủ chấm; chi tiết quản trị có thể gồm check ẩn.</p></div></div>
-                    <div class="filter-row">
-                        <label for="cr-exam">Đề thi</label><select id="cr-exam"><option value="">Đang tải đề thi...</option></select>
-                        <label for="cr-student">Sinh viên</label><select id="cr-student"><option value="">Tất cả sinh viên</option></select>
-                        <label for="cr-question">Câu hỏi</label><select id="cr-question"><option value="">Tất cả câu hỏi</option></select>
-                        <button type="button" class="btn btn-primary btn-small" id="cr-refresh"><i class="fa fa-refresh"></i> Tải kết quả</button>
+                    <div class="filter-row code-results-filters" role="search" aria-label="Lọc kết quả bài code">
+                        <label class="code-result-filter-field" for="cr-exam"><span>Đề thi</span><select id="cr-exam"><option value="">Đang tải đề thi...</option></select></label>
+                        <label class="code-result-filter-field" for="cr-student"><span>Sinh viên</span><select id="cr-student"><option value="">Tất cả sinh viên</option></select></label>
+                        <label class="code-result-filter-field" for="cr-question"><span>Câu hỏi</span><select id="cr-question"><option value="">Tất cả câu hỏi</option></select></label>
+                        <div class="code-result-filter-actions">
+                            <button type="button" class="btn btn-primary btn-small" id="cr-refresh"><i class="fa fa-refresh" aria-hidden="true"></i> Tải kết quả</button>
+                            <button type="button" class="btn btn-secondary btn-small" id="cr-clear" disabled><i class="fa fa-times" aria-hidden="true"></i> Xóa lọc</button>
+                        </div>
                     </div>
                     <div id="cr-notice" class="notice hidden"></div>
                     <div id="cr-matrix"></div>
@@ -386,7 +379,6 @@
 </div>
 <script defer src="/static/js/admin.js"></script>
 <script defer src="/static/js/questions.js"></script>
-<script defer src="/static/js/code-exams.js"></script>
 <script defer src="/static/js/code-papers.js"></script>
 <script defer src="/static/js/exams.js"></script>
 <script defer src="/static/js/code-results.js"></script>

@@ -144,18 +144,18 @@ class ExamPaperApiTests(unittest.TestCase):
         paper = published["paper"]
         self.assertEqual(paper["status"], "published")
         old_id, old_revision = paper["id"], paper["revision"]
-        status, updated = self.request("PUT", f"/api/admin/papers/{old_id}", cookie=self.admin_cookie,
+        source_before = storage.read_json("papers.json")[old_id]
+        status, rejected = self.request("PUT", f"/api/admin/papers/{old_id}", cookie=self.admin_cookie,
             payload={"expected_revision": old_revision, "title": "Independent edited", "metadata": {},
                 "question_ids": ["q-2"], "question_limit": 1, "question_filters": {}})
-        self.assertEqual(status, 200, updated)
-        self.assertEqual(updated["paper"]["id"], old_id)
-        self.assertEqual(updated["paper"]["status"], "published")
-        self.assertNotIn("versions", updated["paper"])
+        self.assertEqual(status, 409)
+        self.assertEqual(rejected["code"], "PAPER_PUBLISHED_IMMUTABLE")
+        self.assertEqual(storage.read_json("papers.json")[old_id], source_before)
         stale_status, _ = self.request("PUT", f"/api/admin/papers/{old_id}", cookie=self.admin_cookie,
             payload={"expected_revision": old_revision, "title": "stale", "question_ids": ["q-2"]})
         self.assertEqual(stale_status, 409)
         status, copied = self.request("POST", f"/api/admin/papers/{old_id}/draft-copy", cookie=self.admin_cookie,
-            payload={"expected_revision": updated["paper"]["revision"], "title": "Copy", "metadata": {},
+            payload={"expected_revision": old_revision, "title": "Copy", "metadata": {},
                 "question_ids": ["q-2"], "question_limit": 1, "question_filters": {}})
         self.assertEqual(status, 201, copied)
         self.assertNotEqual(copied["paper"]["id"], old_id)
@@ -163,7 +163,7 @@ class ExamPaperApiTests(unittest.TestCase):
         self.assertEqual(copied["paper"]["question_ids"], ["q-2"])
         self.assertEqual(storage.read_json("papers.json")[old_id]["status"], "published")
 
-    def test_exact_question_limit_is_required_for_publish_and_published_save(self):
+    def test_exact_question_limit_is_required_for_publish_and_published_content_is_immutable(self):
         bank = {f"q-{index}": _question(f"q-{index}") for index in range(1, 12)}
         storage.write_json("questions.json", bank)
         ten_ids = list(bank)[:10]
@@ -180,15 +180,14 @@ class ExamPaperApiTests(unittest.TestCase):
         self.assertEqual(status, 200, published)
         published = published["paper"]
         before = storage.read_json("papers.json")[published["id"]]
-        for ids, actual in ((ten_ids[:9], 9), (list(bank), 11)):
-            status, mismatch = self.request(
+        for ids in (ten_ids[:9], list(bank)):
+            status, rejected = self.request(
                 "PUT", f"/api/admin/papers/{published['id']}", cookie=self.admin_cookie,
                 payload={"expected_revision": published["revision"], "title": "Attempted edit",
                     "question_ids": ids, "question_limit": 10, "question_filters": {}},
             )
-            self.assertEqual(status, 422)
-            self.assertEqual(mismatch["code"], "QUESTION_LIMIT_MISMATCH")
-            self.assertEqual((mismatch["expected_count"], mismatch["actual_count"]), (10, actual))
+            self.assertEqual(status, 409)
+            self.assertEqual(rejected["code"], "PAPER_PUBLISHED_IMMUTABLE")
             self.assertEqual(storage.read_json("papers.json")[published["id"]], before)
 
         too_many = self.create_independent_paper(list(bank), question_limit=10)
@@ -325,6 +324,7 @@ class ExamPaperApiTests(unittest.TestCase):
         self.assertEqual(status, 200, listing)
         self.assertEqual(listing["papers"][0]["id"], paper["id"])
         self.assertEqual(listing["papers"][0]["metadata"], {"course": "CS"})
+        self.assertTrue(listing["papers"][0]["has_draft"])
         status, detail = self.request("GET", f"/api/admin/papers/{paper['id']}", cookie=self.admin_cookie)
         self.assertEqual(status, 200, detail)
         self.assertEqual(detail["paper"]["draft"]["question_ids"], ["q-2", "q-1"])
@@ -351,6 +351,73 @@ class ExamPaperApiTests(unittest.TestCase):
         self.assertEqual(status, 200, archived)
         self.assertEqual(archived["paper"]["status"], "archived")
         self.assertEqual(archived["paper"]["versions"], {})
+
+    def test_create_independent_paper_from_published_version_preserves_source_and_references(self):
+        source = self.create_paper(("q-1", "q-2"))
+        status, published = self.publish(source)
+        self.assertEqual(status, 200, published)
+        source_id = published["paper"]["id"]
+        source_version_id = published["paper"]["current_version_id"]
+
+        status, source_with_draft = self.request(
+            "PUT", f"/api/admin/papers/{source_id}", cookie=self.admin_cookie,
+            payload={"expected_revision": published["paper"]["revision"], "title": "Existing source Draft",
+                "metadata": {"source_draft": True}, "question_ids": ["q-1"], "question_limit": 1,
+                "question_filters": {"language": "python"}},
+        )
+        self.assertEqual(status, 200, source_with_draft)
+        original = storage.read_json("papers.json")[source_id]
+        self.assertEqual(original["draft"]["title"], "Existing source Draft")
+
+        exams = {"exam-old": {"release": {"paper_pool": [{"paper_id": source_id, "paper_version_id": source_version_id}]}}}
+        assignments = {"student-1": {"paper_id": source_id, "paper_version_id": source_version_id,
+            "snapshot": {"title": "Historical Paper", "question_ids": ["q-1", "q-2"]}}}
+        storage.write_json("exams.json", exams)
+        storage.write_json("assignments.json", assignments)
+
+        submitted = {"title": "Independent fork", "metadata": {"edited": True}, "question_ids": ["q-2"],
+            "question_limit": 2, "question_filters": {"language": "python", "tags": []}}
+        status, created = self.request("POST", "/api/admin/papers", cookie=self.admin_cookie, payload=submitted)
+        self.assertEqual(status, 201, created)
+        fork = created["paper"]
+
+        self.assertNotEqual(fork["id"], source_id)
+        self.assertEqual(fork["status"], "draft")
+        self.assertEqual(fork["revision"], 1)
+        expected_draft = {**submitted, "question_filters": {
+            "search": "", "category": "", "language": "python", "grading_mode": "", "difficulty": "", "tags": [],
+        }}
+        self.assertEqual({key: fork["draft"][key] for key in expected_draft}, expected_draft)
+        self.assertEqual(fork["versions"], {})
+        self.assertIsNone(fork["current_version_id"])
+        self.assertEqual(storage.read_json("papers.json")[source_id], original)
+        self.assertEqual(storage.read_json("exams.json"), exams)
+        self.assertEqual(storage.read_json("assignments.json"), assignments)
+
+        status, second_created = self.request("POST", "/api/admin/papers", cookie=self.admin_cookie, payload=submitted)
+        self.assertEqual(status, 201, second_created)
+        self.assertNotEqual(second_created["paper"]["id"], fork["id"])
+        self.assertNotEqual(second_created["paper"]["id"], source_id)
+        status, listing = self.request("GET", "/api/admin/papers", cookie=self.admin_cookie)
+        self.assertEqual(status, 200, listing)
+        listed_ids = {paper["id"] for paper in listing["papers"]}
+        self.assertIn(fork["id"], listed_ids, "new Paper is returned by the management list API")
+        self.assertIn(second_created["paper"]["id"], listed_ids)
+        fork_summary = next(paper for paper in listing["papers"] if paper["id"] == fork["id"])
+        self.assertEqual(fork_summary["status"], "draft")
+        self.assertTrue(fork_summary["has_draft"])
+
+        papers_before_invalid = storage.read_json("papers.json")
+        status, invalid = self.request(
+            "POST", "/api/admin/papers", cookie=self.admin_cookie,
+            payload={"title": "Must not persist", "metadata": {}, "question_ids": ["q-draft"],
+                "question_limit": 1, "question_filters": {}},
+        )
+        self.assertEqual(status, 409, invalid)
+        self.assertEqual(storage.read_json("papers.json"), papers_before_invalid)
+        self.assertEqual(storage.read_json("papers.json")[source_id], original)
+        self.assertEqual(storage.read_json("exams.json"), exams)
+        self.assertEqual(storage.read_json("assignments.json"), assignments)
 
     def test_selection_rejects_missing_duplicate_unpublished_and_invalid_payload(self):
         bank = storage.read_json("questions.json")
@@ -408,27 +475,42 @@ class ExamPaperApiTests(unittest.TestCase):
         self.assertEqual(status, 200, first_publish)
         first = first_publish["paper"]
         first_version_id = first["current_version_id"]
+        self.assertIsNone(first["draft"], "successful publication finalizes the current draft")
+        status, after_publish = self.request("GET", "/api/admin/papers", cookie=self.admin_cookie)
+        self.assertEqual(status, 200, after_publish)
+        listed_paper = next(item for item in after_publish["papers"] if item["id"] == paper["id"])
+        self.assertEqual(listed_paper["status"], "published")
+        self.assertFalse(listed_paper["has_draft"])
+        status, duplicate_publish = self.publish(first)
+        self.assertEqual(status, 409, duplicate_publish)
+        self.assertEqual(len(storage.read_json("papers.json")[paper["id"]]["versions"]), 1)
         first_version = json.loads(json.dumps(first["versions"][first_version_id]))
         self.assertEqual(first["versions"][first_version_id]["version"], 1)
 
         status, draft_preview = self.request(
             "GET", f"/api/admin/papers/{paper['id']}/preview?draft=1", cookie=self.admin_cookie,
         )
-        self.assertEqual(status, 200, draft_preview)
-        self.assertIn("draft", draft_preview["preview"])
-        self.assertNotIn("version", draft_preview["preview"])
+        self.assertEqual(status, 409, draft_preview)
 
         status, edited = self.request(
             "PUT", f"/api/admin/papers/{paper['id']}", cookie=self.admin_cookie,
             payload={"expected_revision": first["revision"], "title": "Lifecycle edited", "question_ids": ["q-2", "q-1"], "question_limit": 2},
         )
         self.assertEqual(status, 200, edited)
+        self.assertEqual(edited["paper"]["status"], "published")
+        self.assertEqual(edited["paper"]["id"], paper["id"])
+        self.assertEqual(edited["paper"]["draft"]["question_ids"], ["q-2", "q-1"])
+        status, with_working_draft = self.request("GET", "/api/admin/papers", cookie=self.admin_cookie)
+        listed_paper = next(item for item in with_working_draft["papers"] if item["id"] == paper["id"])
+        self.assertEqual(listed_paper["status"], "published")
+        self.assertTrue(listed_paper["has_draft"])
         self.assertEqual(edited["paper"]["versions"][first_version_id], first_version)
         status, second_publish = self.publish(edited["paper"])
         self.assertEqual(status, 200, second_publish)
         second = second_publish["paper"]
         self.assertEqual(second["versions"][second["current_version_id"]]["version"], 2)
         self.assertEqual(second["versions"][first_version_id], first_version)
+        self.assertIsNone(second["draft"])
 
     def test_explicit_selection_order_is_stable_through_save_reload_preview_and_publish(self):
         payload = {
@@ -514,13 +596,11 @@ class ExamPaperApiTests(unittest.TestCase):
                 self.assertEqual(status, 201, created)
                 self.assertEqual(created["paper"]["draft"]["question_limit"], limit)
 
-    def test_question_limit_rejects_invalid_bounds_and_nonmatching_new_questions(self):
+    def test_question_limit_rejects_invalid_bounds_and_filter_metadata(self):
         invalid_payloads = [
             {"question_ids": ["q-1"], "question_limit": 0},
             {"question_ids": ["q-1"], "question_limit": True},
             {"question_ids": ["q-1"], "question_limit": "1"},
-            {"question_ids": ["q-1"], "question_limit": 1, "question_filters": {"category": "no-matching-category"}},
-            {"question_ids": ["q-1", "q-2"], "question_limit": 2, "question_filters": {"category": "math", "difficulty": "easy"}},
             {"question_ids": ["q-1"], "question_limit": 1, "question_filters": {"language": "ruby"}},
             {"question_ids": ["q-1"], "question_limit": 1, "question_filters": {"unknown": "value"}},
         ]
@@ -532,6 +612,48 @@ class ExamPaperApiTests(unittest.TestCase):
                 )
                 self.assertEqual(status, 422, payload)
         self.assertEqual(storage.read_json("papers.json"), {})
+
+    def test_selection_survives_tag_filter_changes_and_saves_order(self):
+        bank = storage.read_json("questions.json")
+        bank["q-1"]["tags"] = ["intro"]
+        bank["q-2"]["tags"] = ["advanced"]
+        storage.write_json("questions.json", bank)
+
+        status, created = self.request(
+            "POST", "/api/admin/papers/independent", cookie=self.admin_cookie,
+            payload={"title": "Tag switching", "metadata": {}, "question_ids": ["q-1"], "question_limit": 2,
+                "question_filters": {"tags": ["intro"]}},
+        )
+        self.assertEqual(status, 201, created)
+        paper = created["paper"]
+
+        status, updated = self.request(
+            "PUT", f"/api/admin/papers/{paper['id']}", cookie=self.admin_cookie,
+            payload={"expected_revision": paper["revision"], "title": "Tag switching",
+                "question_ids": ["q-1", "q-2"], "question_limit": 2,
+                "question_filters": {"tags": ["intro"]}},
+        )
+        self.assertEqual(status, 200, updated)
+        paper = updated["paper"]
+
+        status, switched_to_b = self.request(
+            "PUT", f"/api/admin/papers/{paper['id']}", cookie=self.admin_cookie,
+            payload={"expected_revision": paper["revision"], "title": "Tag switching",
+                "question_ids": ["q-1", "q-2"], "question_limit": 2,
+                "question_filters": {"tags": ["advanced"]}},
+        )
+        self.assertEqual(status, 200, switched_to_b)
+        paper = switched_to_b["paper"]
+
+        status, switched_back = self.request(
+            "PUT", f"/api/admin/papers/{paper['id']}", cookie=self.admin_cookie,
+            payload={"expected_revision": paper["revision"], "title": "Tag switching",
+                "question_ids": ["q-1", "q-2"], "question_limit": 2,
+                "question_filters": {"tags": ["intro"]}},
+        )
+        self.assertEqual(status, 200, switched_back)
+        self.assertEqual(switched_back["paper"]["question_ids"], ["q-1", "q-2"])
+        self.assertEqual(switched_back["paper"]["question_filters"]["tags"], ["intro"])
 
     def test_legacy_paper_without_quantity_metadata_remains_readable_and_editable(self):
         paper = self.create_paper(("q-1",))
@@ -555,7 +677,59 @@ class ExamPaperApiTests(unittest.TestCase):
         self.assertEqual(updated["paper"]["draft"]["question_limit"], 1)
         self.assertEqual(updated["paper"]["draft"]["question_filters"]["tags"], [])
 
-    def test_update_rejects_new_unpublished_or_filter_mismatched_questions(self):
+    def test_list_normalizes_legacy_and_current_paper_summaries_without_writing_storage(self):
+        legacy_draft = self.create_paper(("q-1",))
+        legacy_published_draft = self.create_paper(("q-2",))
+        status, legacy_published = self.publish(legacy_published_draft)
+        self.assertEqual(status, 200, legacy_published)
+        legacy_published = legacy_published["paper"]
+        status, edited = self.request(
+            "PUT", f"/api/admin/papers/{legacy_published['id']}", cookie=self.admin_cookie,
+            payload={"expected_revision": legacy_published["revision"], "title": "With draft", "question_ids": ["q-1"]},
+        )
+        self.assertEqual(status, 200, edited)
+
+        legacy_archived = self.create_paper(("q-1",))
+        status, legacy_archived = self.publish(legacy_archived)
+        self.assertEqual(status, 200, legacy_archived)
+        legacy_archived = legacy_archived["paper"]
+        status, _ = self.request(
+            "POST", f"/api/admin/papers/{legacy_archived['id']}/archive", cookie=self.admin_cookie,
+            payload={"expected_revision": legacy_archived["revision"]},
+        )
+        self.assertEqual(status, 200)
+
+        current_draft = self.create_independent_paper(("q-1",))
+        current_published = self.create_independent_paper(("q-2",))
+        status, current_published = self.publish(current_published)
+        self.assertEqual(status, 200, current_published)
+        current_published = current_published["paper"]
+
+        records = storage.read_json("papers.json")
+        records[legacy_draft["id"]]["draft"].pop("question_limit")
+        records[legacy_draft["id"]]["draft"].pop("question_filters")
+        storage.write_json("papers.json", records)
+        before_listing = storage.read_json("papers.json")
+        status, listing = self.request("GET", "/api/admin/papers", cookie=self.admin_cookie)
+        self.assertEqual(status, 200, listing)
+        by_id = {paper["id"]: paper for paper in listing["papers"]}
+
+        self.assertEqual(by_id[legacy_draft["id"]]["status"], "draft")
+        self.assertTrue(by_id[legacy_draft["id"]]["has_draft"])
+        self.assertEqual(by_id[legacy_draft["id"]]["version_count"], 0)
+        self.assertEqual(by_id[legacy_published["id"]]["status"], "published")
+        self.assertTrue(by_id[legacy_published["id"]]["has_draft"])
+        self.assertEqual(by_id[legacy_published["id"]]["version_count"], 1)
+        self.assertEqual(by_id[legacy_archived["id"]]["status"], "archived")
+        self.assertFalse(by_id[current_draft["id"]]["has_draft"])
+        self.assertEqual(by_id[current_draft["id"]]["current_version_id"], None)
+        self.assertEqual(by_id[current_draft["id"]]["version_count"], 0)
+        self.assertEqual(by_id[current_published["id"]]["status"], "published")
+        self.assertFalse(by_id[current_published["id"]]["has_draft"])
+        self.assertEqual(by_id[current_published["id"]]["version_count"], 0)
+        self.assertEqual(storage.read_json("papers.json"), before_listing)
+
+    def test_update_rejects_new_unpublished_questions_but_allows_filter_mismatch(self):
         bank = storage.read_json("questions.json")
         bank["q-1"]["category"] = "Math"
         bank["q-2"]["category"] = "Science"
@@ -570,20 +744,21 @@ class ExamPaperApiTests(unittest.TestCase):
         self.assertEqual(paper_status, 201, paper_body)
         paper = paper_body["paper"]
 
-        invalid_updates = [
-            ({"question_ids": ["q-1", "q-draft"], "question_limit": 2, "question_filters": {}}, 409),
-            ({"question_ids": ["q-1", "q-2"], "question_limit": 2, "question_filters": {"category": "math"}}, 422),
-        ]
-        for fields, expected in invalid_updates:
-            with self.subTest(fields=fields):
-                status, _ = self.request(
-                    "PUT", f"/api/admin/papers/{paper['id']}", cookie=self.admin_cookie,
-                    payload={"expected_revision": paper["revision"], **fields},
-                )
-                self.assertEqual(status, expected)
+        status, _ = self.request(
+            "PUT", f"/api/admin/papers/{paper['id']}", cookie=self.admin_cookie,
+            payload={"expected_revision": paper["revision"], "question_ids": ["q-1", "q-draft"],
+                "question_limit": 2, "question_filters": {}},
+        )
+        self.assertEqual(status, 409)
+        status, updated = self.request(
+            "PUT", f"/api/admin/papers/{paper['id']}", cookie=self.admin_cookie,
+            payload={"expected_revision": paper["revision"], "question_ids": ["q-1", "q-2"],
+                "question_limit": 2, "question_filters": {"category": "math"}},
+        )
+        self.assertEqual(status, 200, updated)
         stored = storage.read_json("papers.json")[paper["id"]]
-        self.assertEqual(stored["revision"], paper["revision"])
-        self.assertEqual(stored["draft"]["question_ids"], ["q-1"])
+        self.assertEqual(stored["revision"], paper["revision"] + 1)
+        self.assertEqual(stored["draft"]["question_ids"], ["q-1", "q-2"])
 
     def test_publish_captures_complete_ordered_snapshot_and_never_mutates_it(self):
         paper = self.create_paper(("q-2", "q-1"))
@@ -614,6 +789,8 @@ class ExamPaperApiTests(unittest.TestCase):
         )
         self.assertEqual(status, 200, updated)
         persisted = storage.read_json("papers.json")[record["id"]]
+        self.assertEqual(storage.read_json("assignments.json"), assignments)
+        self.assertEqual(storage.read_json("exams.json"), exams)
         old_snapshot = persisted["versions"][version_id]["questions"][1]
         self.assertEqual(old_snapshot["title"], "Question q-1")
         self.assertEqual(old_snapshot["tests"][1]["expected_stdout"], "private-answer\n")
