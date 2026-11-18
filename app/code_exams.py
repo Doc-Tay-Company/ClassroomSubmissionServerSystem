@@ -17,7 +17,7 @@ from .code_runner import run_stdio
 from .grading import GradingError, grade_exam, grade_reflection, grade_stdio
 from .java_runner import run_reflection_judge
 from .questions import QuestionError, _validate_question, compute_grading_hash, compute_spec_hash, get_question, require_expected_question_state
-from .storage import audit, read_json, update_json, utc_now
+from .storage import audit, read_json, update_json, utc_now, transaction
 from .windows_job import DEFAULT_JOB_LIMITS, MIN_JAVA_JOB_MEMORY_MB, JobLimits
 
 
@@ -405,6 +405,8 @@ def _active_context(student_id: str) -> tuple[dict, dict, dict]:
         raise CodeExamError("The assigned exam is not accepting code", 403)
     if assignment.get("forced_submit"):
         raise CodeExamError("The assigned exam was force-submitted", 403)
+    if assignment.get("finalized_at"):
+        raise CodeExamError("The assigned exam has been finalized", 409)
     if not assignment.get("started_at"):
         raise CodeExamError("The assigned exam has not started", 403)
     ends_at = assignment.get("ends_at")
@@ -507,11 +509,11 @@ def get_student_code_exam(student_id: str) -> dict:
         settings.get("exam_state") != "started"
         or not settings.get("exam_released")
         or exam.get("status") != "started"
-        or assignment.get("status") in {"expired", "ended"}
+        or assignment.get("status") in {"submitted", "expired", "ended"}
         or bool(assignment.get("forced_submit"))
         or expired
     )
-    reveal = exam.get("show_final_score_immediately", False) or exam.get("status") == "ended"
+    reveal = exam.get("show_final_score_immediately") is True
     student_records = [
         item
         for item in read_json("code_submissions.json").get(student_id, [])
@@ -538,7 +540,7 @@ def get_student_code_exam(student_id: str) -> dict:
         "title": exam["title"],
         "release_id": exam["release_id"],
         "ends_at": assignment["ends_at"],
-        "show_final_score_immediately": exam["show_final_score_immediately"],
+        "show_final_score_immediately": exam.get("show_final_score_immediately") is True,
         "allow_pretest": exam.get("allow_pretest", True),
         "submission_policy": exam.get("submission_policy"),
         "max_submissions": exam.get("max_submissions"),
@@ -547,6 +549,8 @@ def get_student_code_exam(student_id: str) -> dict:
         "progress": progress,
         "questions": [{**public_question(question), "total_points": question["total_points"]} for question in exam["questions"]],
     }
+    from .exam_completion import _store
+    result['drafts'] = _store().get('attempts', {}).get(student_id, {}).get(exam['id'], {}).get('drafts', {})
     if paper_ref:
         result.update({
             "paper_id": paper_ref["paper_id"],
@@ -1170,10 +1174,20 @@ def submit_code(student_id: str, question_id: str, source_code: str, ip: str) ->
     if not _RUN_SLOTS.acquire(blocking=False):
         raise CodeExamError("Code execution capacity is busy; retry shortly", 429)
     try:
-        record = _reserve_submission(student_id, exam, question, source_code, source_hash, ip)
+        with transaction():
+            _active_context(student_id)
+            record = _reserve_submission(student_id, exam, question, source_code, source_hash, ip)
     except Exception:
         _RUN_SLOTS.release()
         raise
+    try:
+        return execute_reserved_submission(student_id, exam, question, record, source_code, ip)
+    finally:
+        _RUN_SLOTS.release()
+
+
+def execute_reserved_submission(student_id, exam, question, record, source_code, ip):
+    """Use the same execution/completion pipeline for an already accepted answer."""
     try:
         execution = execute_question(question, source_code)
     except Exception as exc:
@@ -1187,106 +1201,15 @@ def submit_code(student_id: str, question_id: str, source_code: str, ip: str) ->
             "checks": [],
             "tests": [],
         }
-    finally:
-        _RUN_SLOTS.release()
-
     completed = _complete_submission(student_id, record["id"], question, execution, ip)
     reveal = exam.get("show_final_score_immediately", False)
     reveal_exam = reveal and completed.get("all_questions_submitted")
     return _public_submission(completed, reveal_score=reveal, reveal_exam_score=reveal_exam), completed["status"] != "error"
 
 
-def submit_code_exam(student_id: str, answers: Mapping, ip: str) -> dict:
-    """Submit every unanswered question of the active code exam in one action.
-
-    Questions that already have a graded (or in-flight) submission for this
-    release are left untouched, so the action is safe to press again and does
-    not consume extra per-question attempts.
-    """
-    if not isinstance(answers, Mapping) or not answers:
-        raise CodeExamError("answers must be a non-empty object", 422)
-
-    _, _, exam = _active_context(student_id)
-    questions = exam.get("questions", [])
-    question_by_id = {question["question_id"]: question for question in questions}
-    unknown = [key for key in answers if not isinstance(key, str) or key not in question_by_id]
-    if unknown:
-        raise CodeExamError("answers contains question ids that are not part of this exam", 400)
-    missing = [question_id for question_id in question_by_id if question_id not in answers]
-    if missing:
-        raise CodeExamError("answers must include every question in the exam", 400)
-
-    records = read_json("code_submissions.json").get(student_id, [])
-    counts: dict[str, int] = {}
-    latest_by_question: dict[str, dict] = {}
-    for item in records:
-        if item.get("exam_id") != exam["id"] or item.get("release_id") != exam.get("release_id"):
-            continue
-        question_id = item.get("question_id")
-        counts[question_id] = counts.get(question_id, 0) + 1
-        latest_by_question[question_id] = item
-
-    max_allowed = 1 if exam.get("submission_policy") == "once" else int(exam.get("max_submissions", 1))
-    pending: list[dict] = []
-    skipped: list[str] = []
-    for question in questions:
-        question_id = question["question_id"]
-        latest = latest_by_question.get(question_id)
-        if latest and latest.get("status") in {"grading", "graded"}:
-            skipped.append(question_id)
-        elif counts.get(question_id, 0) >= max_allowed:
-            skipped.append(question_id)
-        else:
-            pending.append(question)
-
-    for question in pending:
-        _validate_source(answers[question["question_id"]])
-
-    submissions = []
-    for question in pending:
-        question_id = question["question_id"]
-        try:
-            public, _graded = submit_code(student_id, question_id, answers[question_id], ip)
-        except CodeExamError as exc:
-            if exc.status == 409 and "Submission limit" in str(exc):
-                skipped.append(question_id)
-                continue
-            raise
-        submissions.append(public)
-
-    records = read_json("code_submissions.json").get(student_id, [])
-    latest_graded: dict[str, dict] = {}
-    for item in records:
-        if item.get("exam_id") != exam["id"] or item.get("release_id") != exam.get("release_id"):
-            continue
-        if item.get("status") == "graded":
-            latest_graded[item.get("question_id")] = item
-    all_submitted = all(question["question_id"] in latest_graded for question in questions)
-    summary = get_student_code_exam(student_id)
-    result = {
-        "ok": all_submitted,
-        "submissions": submissions,
-        "skipped_question_ids": skipped,
-        "all_questions_submitted": all_submitted,
-        "exam_total_points": summary.get("total_points"),
-        "progress": summary.get("progress", []),
-    }
-    if "exam_score" in summary:
-        result["exam_score"] = summary["exam_score"]
-    audit(
-        "code.submit_exam",
-        student_id,
-        ip,
-        {
-            "exam_id": exam["id"],
-            "release_id": exam.get("release_id"),
-            "question_ids": [question["question_id"] for question in questions],
-            "submission_ids": [item.get("submission_id") for item in submissions],
-            "skipped_question_ids": skipped,
-            "all_questions_submitted": all_submitted,
-        },
-    )
-    return result
+def submit_code_exam(student_id: str, answers: Mapping, ip: str, *, expected_exam_id: str | None = None, automatic: bool = False) -> dict:
+    from .exam_completion import finalize_code_attempt
+    return finalize_code_attempt(student_id, answers, ip, expected_exam_id=expected_exam_id, automatic=automatic)
 
 
 def get_student_submission(student_id: str, question_id: str) -> dict:
@@ -1305,7 +1228,7 @@ def get_student_submission(student_id: str, question_id: str) -> dict:
     if not matching:
         raise CodeExamError("No submission was found for this question", 404)
     latest = matching[-1]
-    reveal = exam.get("show_final_score_immediately", False) or exam.get("status") == "ended"
+    reveal = exam.get("show_final_score_immediately") is True
     reveal_exam = reveal and (
         latest.get("all_questions_submitted") or exam.get("status") == "ended"
     )

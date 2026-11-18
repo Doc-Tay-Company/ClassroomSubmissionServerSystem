@@ -34,9 +34,11 @@ mimetypes.add_type("text/javascript", ".js")
 mimetypes.add_type("text/css", ".css")
 from .accounts import parse_accounts
 from .http import inline_filename_header
-from .storage import initialize, read_json, write_json, audit, utc_now
+from .storage import initialize, read_json, write_json, audit, utc_now, transaction
 from .security import hash_password, verify_password, new_session, get_session, require_user, client_ip, login_allowed, record_login_failure, clear_login_failures, logout_session, SecurityError
 from .exams import list_exam_files, distribute_exams, start_exam, start_exam_session, end_exam_session, remaining_seconds, is_active_exam_attempt
+from . import exam_monitoring
+from . import exam_completion
 from . import general_exams
 from .general_exams import ExamError
 from .submissions import accept_submission
@@ -90,6 +92,7 @@ from .code_exams import (
 )
 from .java_runner import JDKConfigurationError, JDKNotFoundError, verify_jdk_configuration
 from .practice import (
+    require_practice_access,
     PracticeError,
     compute_catalog_token,
     get_practice_catalog,
@@ -129,6 +132,7 @@ def monitoring_snapshot() -> dict:
     students, sessions = read_json("students.json"), read_json("sessions.json")
     assignments, submissions = read_json("assignments.json"), read_json("submissions.json")
     settings = read_json("settings.json")
+    monitoring_data = read_json("exam_monitoring.json")
     code_submissions = read_json("code_submissions.json")
     latest = {}; now = datetime.now(timezone.utc)
     for token, sess in sessions.items():
@@ -149,6 +153,8 @@ def monitoring_snapshot() -> dict:
             if item.get("release_id") == assignment.get("release_id")
         ]
         active_attempt = is_active_exam_attempt(sid, settings, assignment)
+        monitoring_identity = {"student_id": sid, "release_id": assignment.get("release_id")} if assignment.get("release_id") else None
+        event_summary = exam_monitoring.attempt_summary(sid, assignment.get("release_id"), monitoring_data)
         telemetry=sess.get("telemetry",{}) if sess else {}
         if not active_attempt or telemetry.get("release_id") != assignment.get("release_id"):
             telemetry = {}
@@ -156,6 +162,9 @@ def monitoring_snapshot() -> dict:
         if telemetry.get("visibility") == "hidden": alerts.append("tab_hidden")
         if telemetry.get("focused") is False: alerts.append("window_unfocused")
         if int(telemetry.get("tab_count",1) or 1)>1: alerts.append("multiple_tabs")
+        event_counters = event_summary["event_counters"]
+        if event_counters.get("window_blur", 0): alerts.append("recorded_window_blur")
+        if event_counters.get("document_hidden", 0): alerts.append("recorded_document_hidden")
         latest_code = code_records[-1] if code_records else None
         code_summary = (
             {
@@ -177,7 +186,7 @@ def monitoring_snapshot() -> dict:
             if latest_code
             else None
         )
-        result.append({"student_id":sid,"full_name":student.get("full_name",""),"active":student.get("active",True),"logged_in":online,"ip":sess.get("ip") if sess else student.get("last_ip"),"user_agent":sess.get("user_agent","") if sess else "","last_seen":sess.get("last_seen") if sess else student.get("last_seen"),"exam_file":assignment.get("exam_file"),"exam_status":assignment.get("status","not_assigned"),"started_at":assignment.get("started_at"),"ends_at":assignment.get("ends_at"),"remaining_seconds":remaining_seconds(assignment) if assignment.get("started_at") else None,"active_exam_attempt":active_attempt,"submission_count":len(records),"latest_submission":records[-1] if records else None,"code_submission_count":len(code_records),"latest_code_submission":code_summary,"telemetry":telemetry,"alerts":alerts})
+        result.append({"student_id":sid,"full_name":student.get("full_name",""),"active":student.get("active",True),"logged_in":online,"ip":sess.get("ip") if sess else student.get("last_ip"),"user_agent":sess.get("user_agent","") if sess else "","last_seen":sess.get("last_seen") if sess else student.get("last_seen"),"exam_file":assignment.get("exam_file"),"exam_status":assignment.get("status","not_assigned"),"started_at":assignment.get("started_at"),"ends_at":assignment.get("ends_at"),"remaining_seconds":remaining_seconds(assignment) if assignment.get("started_at") else None,"active_exam_attempt":active_attempt,"monitoring_attempt":monitoring_identity,"event_counters":event_counters,"latest_event_seq":event_summary["latest_event_seq"],"submission_count":len(records),"latest_submission":records[-1] if records else None,"code_submission_count":len(code_records),"latest_code_submission":code_summary,"telemetry":telemetry,"alerts":alerts})
     abnormal_count=sum(1 for row in result if row["alerts"])
     return {"occurred_at":utc_now(),"students":result,"online_count":sum(1 for row in result if row["logged_in"]),"abnormal_count":abnormal_count}
 
@@ -301,7 +310,11 @@ class Handler(BaseHTTPRequestHandler):
                 if not sess: return self._redirect("/login")
                 if sess["role"]=="admin": return self._redirect("/admin")
                 student=self._get_user_record(sess); assignment=current_exam_for(sess["user_id"]); settings=read_json("settings.json")
-                return self._html(self._render("student.html",session=sess,student=student,published_exams=general_exams.published_for_students(sess["user_id"]),assignment=assignment,current_exam=general_exams.assignment_exam(assignment),settings=settings,home_view=req.query.get("view",[""])[0]=="home",remaining=remaining_seconds(assignment or {}) if assignment and assignment.get("started_at") else None))
+                return self._html(self._render("student.html",session=sess,student=student,completion=exam_completion.completion_state(sess["user_id"]),published_exams=general_exams.published_for_students(sess["user_id"]),assignment=assignment,current_exam=general_exams.assignment_exam(assignment),settings=settings,home_view=req.query.get("view",[""])[0]=="home",remaining=remaining_seconds(assignment or {}) if assignment and assignment.get("started_at") else None))
+            if path=="/student/results":
+                sess=self._auth(req,"student"); student=self._get_user_record(sess)
+                result=exam_completion.student_results(sess["user_id"],req.query.get("exam_id",[""])[0])
+                return self._html(self._render("student-results.html",session=sess,student=student,result=result))
             if route_path=="/practice" or path=="/practice":
                 sess=get_session(req)
                 if not sess: return self._redirect("/login")
@@ -337,6 +350,19 @@ class Handler(BaseHTTPRequestHandler):
                 content="21010001|01/02/2003|Nguyen Van A\n21010002|15/08/2003|Tran Thi B\n"
                 return self._send(200,content,"text/plain; charset=utf-8",{"Content-Disposition":"attachment; filename=student_accounts_template.txt"})
             if path=="/api/admin/monitor": self._auth(req,"admin"); return self._json(monitoring_snapshot())
+            if path=="/api/admin/monitor/events":
+                self._auth(req,"admin")
+                student_ids=req.query.get("student_id",[]); release_ids=req.query.get("release_id",[])
+                if not student_ids or not student_ids[0] or not release_ids or not release_ids[0]:
+                    raise ClientError(400,"student_id and release_id are required.")
+                try:
+                    after_seq=int((req.query.get("after_seq") or ["0"])[0])
+                    limit=int((req.query.get("limit") or ["100"])[0])
+                except (TypeError,ValueError):
+                    raise ClientError(400,"after_seq and limit must be integers.")
+                if after_seq < 0 or not 1 <= limit <= 200:
+                    raise ClientError(400,"after_seq must be non-negative and limit must be from 1 to 200.")
+                return self._json(exam_monitoring.events_after(student_ids[0],release_ids[0],after_seq,limit))
             if path=="/api/admin/exams": self._auth(req,"admin"); return self._json({"exams":list_exam_files()})
             if path=="/api/admin/accounts":
                 self._auth(req,"admin")
@@ -417,9 +443,11 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200,target.read_bytes(),ctype,{"Content-Disposition":inline_filename_header(target.name)})
             if path=="/api/student/status":
                 sess=self._auth(req,"student"); item=current_exam_for(sess["user_id"]); settings=read_json("settings.json")
+                try: exam_monitoring.flush_start_precheck(sess["user_id"])
+                except (OSError, RuntimeError): pass # Retain the durable Start outbox for retry.
                 notifications=read_json("notifications.json", [])
                 personal=[item for item in notifications if item.get("student_id") in (None, sess["user_id"])]
-                return self._json({"assigned":bool(item),"started":bool(item and item.get("started_at")),"active_exam_attempt":is_active_exam_attempt(sess["user_id"], settings, item),"exam_file":item.get("exam_file") if item and item.get("started_at") else None,"status":item.get("status") if item else "not_assigned","release_id":item.get("release_id") if item else None,"remaining_seconds":remaining_seconds(item or {}) if item and item.get("started_at") else None,"started_at":item.get("started_at") if item else None,"ends_at":item.get("ends_at") if item else None,"server_time":utc_now(),"exam_state":settings.get("exam_state") or "idle","notifications":personal[-10:],"exam_password_enabled":settings.get("exam_password_enabled",False),                "accepted_submission_extensions":settings.get("accepted_submission_extensions",[".zip"]),"published_exams":general_exams.published_for_students(sess["user_id"])})
+                return self._json({"completion":exam_completion.completion_state(sess["user_id"]),"assigned":bool(item),"started":bool(item and item.get("started_at")),"active_exam_attempt":is_active_exam_attempt(sess["user_id"], settings, item),"exam_file":item.get("exam_file") if item and item.get("started_at") else None,"status":item.get("status") if item else "not_assigned","release_id":item.get("release_id") if item else None,"remaining_seconds":remaining_seconds(item or {}) if item and item.get("started_at") else None,"started_at":item.get("started_at") if item else None,"ends_at":item.get("ends_at") if item else None,"server_time":utc_now(),"exam_state":settings.get("exam_state") or "idle","notifications":personal[-10:],"exam_password_enabled":settings.get("exam_password_enabled",False),                "accepted_submission_extensions":settings.get("accepted_submission_extensions",[".zip"]),"published_exams":general_exams.published_for_students(sess["user_id"])})
             if path=="/api/student/code-exam":
                 sess=self._auth(req,"student"); return self._json(get_student_code_exam(sess["user_id"]))
             if path=="/api/student/code/submission":
@@ -427,14 +455,12 @@ class Handler(BaseHTTPRequestHandler):
                 if not question_ids or not question_ids[0]: raise ClientError(400,"question_id is required.")
                 return self._json(get_student_submission(sess["user_id"],question_ids[0]))
             if path=="/api/student/practice/progress":
-                sess=self._auth(req,"student")
-                self._get_user_record(sess)
+                sess=self._practice_student(req)
                 questions_data=read_json("questions.json")
                 progress=get_progress_with_availability(sess["user_id"],questions_data)
                 return self._json({"ok":True,"progress":progress,"catalog_token":compute_catalog_token(questions_data)})
             if path.startswith("/api/student/practice/questions/") and path.endswith("/run-status"):
-                sess=self._auth(req,"student")
-                self._get_user_record(sess)
+                sess=self._practice_student(req)
                 question_id=urllib.parse.unquote(path[len("/api/student/practice/questions/"):-len("/run-status")].strip("/"))
                 if not question_id or "/" in question_id: raise ClientError(404,"Question not found.")
                 active=get_active_run(sess["user_id"],question_id)
@@ -442,15 +468,13 @@ class Handler(BaseHTTPRequestHandler):
                     return self._json({"active":True,"attempt_id":active["attempt_id"],"practice_revision":active["practice_revision"]})
                 return self._json({"active":False,"attempt_id":None,"practice_revision":None})
             if path=="/api/student/practice/questions":
-                sess=self._auth(req,"student")
-                self._get_user_record(sess)
+                sess=self._practice_student(req)
                 questions_data=read_json("questions.json")
                 catalog=get_practice_catalog(questions_data)
                 token=compute_catalog_token(questions_data)
                 return self._json({"ok":True,"questions":catalog,"catalog_token":token})
             if path.startswith("/api/student/practice/questions/"):
-                sess=self._auth(req,"student")
-                self._get_user_record(sess)
+                sess=self._practice_student(req)
                 question_id=urllib.parse.unquote(path[len("/api/student/practice/questions/"):].strip("/"))
                 if not question_id or "/" in question_id: raise ClientError(404,"Question was not found.")
                 q=get_question(question_id)
@@ -474,6 +498,13 @@ class Handler(BaseHTTPRequestHandler):
         source="admins.json" if sess["role"]=="admin" else "students.json"; record=read_json(source).get(sess["user_id"])
         if not record or not record.get("active",True): raise ClientError(401,"Tài khoản không còn hoạt động.")
         return record
+
+    def _practice_student(self, req):
+        sess = self._auth(req, "student")
+        self._get_user_record(sess)
+        with transaction():
+            require_practice_access(sess["user_id"])
+        return sess
 
     def do_POST(self):
         try:
@@ -766,9 +797,11 @@ class Handler(BaseHTTPRequestHandler):
                 audit("admin.exam_distributed",sess["user_id"],client_ip(req),{"release_id":result["release_id"],"mode":mode}); return self._json(result)
             if path=="/api/admin/end-exam":
                 sess=self._auth(req,"admin")
-                try: ended=end_exam_session()
+                try:
+                    with transaction():
+                        ended=end_exam_session()
+                        release_student_exam_scores(ended["release_id"])
                 except ValueError as e: raise ClientError(409,str(e))
-                release_student_exam_scores(ended["release_id"])
                 audit("admin.exam_ended",sess["user_id"],client_ip(req),{"release_id":ended["release_id"],"ended_at":ended["ended_at"]})
                 return self._json({"ok":True,"note":"Lượt thi đã kết thúc; các đề đã phát của lượt cũ vẫn được giữ trong log nhưng không còn cho phép bắt đầu mới."})
             if path=="/api/admin/start-exam":
@@ -778,16 +811,18 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"ok":True,"state":settings["exam_state"],"started_at":settings["exam_started_at"]})
             if path.startswith("/api/admin/students/") and path.endswith("/force-submit"):
                 sess=self._auth(req,"admin"); sid=urllib.parse.unquote(path[len("/api/admin/students/"):-len("/force-submit")])
-                assignments=read_json("assignments.json"); item=assignments.get(sid)
-                if not item or item.get("status") not in {"assigned","in_progress"}: raise ClientError(404,"Sinh viên không có bài thi đang hoạt động.")
-                item.update({"status":"submitted","forced_submit":True,"forced_submit_at":utc_now()}); assignments[sid]=item; write_json("assignments.json",assignments)
+                with transaction():
+                    assignments=read_json("assignments.json"); item=assignments.get(sid)
+                    if not item or item.get("status") not in {"assigned","in_progress"}: raise ClientError(404,"Sinh viên không có bài thi đang hoạt động.")
+                    item.update({"status":"submitted","forced_submit":True,"forced_submit_at":utc_now()}); assignments[sid]=item; write_json("assignments.json",assignments)
                 audit("admin.forced_submission",sess["user_id"],client_ip(req),{"student_id":sid}); return self._json({"ok":True})
             if path.startswith("/api/admin/students/") and path.endswith("/adjust-time"):
                 sess=self._auth(req,"admin"); sid=urllib.parse.unquote(path[len("/api/admin/students/"):-len("/adjust-time")]); minutes=int(f.get("minutes","0"))
                 if minutes < -1440 or minutes > 1440: raise ClientError(400,"Số phút điều chỉnh không hợp lệ.")
-                assignments=read_json("assignments.json"); item=assignments.get(sid)
-                if not item or not item.get("ends_at"): raise ClientError(404,"Sinh viên chưa bắt đầu làm bài.")
-                end=datetime.fromisoformat(item["ends_at"])+timedelta(minutes=minutes); item["ends_at"]=end.isoformat(timespec="seconds"); assignments[sid]=item; write_json("assignments.json",assignments)
+                with transaction():
+                    assignments=read_json("assignments.json"); item=assignments.get(sid)
+                    if not item or not item.get("ends_at"): raise ClientError(404,"Sinh viên chưa bắt đầu làm bài.")
+                    end=datetime.fromisoformat(item["ends_at"])+timedelta(minutes=minutes); item["ends_at"]=end.isoformat(timespec="seconds"); assignments[sid]=item; write_json("assignments.json",assignments)
                 audit("admin.exam_time_adjusted",sess["user_id"],client_ip(req),{"student_id":sid,"minutes":minutes}); return self._json({"ok":True,"ends_at":item["ends_at"]})
             if path=="/api/admin/notifications":
                 sess=self._auth(req,"admin"); message=f.get("message","").strip(); raw_targets=f.get("student_ids","").strip()
@@ -801,8 +836,7 @@ class Handler(BaseHTTPRequestHandler):
                 audit("admin.notification_sent",sess["user_id"],client_ip(req),{"recipient_count":len(students) if targets == [None] else len(targets),"targeted":targets != [None]})
                 return self._json({"ok":True,"recipient_count":len(students) if targets == [None] else len(targets)})
             if path.startswith("/api/student/practice/questions/") and path.endswith("/update"):
-                sess=self._auth(req,"student")
-                self._get_user_record(sess)
+                sess=self._practice_student(req)
                 question_id=urllib.parse.unquote(path[len("/api/student/practice/questions/"):-len("/update")].strip("/"))
                 if not question_id or "/" in question_id: raise ClientError(404,"Question not found.")
                 payload=self._json_body(req)
@@ -814,8 +848,7 @@ class Handler(BaseHTTPRequestHandler):
                 )
                 return self._json({"ok":True})
             if path=="/api/student/practice/run":
-                sess=self._auth(req,"student")
-                self._get_user_record(sess)
+                sess=self._practice_student(req)
                 payload=self._json_body(req)
                 allowed={"question_id","expected_practice_revision","attempt_id","source_code"}
                 if not isinstance(payload,dict) or set(payload)-allowed:
@@ -823,7 +856,13 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(run_practice(sess["user_id"],payload))
             if path=="/api/student/start":
                 sess=self._auth(req,"student")
-                try: item=start_exam(sess["user_id"],f.get("exam_password",""),client_ip(req))
+                precheck=f.get("confirmed_multiple_tabs", "false")
+                if precheck not in {"true", "false"}: raise ClientError(400,"confirmed_multiple_tabs must be true or false.")
+                try:
+                    with transaction():
+                        item=start_exam(sess["user_id"],f.get("exam_password",""),client_ip(req),confirmed_multiple_tabs=precheck=="true")
+                        try: exam_monitoring.flush_start_precheck(sess["user_id"])
+                        except (OSError, RuntimeError): pass # Durable assignment outbox retries on status/repeated Start.
                 except PermissionError as e: raise ClientError(403,str(e))
                 except ValueError as e: raise ClientError(400,str(e))
                 return self._json({"ok":True,"exam_file":item["exam_file"],"started_at":item["started_at"],"ends_at":item["ends_at"],"remaining_seconds":remaining_seconds(item)})
@@ -844,7 +883,15 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"ok":True,"submission":submission},201)
             if path=="/api/student/code/submit-exam":
                 sess=self._auth(req,"student"); payload=self._json_body(req)
-                return self._json(submit_code_exam(sess["user_id"],payload.get("answers"),client_ip(req)))
+                if not isinstance(payload.get("automatic",False),bool): raise ClientError(422,"automatic must be a boolean.")
+                return self._json(submit_code_exam(sess["user_id"],payload.get("answers"),client_ip(req),expected_exam_id=payload.get("exam_id"),automatic=payload.get("automatic",False)))
+            if path=="/api/student/code/draft":
+                sess=self._auth(req,"student"); payload=self._json_body(req)
+                return self._json(exam_completion.save_code_drafts(sess["user_id"],payload.get("exam_id"),payload.get("answers")))
+            if path=="/api/student/finalize":
+                sess=self._auth(req,"student")
+                exam_completion.finalize_due_attempts(sess["user_id"])
+                return self._json(exam_completion.completion_state(sess["user_id"]))
             if path=="/api/student/submit":
                 sess=self._auth(req,"student"); file=req.files.get("file")
                 if not file or not file.get("filename") or not file["filename"].lower().endswith(".zip"): raise ClientError(400,"Chỉ chấp nhận file .zip.")
@@ -868,6 +915,29 @@ class Handler(BaseHTTPRequestHandler):
                 current["telemetry"]={"visibility":"hidden" if f.get("visibility")=="hidden" else "visible","focused":flag("focused",True),"tab_count":tab_count,"browser":f.get("browser","")[:80],"updated_at":utc_now(),"release_id":assignment.get("release_id")}
                 current["last_seen"]=utc_now(); sessions[token_key]=current; write_json("sessions.json",sessions)
                 return self._json({"ok":True})
+            if path=="/api/student/telemetry/event":
+                sess=self._auth(req,"student")
+                if len(body)>4096: raise ClientError(413,"Telemetry event request exceeds 4 KiB.")
+                payload=self._json_body(req)
+                event_id=payload.get("event_id"); event_type=payload.get("event_type")
+                client_time=payload.get("client_occurred_at")
+                client_release_id=payload.get("release_id")
+                if not isinstance(client_release_id,str) or not client_release_id or len(client_release_id)>160:
+                    raise ClientError(400,"release_id must identify the browser event's active attempt.")
+                with transaction():
+                    settings=read_json("settings.json")
+                    assignment=current_exam_for(sess["user_id"])
+                    if not is_active_exam_attempt(sess["user_id"],settings,assignment):
+                        return self._json({"ok":True,"recorded":False,"reason":"inactive_attempt"})
+                    if assignment.get("release_id")!=client_release_id:
+                        return self._json({"ok":True,"recorded":False,"reason":"attempt_mismatch"})
+                    try:
+                        event,created=exam_monitoring.record_event(
+                            sess["user_id"],assignment["release_id"],event_id,event_type,client_time
+                        )
+                    except exam_monitoring.MonitoringEventError as exc:
+                        raise ClientError(400,str(exc)) from exc
+                return self._json({"ok":True,"recorded":created,"event":event})
             if path=="/api/admin/admins":
                 sess=self._auth(req,"admin"); username=f.get("username","").strip(); password=f.get("password","")
                 if not username or len(username)>80 or not all(c.isalnum() or c in "._-@" for c in username): raise ClientError(400,"Tên Admin không hợp lệ.")
@@ -885,8 +955,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             req=self._request(); path=req.path
             if path.startswith("/api/student/practice/progress/"):
-                sess=self._auth(req,"student")
-                self._get_user_record(sess)
+                sess=self._practice_student(req)
                 question_id=urllib.parse.unquote(path[len("/api/student/practice/progress/"):].strip("/"))
                 if not question_id or "/" in question_id: raise ClientError(404,"Question not found.")
                 delete_student_question_progress(sess["user_id"],question_id)
@@ -942,8 +1011,14 @@ def main():
     server=ThreadingHTTPServer((HOST,PORT),Handler); server.daemon_threads=True
     if cert and key:
         context=ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER); context.load_cert_chain(cert,key); server.socket=context.wrap_socket(server.socket,server_side=True)
+    deadline_stop=threading.Event()
+    def deadlines():
+        while not deadline_stop.wait(2):
+            try: exam_completion.finalize_due_attempts()
+            except Exception: traceback.print_exc()
+    threading.Thread(target=deadlines,name="exam-deadlines",daemon=True).start()
     try: server.serve_forever(poll_interval=0.5)
     except KeyboardInterrupt: print("\nStopping server...")
-    finally: server.server_close()
+    finally: deadline_stop.set(); server.server_close()
 
 if __name__=="__main__": main()

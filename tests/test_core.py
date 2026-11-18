@@ -116,6 +116,7 @@ class CoreTests(unittest.TestCase):
             "assignments.json": {"21010001": {"release_id": "release-1", "started_at": (datetime.now(timezone.utc) - timedelta(minutes=1)).isoformat(), "ends_at": (datetime.now(timezone.utc) + timedelta(minutes=30)).isoformat(), "status": "in_progress"}},
             "submissions.json": {},
             "code_submissions.json": {},
+            "exam_monitoring.json": {"attempts": {}},
         }
         request = SimpleNamespace(
             path="/api/student/telemetry",
@@ -133,6 +134,8 @@ class CoreTests(unittest.TestCase):
         handler._json = lambda payload, status=200, headers=None: payload
 
         with patch("app.main.read_json", side_effect=lambda name: state[name]), patch(
+            "app.exam_monitoring.read_json", side_effect=lambda name: state[name]
+        ), patch(
             "app.main.write_json", side_effect=lambda name, value: state.update({name: value})
         ):
             response = handler.do_POST()
@@ -154,6 +157,7 @@ class CoreTests(unittest.TestCase):
             "settings.json": {"exam_state": "started", "exam_released": True, "exam_release_id": "release-1"},
             "assignments.json": {"student-1": {"release_id": "release-1", "started_at": (now - timedelta(minutes=1)).isoformat(), "ends_at": (now + timedelta(minutes=5)).isoformat(), "status": "in_progress"}},
             "notifications.json": [],
+            "exam_monitoring.json": {"attempts": {}},
         }
         request = SimpleNamespace(path="/api/student/status", query={})
         handler = object.__new__(main.Handler)
@@ -236,9 +240,12 @@ class CoreTests(unittest.TestCase):
             "assignments.json": {"student-1": {"release_id": "old-release", "status": "ended", "started_at": main.utc_now(), "ends_at": main.utc_now()}},
             "submissions.json": {},
             "code_submissions.json": {},
+            "exam_monitoring.json": {"attempts": {}},
             "settings.json": {"exam_state": "ended", "exam_released": False, "exam_release_id": None},
         }
-        with patch("app.main.read_json", side_effect=lambda name: state[name]):
+        with patch("app.main.read_json", side_effect=lambda name: state[name]), patch(
+            "app.exam_monitoring.read_json", side_effect=lambda name: state[name]
+        ):
             snapshot = main.monitoring_snapshot()
 
         student = snapshot["students"][0]

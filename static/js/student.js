@@ -1,4 +1,5 @@
 (async function () {
+  document.querySelectorAll("[data-local-clock]").forEach((element) => { element.textContent = window.formatExamClock(element.dataset.localClock); });
   const reportedErrors = new Set();
   const reportBackgroundError = (scope, error) => {
     if (reportedErrors.has(scope)) return;
@@ -18,31 +19,67 @@
     catch (error) { reportBackgroundError("Student tab storage write", error); }
     return Object.keys(tabs).length;
   };
-  let telemetryEnabled = false;
   let heartbeatInFlight = false;
-  const sendTelemetry = async () => {
-    if (!telemetryEnabled) return;
+  const examTelemetry = window.createExamTelemetry({
+    sendSnapshot: async () => {
     const form = new URLSearchParams({
       visibility: document.visibilityState,
       focused: String(document.hasFocus()),
       tab_count: String(updateTabs()),
       browser: navigator.userAgent,
     });
-    try {
       await window.cssRequest("/api/student/telemetry", {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: form,
       });
-    } catch (error) { reportBackgroundError("Student telemetry", error); }
+    },
+    submitEvent: (event) => window.cssRequest("/api/student/telemetry/event", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(event),
+    }),
+    reportError: (error) => reportBackgroundError("Exam monitoring event", error),
+  });
+  const examEntry = window.createExamEntry({
+    getTabCount: updateTabs,
+    startRequest: (confirmedMultipleTabs) => {
+      const form = new FormData();
+      form.append("exam_password", document.getElementById("exam-password")?.value || "");
+      if (confirmedMultipleTabs) form.append("confirmed_multiple_tabs", "true");
+      return window.cssRequest("/api/student/start", { method: "POST", body: form });
+    },
+    recordEvent: (type) => examTelemetry.recordEvent(type),
+    reload: () => window.location.reload(),
+    reportError: (error) => window.cssToast(error.message, "error"),
+  });
+  let completionNavigation = null;
+  window.completeOfficialExam = () => {
+    if (completionNavigation) return completionNavigation;
+    examTelemetry.setActive(false, null);
+    examEntry.setStatus({ active_exam_attempt: false });
+    completionNavigation = (async () => {
+      try { if (document.fullscreenElement && document.exitFullscreen) await document.exitFullscreen(); } catch (_) {}
+      window.location.assign("/?view=home");
+    })();
+    return completionNavigation;
   };
   const heartbeat = async () => {
     if (heartbeatInFlight) return;
     heartbeatInFlight = true;
+    updateTabs(); // Keep the existing page registry usable for the pre-Start check; no telemetry is sent here.
     try {
       const status = await window.cssRequest("/api/student/status");
-      telemetryEnabled = status.active_exam_attempt === true;
-      if (telemetryEnabled) await sendTelemetry();
+      const activeAttempt = status.active_exam_attempt === true;
+      examTelemetry.setActive(activeAttempt, activeAttempt ? status.release_id : null);
+      examEntry.setStatus(status);
+      if (status.completion?.finalized && document.getElementById("student-panel")?.dataset.homeView !== "true") {
+        await window.completeOfficialExam();
+        return;
+      }
+      if (activeAttempt) {
+        await examTelemetry.sendSnapshot();
+      }
       const box = document.getElementById("student-notifications");
       if (box && status.notifications?.length) {
         box.className = "alert alert-info";
@@ -77,7 +114,7 @@
       const publishedBefore = (panel?.dataset.published || "").split(",").filter(Boolean).sort().join(",");
       if (waiting && (status.exam_state === "started" || publishedBefore !== published)) window.location.reload();
     } catch (error) {
-      telemetryEnabled = false;
+      examTelemetry.pause();
       reportBackgroundError("Student heartbeat", error);
     } finally {
       heartbeatInFlight = false;
@@ -85,40 +122,39 @@
   };
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") heartbeat();
-    else sendTelemetry();
+    else examTelemetry.onVisibilityChange();
   });
   window.addEventListener("focus", heartbeat);
-  window.addEventListener("blur", sendTelemetry);
-  window.addEventListener("storage", sendTelemetry);
+  window.addEventListener("focus", () => examTelemetry.onFocus());
+  window.addEventListener("blur", () => examTelemetry.onBlur());
+  window.addEventListener("storage", () => examTelemetry.sendSnapshot());
   heartbeat();
-  setInterval(heartbeat, 15000);
-
-  const start = document.getElementById("start-exam");
-  if (start) {
-    start.addEventListener("click", async () => {
-      start.disabled = true;
-      const password = document.getElementById("exam-password")?.value || "";
-      const form = new FormData();
-      form.append("exam_password", password);
-      try {
-        await window.cssRequest("/api/student/start", { method: "POST", body: form });
-        window.location.reload();
-      } catch (error) {
-        window.cssToast(error.message, "error");
-        start.disabled = false;
-      }
-    });
-  }
+  setInterval(heartbeat, 10000);
 
   const countdown = document.getElementById("countdown");
   if (countdown && !document.getElementById("student-code-root")) {
     let remaining = Number(countdown.dataset.remaining || 0);
+    let closing = false;
+    let retryAfter = 0;
+    const closeExpiredFileExam = async () => {
+      const panel = document.getElementById("student-panel");
+      if (remaining > 0 || !panel?.dataset.assignmentStartedAt || closing || Date.now() < retryAfter) return;
+      closing = true;
+      retryAfter = Date.now() + 5000;
+      document.getElementById("submission-form")?.querySelectorAll("input,button").forEach((element) => { element.disabled = true; });
+      try {
+        const result = await window.cssRequest("/api/student/finalize", {method:"POST"});
+        if (result.finalized) await window.completeOfficialExam();
+      } catch (error) { reportBackgroundError("Deadline finalization", error); }
+      finally { closing = false; }
+    };
     const draw = () => {
       const minutes = Math.floor(remaining / 60);
       const seconds = remaining % 60;
       countdown.textContent = `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
       countdown.classList.toggle("countdown-warning", remaining <= 300);
       if (remaining <= 0) countdown.textContent = "Hết giờ";
+      if (remaining <= 0) void closeExpiredFileExam();
     };
     draw();
     setInterval(() => { if (remaining > 0) remaining--; draw(); }, 1000);
@@ -149,6 +185,7 @@
         box.classList.remove("hidden");
         box.textContent = `Đã nhận bài: ${result.submission.filename} (${result.submission.size_bytes} bytes).`;
         window.cssToast("Nộp bài thành công.", "success");
+        await window.completeOfficialExam();
       } catch (error) {
         window.cssToast(error.message, "error");
       } finally {

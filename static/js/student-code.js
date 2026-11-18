@@ -35,6 +35,12 @@
   let serverRemaining = 0;
   let serverAnchor = 0;
   let storageTimer = 0;
+  let checkpointTimer = 0;
+  let checkpointInFlight = null;
+  let checkpointPayload = null;
+  let initialized = false;
+  let finalizing = false;
+  let nextFinalizeAt = 0;
   const questionStates = new Map();
   const progress = new Map();
   const navButtons = new Map();
@@ -105,7 +111,7 @@
     editor.disabled = expired || !draftReady;
     $("code-restore-starter").disabled = expired || requestPending || !draftReady;
     runButton.disabled = unavailable;
-    submitButton.disabled = unavailable;
+    if (submitButton) submitButton.disabled = unavailable;
     submitAllButton.disabled = unavailable;
     if (expired) {
       $("code-exam-state").textContent = "Đã khóa";
@@ -125,10 +131,13 @@
     countdown.textContent = remaining > 0 ? formatTime(remaining) : "Hết giờ";
     countdown.classList.toggle("countdown-warning", remaining <= 300);
     updateControls();
+    if (initialized && remaining > 0 && remaining <= 3) void checkpointDrafts().catch(() => {});
+    if (initialized && (remaining <= 0 || exam?.read_only)) void submitWholeExam(true);
   }
 
   async function syncServerStatus() {
     const status = await window.cssRequest("/api/student/status");
+    if (status.completion?.finalized) { await window.completeOfficialExam(); return; }
     if (status.remaining_seconds === null || status.remaining_seconds === undefined) {
       serverRemaining = 0;
     } else {
@@ -465,6 +474,24 @@
     } catch (error) {
       storageNotice("Không lưu được bản nháp trong trình duyệt. Hãy giữ nguyên trang để tránh mất mã.", true);
     }
+    window.clearTimeout(checkpointTimer);
+    checkpointTimer = window.setTimeout(() => checkpointDrafts().catch(() => {}), 1000);
+  }
+
+  function checkpointDrafts(force = false) {
+    if (checkpointInFlight) return checkpointInFlight;
+    if (!exam || !draftReady || (!force && (exam.read_only || currentRemaining() <= 0))) return Promise.resolve();
+    const answers = {};
+    for (const q of exam.questions) answers[q.question_id] = sourceForQuestion(q);
+    const body = JSON.stringify({exam_id:exam.exam_id, answers});
+    if (body === checkpointPayload) return Promise.resolve();
+    checkpointInFlight = window.cssRequest("/api/student/code/draft", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body,
+    }).then(() => { checkpointPayload = body; }).catch((error) => {
+      storageNotice("Bản nháp còn trên trình duyệt nhưng chưa đồng bộ lên máy chủ. Khi hết hạn, chỉ phần đã được máy chủ tiếp nhận đúng hạn mới có thể tự nộp.", true);
+      throw error;
+    }).finally(() => { checkpointInFlight = null; });
+    return checkpointInFlight;
   }
 
   function selectDraft(cached) {
@@ -502,13 +529,13 @@
     } catch (error) {
       reportBackgroundError("Student code draft read", error);
     }
-    return typeof q.starter_code === "string" ? q.starter_code : "";
+    return exam.drafts?.[q.question_id]?.source_code ?? (typeof q.starter_code === "string" ? q.starter_code : "");
   }
 
   function initializeDraft(q) {
     starterCode = typeof q.starter_code === "string" ? q.starter_code : "";
     storageKey = storageKeyFor(q);
-    const cached = readDraft();
+    const cached = readDraft() || (exam.drafts?.[q.question_id] ? {source_code:exam.drafts[q.question_id].source_code, starter_code:starterCode} : null);
     if (!cached) {
       editor.value = starterCode;
       draftReady = true;
@@ -624,38 +651,42 @@
     }
   }
 
-  function collectExamAnswers() {
+  function collectExamAnswers(automatic = false) {
     saveDraft();
     const answers = {};
     for (const q of exam.questions) {
       const source = sourceForQuestion(q);
       const alreadySubmitted = Boolean(progress.get(q.question_id)?.submitted);
-      if (!source.trim() && !alreadySubmitted) return { missing: q };
+      if (!automatic && !source.trim() && !alreadySubmitted) return { missing: q };
       answers[q.question_id] = source;
     }
     return { answers };
   }
 
-  async function submitWholeExam() {
-    if (requestPending || submissionUnknown || currentRemaining() <= 0) return;
-    const collected = collectExamAnswers();
+  async function submitWholeExam(automatic = false) {
+    if (finalizing || requestPending || (!automatic && (submissionUnknown || currentRemaining() <= 0)) || (automatic && Date.now() < nextFinalizeAt)) return;
+    const collected = collectExamAnswers(automatic);
     if (collected.missing) {
       showAlert(`Câu "${collected.missing.title || collected.missing.question_id}" chưa có mã nguồn. Hãy hoàn thành câu này trước khi nộp cả bài.`);
       await switchQuestion(collected.missing.question_id);
       return;
     }
-    if (!window.confirm("Bạn chắc chắn muốn nộp cả bài? Tất cả câu chưa nộp sẽ được chấm theo quy định của kỳ thi; các câu đã nộp trước đó được giữ nguyên.")) return;
+    if (!automatic && !window.confirm("Bạn chắc chắn muốn nộp cả bài? Tất cả câu chưa nộp sẽ được chấm theo quy định của kỳ thi; các câu đã nộp trước đó được giữ nguyên.")) return;
+    finalizing = true;
+    nextFinalizeAt = Date.now() + 5000;
     setPending(true);
     clearAlert();
     const host = $("code-submission-result");
     host.replaceChildren(node("p", "muted", "Đang nộp và chấm toàn bộ bài thi..."));
     host.classList.remove("hidden");
     try {
+      if (automatic) { try { await checkpointDrafts(true); } catch (_) {} }
       const result = await window.cssRequest("/api/student/code/submit-exam", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ answers: collected.answers }),
+        body: JSON.stringify({ answers: collected.answers, exam_id:exam.exam_id, automatic }),
       });
+      if (result.finalized) { await window.completeOfficialExam(); return; }
       showExamSubmission(result);
     } catch (error) {
       if (error.status === 401) showLoginLink();
@@ -671,6 +702,7 @@
         syncServerStatus().catch((statusError) => reportBackgroundError("Student code status refresh", statusError));
       }
     } finally {
+      finalizing = false;
       setPending(false);
       await refreshProgress();
     }
@@ -739,17 +771,18 @@
       }
       for (const entry of exam.progress || []) progress.set(entry.question_id, entry);
       runButton.addEventListener("click", runPretest);
-      submitAllButton.addEventListener("click", submitWholeExam);
-      submitButton.addEventListener("click", submitAnswer);
+      submitAllButton.addEventListener("click", () => submitWholeExam(false));
       await syncServerStatus();
       revealContent();
       await showQuestion(questions[0]);
+      initialized = true;
       drawCountdown();
       window.setInterval(drawCountdown, 1000);
       window.setInterval(() => syncServerStatus().catch((error) => {
         if (error.status === 401) showLoginLink();
         reportBackgroundError("Student code status polling", error);
       }), 5000);
+      window.setInterval(() => checkpointDrafts().catch(() => {}), 5000);
     } catch (error) {
       loading.classList.add("hidden");
       showAlert(errorMessage(error));

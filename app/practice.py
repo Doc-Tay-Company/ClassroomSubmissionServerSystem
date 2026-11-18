@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from .config import BASE_DIR
+from .exams import is_active_exam_attempt
 from .storage import read_json, transaction, update_json, utc_now
 
 _PRACTICE_WORKSPACE_PARENT = BASE_DIR / ".practice-run-workspaces"
@@ -24,6 +25,12 @@ class PracticeError(ValueError):
         super().__init__(message)
         self.status = status
         self.code = code
+
+
+def require_practice_access(student_id: str) -> None:
+    """Caller holds transaction() through admission/mutation, never through execution."""
+    if is_active_exam_attempt(student_id):
+        raise PracticeError("Bạn đang tham gia một kỳ thi chính thức. Practice tạm thời bị khóa.", 403, "PRACTICE_LOCKED")
 
 
 def is_valid_revision(revision: Any) -> bool:
@@ -464,7 +471,9 @@ def delete_student_question_progress(student_id: str, question_id: str) -> None:
         else:
             all_progress.pop(student_id, None)
 
-    update_json("practice_progress.json", _mutate)
+    with transaction():
+        require_practice_access(student_id)
+        update_json("practice_progress.json", _mutate)
 
 
 def update_question_progress(
@@ -479,6 +488,7 @@ def update_question_progress(
         raise PracticeError("new_practice_revision must be a 32-character hexadecimal ID", 422, "INVALID_REVISION")
 
     with transaction():
+        require_practice_access(student_id)
         data = read_json("questions.json")
         q = data.get(question_id) if isinstance(data, Mapping) else None
         if not is_practice_eligible(q):
@@ -556,6 +566,7 @@ def run_practice(student_id: str, payload: Mapping) -> dict:
     run_sequence = None
     try:
         with transaction():
+            require_practice_access(student_id)
             questions = read_json("questions.json")
             question = questions.get(question_id) if isinstance(questions, Mapping) else None
             if not is_practice_eligible(question):

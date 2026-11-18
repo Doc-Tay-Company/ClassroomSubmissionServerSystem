@@ -1,7 +1,11 @@
 (function () {
   "use strict";
 
+  let practiceAccess = null;
   function getRequest() {
+    return practiceAccess ? practiceAccess.request : getBaseRequest();
+  }
+  function getBaseRequest() {
     return window.cssRequest || (async (url, options) => {
       const res = await fetch(url, options);
       const data = await res.json().catch(() => ({}));
@@ -505,11 +509,13 @@
     catalogPollInFlight = true;
     const request = getRequest();
     try {
+      if (practiceAccess && !await practiceAccess.check()) return false;
+      const accessRecovered = practiceAccess?.needsRecovery();
       const response = await request("/api/student/practice/questions");
       if (!canPollCatalog()) return false;
       const observedToken = response && response.catalog_token;
       if (typeof observedToken !== "string") throw new Error("The Practice catalog response has no change token.");
-      if (observedToken === catalogToken) {
+      if (observedToken === catalogToken && !accessRecovered) {
         if (noticeHost && noticeHost.textContent.includes("synchronization is temporarily unavailable")) setNotice("", false);
         return true;
       }
@@ -524,6 +530,7 @@
 
       catalog = progressResponse.progress;
       catalogToken = progressResponse.catalog_token;
+      practiceAccess?.acknowledgeRecovery();
       renderCatalog();
       reconcileWorkspaceCatalog();
       refreshOpenPreview();
@@ -1292,6 +1299,7 @@
   // --- Initialization ---
   function init() {
     root = document.getElementById("practice-root");
+    practiceAccess = window.createPracticeLock({ request: (url, options) => getBaseRequest()(url, options), root, dialog: document.getElementById("practice-lock-dialog") });
     libraryView = document.getElementById("practice-library-view");
     workspaceView = document.getElementById("practice-workspace-view");
     listHost = document.getElementById("practice-catalog-list");
@@ -1359,6 +1367,7 @@
       }
     });
     window.addEventListener("online", () => pollCatalogChanges());
+    window.addEventListener("focus", () => pollCatalogChanges());
     window.addEventListener("pagehide", stopCatalogPolling);
     window.addEventListener("pageshow", () => {
       catalogPollingStopped = false;

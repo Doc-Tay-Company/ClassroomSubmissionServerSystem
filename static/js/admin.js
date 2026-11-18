@@ -16,16 +16,57 @@
 
   let monitorRows = [];
   let monitorServerAt = Date.now();
+  let monitorLoadInFlight = false;
+  const monitorHistory = new Map();
+  let openHistoryKey = "";
+  let openHistoryRow = null;
+  const attemptKey = (row) => row.monitoring_attempt ? JSON.stringify([row.monitoring_attempt.student_id, row.monitoring_attempt.release_id]) : "";
+  async function syncMonitorHistory(rows) {
+    await Promise.all((rows || []).map(async (row) => {
+      const key = attemptKey(row);
+      if (!key || !row.latest_event_seq) return;
+      let state = monitorHistory.get(key);
+      if (!state) { state = { cursor: 0, events: [], fetching: false }; monitorHistory.set(key, state); }
+      if (state.fetching || state.cursor >= Number(row.latest_event_seq)) return;
+      state.fetching = true;
+      try {
+        while (state.cursor < Number(row.latest_event_seq)) {
+          const params = new URLSearchParams({
+            student_id: row.monitoring_attempt.student_id,
+            release_id: row.monitoring_attempt.release_id,
+            after_seq: String(state.cursor),
+            limit: "100",
+          });
+          const page = await window.cssRequest(`/api/admin/monitor/events?${params}`);
+          if (!Array.isArray(page.events) || !page.events.length) break;
+          const expectedFirst = state.cursor + 1;
+          const firstSeq = Number(page.events[0].seq);
+          const lastSeq = Number(page.events[page.events.length - 1].seq);
+          if (firstSeq !== expectedFirst || !Number.isInteger(lastSeq) || lastSeq < firstSeq) break;
+          state.events.push(...page.events);
+          state.cursor = lastSeq;
+          if (!page.has_more && state.cursor < Number(row.latest_event_seq)) break;
+        }
+      } catch (_) {
+        // Keep the cursor unchanged on a failed page so the next Monitor poll retries it.
+      } finally { state.fetching = false; }
+    }));
+  }
   async function loadMonitor() { // data to display in mornitor screen
-    const data = await window.cssRequest("/api/admin/monitor");
-    monitorRows = data.students || [];
-    monitorServerAt = Date.parse(data.occurred_at) || Date.now();
-    if ($("stat-total")) $("stat-total").textContent = monitorRows.length;
-    if ($("stat-online")) $("stat-online").textContent = data.online_count ?? 0;
-    if ($("stat-submitted")) $("stat-submitted").textContent = monitorRows.filter((row) => row.submission_count > 0).length;
-    if ($("stat-abnormal")) $("stat-abnormal").textContent = data.abnormal_count ?? 0;
-    if ($("monitor-updated")) $("monitor-updated").textContent = "Đồng bộ server " + new Date(monitorServerAt).toLocaleTimeString();
-    renderMonitor();
+    if (monitorLoadInFlight) return;
+    monitorLoadInFlight = true;
+    try {
+      const data = await window.cssRequest("/api/admin/monitor");
+      monitorRows = data.students || [];
+      monitorServerAt = Date.parse(data.occurred_at) || Date.now();
+      await syncMonitorHistory(monitorRows);
+      if ($("stat-total")) $("stat-total").textContent = monitorRows.length;
+      if ($("stat-online")) $("stat-online").textContent = data.online_count ?? 0;
+      if ($("stat-submitted")) $("stat-submitted").textContent = monitorRows.filter((row) => row.submission_count > 0).length;
+      if ($("stat-abnormal")) $("stat-abnormal").textContent = data.abnormal_count ?? 0;
+      if ($("monitor-updated")) $("monitor-updated").textContent = "Đồng bộ server " + new Date(monitorServerAt).toLocaleTimeString();
+      renderMonitor();
+    } finally { monitorLoadInFlight = false; }
   }
   function renderParticipants() { // data to display in select participant in exam
     const box = $("participant-list");
@@ -39,13 +80,48 @@
     const body = $("monitor-body");
     if (!body) return;
     const query = ($("monitor-search")?.value || "").toLowerCase();
-    const labels = { tab_hidden: "Tab bị ẩn", window_unfocused: "Mất focus", multiple_tabs: "Nhiều tab" };
+    const labels = { tab_hidden: "Tab bị ẩn", window_unfocused: "Mất focus", multiple_tabs: "Nhiều tab", recorded_window_blur: "Đã ghi nhận mất focus", recorded_document_hidden: "Đã ghi nhận ẩn trang" };
     const rows = monitorRows.filter((row) => [row.student_id, row.full_name, row.ip].join(" ").toLowerCase().includes(query));
     body.innerHTML = rows.map((row) => {
       const alerts = (row.alerts || []).map((alert) => `<span class="status-pill status-red">${labels[alert] || escape(alert)}</span>`).join("");
+      const historyPanel = row.latest_event_seq && attemptKey(row)
+        ? `<details class="monitor-event-history" data-monitor-history="${escape(attemptKey(row))}"><summary>Xem chi tiết</summary></details>`
+        : "";
       const remaining = row.remaining_seconds == null ? "—" : `${Math.floor(row.remaining_seconds / 60)}:${String(row.remaining_seconds % 60).padStart(2, "0")}`;
-      return `<tr class="${alerts ? "row-warning" : ""}"><td><div class="cell-main">${escape(row.student_id)}</div><div class="cell-sub">${escape(row.full_name)}</div></td><td class="code-text">${escape(row.ip || "—")}</td><td>${row.logged_in ? '<span class="status-pill status-green">Đang đăng nhập</span>' : '<span class="status-pill status-gray">Ngoại tuyến / chưa đăng nhập</span>'}<div class="cell-sub">${escape(row.last_seen || "")}</div></td><td>${escape(row.exam_file || "—")}</td><td>${remaining}</td><td>${row.submission_count || 0} lần</td><td><div class="user-agent">${escape(row.user_agent || "—")}</div></td><td>${alerts || '<span class="muted">Bình thường</span>'}</td><td><button class="btn btn-secondary btn-small" data-force="${escape(row.student_id)}">Ép nộp</button> <button class="btn btn-secondary btn-small" data-adjust="${escape(row.student_id)}">Điều chỉnh giờ</button></td></tr>`;
+      return `<tr class="${alerts ? "row-warning" : ""}"><td><div class="cell-main">${escape(row.student_id)}</div><div class="cell-sub">${escape(row.full_name)}</div></td><td class="code-text">${escape(row.ip || "—")}</td><td>${row.logged_in ? '<span class="status-pill status-green">Đang đăng nhập</span>' : '<span class="status-pill status-gray">Ngoại tuyến / chưa đăng nhập</span>'}<div class="cell-sub">${escape(row.last_seen || "")}</div></td><td>${escape(row.exam_file || "—")}</td><td>${remaining}</td><td>${row.submission_count || 0} lần</td><td><div class="user-agent">${escape(row.user_agent || "—")}</div></td><td>${alerts || '<span class="muted">Bình thường</span>'}<div>${historyPanel}</div></td><td><button class="btn btn-secondary btn-small" data-force="${escape(row.student_id)}">Ép nộp</button> <button class="btn btn-secondary btn-small" data-adjust="${escape(row.student_id)}">Điều chỉnh giờ</button></td></tr>`;
     }).join("") || '<tr><td colspan="9" class="empty-cell">Không có dữ liệu.</td></tr>';
+    renderHistoryDialog();
+  }
+
+  const eventTypeLabels = { window_blur: "Mất focus cửa sổ", document_hidden: "Trang chuyển sang ẩn", multiple_tabs_detected: "Phát hiện nhiều trang ứng dụng", fullscreen_refused: "Từ chối toàn màn hình", fullscreen_request_failed: "Yêu cầu toàn màn hình thất bại (kỹ thuật)", fullscreen_lost: "Rời chế độ toàn màn hình" };
+  function formatEventTimestamp(value) {
+    const parsed = value ? new Date(value) : null;
+    return parsed && !Number.isNaN(parsed.getTime()) ? parsed.toLocaleString("vi-VN") : String(value || "Không có thời gian");
+  }
+  function renderHistoryDialog() {
+    const dialog = $("monitor-history-modal");
+    const content = $("monitor-history-content");
+    if (!dialog || !content || !dialog.open || !openHistoryKey || !openHistoryRow) return;
+    const refreshedRow = monitorRows.find((item) => attemptKey(item) === openHistoryKey);
+    if (refreshedRow) openHistoryRow = refreshedRow;
+    const row = openHistoryRow;
+    const state = monitorHistory.get(openHistoryKey);
+    const counters = row.event_counters || {};
+    const expectedSeq = Number(row.latest_event_seq || 0);
+    const events = (state?.events || []).map((item) => {
+      const details = [
+        item.source ? `Nguồn: ${escape(item.source)}` : "",
+        item.client_occurred_at ? `Thời điểm từ trình duyệt: ${escape(formatEventTimestamp(item.client_occurred_at))}` : "",
+      ].filter(Boolean).join(" · ");
+      const receivedAt = formatEventTimestamp(item.received_at);
+      return `<li class="monitor-history-event"><div class="monitor-history-event-heading"><strong>#${Number(item.seq)} · ${escape(eventTypeLabels[item.event_type] || item.event_type || "Sự kiện kỹ thuật")}</strong><time datetime="${escape(item.received_at || "")}">${escape(receivedAt)}</time></div>${details ? `<div class="cell-sub">${details}</div>` : ""}</li>`;
+    }).join("");
+    const loading = !state || state.cursor < expectedSeq;
+    const attempt = row.monitoring_attempt || {};
+    const additionalCounters = ["multiple_tabs_detected", "fullscreen_refused", "fullscreen_request_failed", "fullscreen_lost"]
+      .filter((type) => Number(counters[type] || 0) > 0)
+      .map((type) => `<span>${escape(eventTypeLabels[type])}: <strong>${Number(counters[type])}</strong></span>`).join("");
+    content.innerHTML = `<div class="monitor-history-identity"><div><strong>${escape(row.full_name || row.student_id || "Sinh viên")}</strong><div class="cell-sub">MSSV: ${escape(row.student_id || attempt.student_id || "—")}</div></div><div><strong>Đề / lượt thi</strong><div class="cell-sub">${escape(row.exam_file || "—")} · Release: ${escape(attempt.release_id || "—")}</div></div></div><div class="monitor-history-counters"><span>Focus: <strong>${Number(counters.window_blur || 0)}</strong></span><span>Ẩn trang: <strong>${Number(counters.document_hidden || 0)}</strong></span>${additionalCounters}</div>${loading ? '<p class="muted" role="status">Đang tải lịch sử sự kiện…</p>' : ""}<ol class="monitor-history-list">${events || (loading ? "" : '<li class="muted">Chưa có sự kiện được ghi nhận.</li>')}</ol>`;
   }
 
   let students = [];
@@ -205,12 +281,38 @@
     try { const data = await window.cssRequest("/api/admin/admins", { method: "POST", body: new FormData(event.currentTarget) }); event.currentTarget.reset(); show("admin-create-result", `Đã tạo Admin ${data.username}.`); await loadAdmins(); } catch (error) { show("admin-create-result", error.message, true); toastError(error); }
   });
   $("monitor-body")?.addEventListener("click", async (event) => {
+    const historyDisclosure = event.target.closest("details[data-monitor-history]");
+    if (historyDisclosure) {
+      event.preventDefault();
+      const key = historyDisclosure.dataset.monitorHistory;
+      const row = monitorRows.find((item) => attemptKey(item) === key);
+      const dialog = $("monitor-history-modal");
+      if (row && dialog && !dialog.open) {
+        openHistoryKey = key;
+        openHistoryRow = row;
+        dialog.showModal();
+        renderHistoryDialog();
+      }
+      return;
+    }
     const force = event.target.closest("[data-force]"); const adjust = event.target.closest("[data-adjust]");
     try {
       if (force && window.confirm(`Ép ${force.dataset.force} nộp bài ngay?`)) await window.cssRequest(`/api/admin/students/${encodeURIComponent(force.dataset.force)}/force-submit`, { method: "POST" });
       if (adjust) { const minutes = window.prompt("Nhập số phút cộng/trừ:", "-5"); if (minutes !== null) { const form = new FormData(); form.set("minutes", minutes); await window.cssRequest(`/api/admin/students/${encodeURIComponent(adjust.dataset.adjust)}/adjust-time`, { method: "POST", body: form }); } }
       if (force || adjust) { await loadMonitor(); window.cssToast("Đã cập nhật.", "success"); }
     } catch (error) { toastError(error); }
+  });
+  const historyDialog = $("monitor-history-modal");
+  historyDialog?.addEventListener("close", () => {
+    openHistoryKey = "";
+    openHistoryRow = null;
+  });
+  historyDialog?.addEventListener("click", (event) => {
+    if (event.target.closest?.("[data-monitor-history-close]")) {
+      historyDialog.close();
+      return;
+    }
+    if (event.target === historyDialog) historyDialog.close();
   });
   $("distribution-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();

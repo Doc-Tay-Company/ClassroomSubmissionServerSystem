@@ -11,7 +11,7 @@
     <form action="/logout" method="post"><button class="btn btn-ghost ui-action" type="submit"><i class="fa fa-sign-out"></i> Đăng xuất</button></form>
   </div>
 </header>
-<main class="page-wrap ui-page mx-auto max-w-6xl px-6 py-6" id="practice-root" data-student-id="{{ session.user_id }}">
+<main class="page-wrap ui-page mx-auto max-w-6xl px-6 py-6" id="practice-root" inert data-student-id="{{ session.user_id }}">
   <div id="practice-notice" class="hidden" role="status" aria-live="polite"></div>
   <!-- VIEW 1: Library View -->
   <section id="practice-library-view">
@@ -127,5 +127,11 @@
   <!-- Modal Host -->
   <div id="practice-modal-host" class="hidden"></div>
 </main>
+<dialog id="practice-lock-dialog" class="exam-entry-dialog" aria-labelledby="practice-lock-title">
+  <h2 id="practice-lock-title">Đang xác minh quyền luyện tập</h2>
+  <p id="practice-lock-message" role="status"></p>
+  <a href="/" class="btn btn-primary">Quay về trang thi</a>
+</dialog>
+<script defer src="/static/js/practice-lock.js"></script>
 <script defer src="/static/js/student-practice.js"></script>
 {% endblock %}

@@ -142,6 +142,16 @@
                         </tbody>
                     </table>
                 </div>
+                <dialog class="monitor-history-dialog" id="monitor-history-modal" aria-labelledby="monitor-history-title">
+                    <div class="monitor-history-dialog-panel">
+                        <header class="monitor-history-dialog-heading">
+                            <div><h2 id="monitor-history-title">Chi tiết sự kiện</h2><p class="muted">Lịch sử kỹ thuật được ghi nhận trong lượt thi.</p></div>
+                            <button class="btn btn-ghost monitor-history-close-icon" type="button" aria-label="Đóng" data-monitor-history-close>×</button>
+                        </header>
+                        <div id="monitor-history-content" class="monitor-history-dialog-content"></div>
+                        <footer class="monitor-history-dialog-actions"><button class="btn btn-secondary" type="button" data-monitor-history-close>Đóng</button></footer>
+                    </div>
+                </dialog>
             </section>
             {% endif %}
             {% if section == 'notifications' %}

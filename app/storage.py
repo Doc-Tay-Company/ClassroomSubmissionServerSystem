@@ -38,11 +38,13 @@ DEFAULTS = {
     "exams.json": {},
     "code_submissions.json": {},
     "code_runs.json": [],
+    "code_attempts.json": {"attempts": {}},
     "sessions.json": {},
     "login_attempts.json": {},
     "machines.json": {},
     "notifications.json": [],
     "practice_progress.json": {},
+    "exam_monitoring.json": {"attempts": {}},
 }
 
 def utc_now() -> str:

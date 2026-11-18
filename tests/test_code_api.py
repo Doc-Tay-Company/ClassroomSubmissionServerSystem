@@ -625,7 +625,7 @@ class CodeApiTests(unittest.TestCase):
         )
         self.assertEqual(status, 401, response)
 
-    def test_exam_end_releases_scores_for_hidden_policy(self):
+    def test_exam_end_keeps_scores_private_when_immediate_review_is_disabled(self):
         exam_id = self.create_started_code_exam()
         with patch("app.code_exams.execute_question", return_value=_execution()):
             status, submitted = self.request(
@@ -648,8 +648,8 @@ class CodeApiTests(unittest.TestCase):
             cookie=self.student_cookie,
         )
         self.assertEqual(status, 200, result)
-        self.assertEqual(result["score"], 10)
-        self.assertEqual(result["exam_score"], 10)
+        self.assertNotIn("score", result)
+        self.assertNotIn("exam_score", result)
         self.assertEqual(storage.read_json("code_exams.json")[exam_id]["status"], "ended")
 
     def test_code_exam_routes_map_invalid_json_to_422_without_changing_shared_parser(self):
@@ -798,7 +798,7 @@ class CodeApiTests(unittest.TestCase):
         self.assertEqual(storage.read_json("assignments.json")["student-1"]["status"], "submitted")
         self.assertNotIn("secret-expected", json.dumps(submitted))
 
-    def test_code_submission_keeps_score_private_until_exam_ends(self):
+    def test_code_submission_keeps_score_private_even_after_exam_end(self):
         self.create_started_code_exam()
         with patch("app.code_exams.execute_question", return_value=_execution()):
             status, result = self.request(
@@ -821,8 +821,8 @@ class CodeApiTests(unittest.TestCase):
             cookie=self.student_cookie,
         )
         self.assertEqual(status, 200, final)
-        self.assertEqual(final["score"], 10)
-        self.assertEqual([item["id"] for item in final["results"]], ["visible"])
+        self.assertNotIn("score", final)
+        self.assertNotIn("results", final)
         self.assertNotIn("secret-expected", json.dumps(final))
 
     def test_bulk_submit_grades_all_questions_and_marks_exam_submitted(self):
@@ -969,6 +969,78 @@ class CodeApiTests(unittest.TestCase):
             ["first-question", "second-question"],
         )
         self.assertEqual(storage.read_json("assignments.json")["student-1"]["status"], "submitted")
+
+    def test_completed_result_route_authorization_disclosure_and_home_confirmation(self):
+        self.create_started_code_exam()
+        assignment = storage.read_json('assignments.json')['student-1']
+        exam_id = assignment['code_exam_id']
+        storage.update_json('code_exams.json', lambda exams: exams[exam_id].update(show_final_score_immediately=True))
+        source = 'print("<script>saved source</script>")'
+        status, result = self.request('POST', '/api/student/code/draft', cookie=self.student_cookie,
+                                      payload={'exam_id': exam_id, 'answers': {'echo-question': source}})
+        self.assertEqual(status, 200, result)
+        with patch('app.code_exams.execute_question', return_value=_execution()):
+            status, result = self.request('POST', '/api/student/code/submit-exam', cookie=self.student_cookie,
+                                          payload={'exam_id': exam_id, 'answers': {'echo-question': source}})
+        self.assertEqual(status, 200, result)
+        self.assertTrue(result['finalized'])
+        path = '/student/results?exam_id=' + exam_id
+        status, page = self.request('GET', path, cookie=self.student_cookie, parse_json=False)
+        self.assertEqual(status, 200, page)
+        html = page.decode('utf-8')
+        self.assertIn('&lt;script&gt;saved source&lt;/script&gt;', html)
+        self.assertNotIn('secret-expected', html)
+        self.assertNotIn('secret-input', html)
+        status, home = self.request('GET', '/?view=home', cookie=self.student_cookie, parse_json=False)
+        self.assertEqual(status, 200)
+        self.assertIn('Chúc mừng! Bạn đã hoàn thành bài thi.', home.decode('utf-8'))
+        self.assertIn('Xem kết quả chi tiết', home.decode('utf-8'))
+        other = new_session('student-2', 'student', '127.0.0.1', 'test')
+        storage.update_json('students.json', lambda students: students.update({'student-2': {'active': True}}))
+        self.assertEqual(self.request('GET', path, cookie=other, parse_json=False)[0], 404)
+        self.assertIn(self.request('GET', path, parse_json=False)[0], (302, 401))
+        storage.update_json('code_exams.json', lambda exams: exams[exam_id].update(show_final_score_immediately=False))
+        self.assertEqual(self.request('GET', path, cookie=self.student_cookie, parse_json=False)[0], 403)
+        status, home = self.request('GET', '/?view=home', cookie=self.student_cookie, parse_json=False)
+        self.assertNotIn('Xem kết quả chi tiết', home.decode('utf-8'))
+        storage.update_json('code_exams.json', lambda exams: exams[exam_id].pop('show_final_score_immediately'))
+        self.assertEqual(self.request('GET', path, cookie=self.student_cookie, parse_json=False)[0], 403)
+        status, snapshot = self.request('GET', '/api/student/code-exam', cookie=self.student_cookie)
+        self.assertEqual(status, 200, snapshot)
+        self.assertFalse(snapshot['show_final_score_immediately'])
+
+    def test_teacher_end_during_whole_exam_grading_preserves_finalization(self):
+        self.create_started_code_exam()
+        exam_id = storage.read_json('assignments.json')['student-1']['code_exam_id']
+        entered, finish = threading.Event(), threading.Event()
+        results = []
+        def grade(*args):
+            entered.set()
+            if not finish.wait(4): raise RuntimeError('test synchronization timed out')
+            return _execution()
+        def submit():
+            results.append(self.request('POST', '/api/student/code/submit-exam', cookie=self.student_cookie,
+                                        payload={'exam_id': exam_id, 'answers': {'echo-question': _SAMPLE_SOURCE}}))
+        with patch('app.code_exams.execute_question', side_effect=grade) as runner:
+            worker = threading.Thread(target=submit)
+            worker.start()
+            try:
+                self.assertTrue(entered.wait(3))
+                marker = storage.read_json('assignments.json')['student-1']['finalized_at']
+                status, ended = self.request('POST', '/api/admin/end-exam', cookie=self.admin_cookie, raw_body=b'')
+                self.assertEqual(status, 200, ended)
+                self.assertEqual(storage.read_json('assignments.json')['student-1']['finalized_at'], marker)
+            finally:
+                finish.set()
+                worker.join(5)
+            self.assertFalse(worker.is_alive())
+            self.assertEqual(results[0][0], 200, results)
+            status, replay = self.request('POST', '/api/student/code/submit-exam', cookie=self.student_cookie,
+                                         payload={'exam_id': exam_id, 'automatic': True})
+            self.assertEqual(status, 200, replay)
+            self.assertTrue(replay['finalized'])
+            self.assertEqual(runner.call_count, 1)
+        self.assertEqual(len(storage.read_json('code_submissions.json')['student-1']), 1)
 
     def test_student_page_exposes_bulk_submit_and_home_view(self):
         self.create_started_code_exam()

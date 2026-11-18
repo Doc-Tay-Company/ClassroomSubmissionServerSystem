@@ -38,6 +38,8 @@ class Element {
   get innerHTML() { return this._html; }
   addEventListener(type, fn) { (this.listeners[type] ||= []).push(fn); }
   async dispatchEvent(evt) { for (const fn of this.listeners[evt.type] || []) await fn(evt); }
+  showModal() { this.open = true; }
+  close() { this.open = false; void this.dispatchEvent({ type: 'close' }); }
   querySelector(selector) { return this.querySelectorAll(selector)[0] || null; }
   querySelectorAll(selector) {
     const cls = selector.startsWith('.') ? selector.slice(1).split(/[.[\s]/)[0] : null;
@@ -62,19 +64,20 @@ const script = fs.readFileSync(path.join(__dirname, '../static/js/student-practi
 const question = (id, rev = 'rev-1') => ({ question_id:id, title:`Question ${id}`, statement:`Statement ${id}`,
   starter_code:`starter-${id}`, practice_revision:rev, version:1, language:'python', tests:[] });
 
-function createTab({student='student-1', sharedStorage=new Storage(), tabSession=new Storage(), request=async () => ({})} = {}) {
+function createTab({student='student-1', sharedStorage=new Storage(), tabSession=new Storage(), request=async () => ({}), statusRequest=async () => ({active_exam_attempt:false})} = {}) {
   const elements = Object.fromEntries(ids.map((id) => [id, new Element(id)]));
+  for (const id of ['practice-lock-dialog','practice-lock-title','practice-lock-message']) elements[id] = new Element(id);
   elements['practice-root'].dataset.studentId = student;
   const documentListeners = {}, windowListeners = {};
   const document = { readyState:'complete', visibilityState:'visible', getElementById:(id) => elements[id] || null,
     createElement:() => new Element(), addEventListener:(type, fn) => { (documentListeners[type] ||= []).push(fn); }, querySelectorAll:() => [] };
   const window = { document, localStorage:sharedStorage, sessionStorage:tabSession, location:{hash:''},
-    cssRequest:request, cssEscape:(v) => String(v ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])), confirm:() => true, alert:() => {},
+    cssRequest:(url, options) => url === '/api/student/status' ? statusRequest() : request(url, options), cssEscape:(v) => String(v ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])), confirm:() => true, alert:() => {},
     addEventListener:(type, fn) => { (windowListeners[type] ||= []).push(fn); }, removeEventListener:() => {}, setTimeout, clearTimeout, setInterval, clearInterval,
     crypto:null };
   const context = { window, document, localStorage:sharedStorage, console, setTimeout, clearTimeout,
     Uint8Array, Math, JSON, Number, String, Boolean, encodeURIComponent, decodeURIComponent, alert:() => {}, confirm:() => true };
-  vm.createContext(context); vm.runInContext(script, context);
+  vm.createContext(context); vm.runInContext(fs.readFileSync(path.join(__dirname, '../static/js/practice-lock.js'), 'utf8'), context); vm.runInContext(script, context);
   return { window, document, documentListeners, windowListeners, elements, storage:sharedStorage, session:tabSession, api:window.PracticeWorkspace };
 }
 
@@ -570,6 +573,50 @@ async function main() {
   await firstPoll;
   overlapTab.api.stopCatalogPolling();
   console.log('PASS Phase 3 overlapping refresh triggers do not duplicate requests');
+
+  // Phase 4: the same polling loop detects Start and unlock; local source stays intact.
+  let examActive = false, statusOffline = false, lockProgressFetches = 0;
+  const lockTab = createTab({statusRequest:async () => {
+    if (statusOffline) throw new Error('status offline');
+    return {active_exam_attempt:examActive};
+  }, request:async (url) => {
+    if (url.endsWith('/questions/qLock')) return {question:question('qLock')};
+    if (url.endsWith('/progress')) { lockProgressFetches++; return {progress:[{question_id:'qLock',title:'Question qLock',language:'python',available:true,practice_revision:'rev-1',progress:null}],catalog_token:'unchanged'}; }
+    if (url.endsWith('/run-status')) return {active:false};
+    return {catalog_token:'unchanged'};
+  }});
+  assert.strictEqual(lockTab.elements['practice-root'].inert,true,'initial status must be verified before use');
+  await tick();
+  assert.strictEqual(lockTab.elements['practice-root'].inert,false);
+  await lockTab.api.openWorkspace('qLock');
+  lockTab.elements['practice-code-editor'].value='preserved local solution';
+  await lockTab.elements['practice-code-editor'].dispatchEvent({type:'input'});
+  const draftsBeforeLock = JSON.stringify(lockTab.storage.data);
+  examActive = true;
+  await lockTab.api.pollCatalogChanges();
+  assert(lockTab.elements['practice-lock-dialog'].open && lockTab.elements['practice-root'].inert,'already-open Practice locks after Student Start');
+  lockTab.document.fullscreenElement = {};
+  await lockTab.api.pollCatalogChanges();
+  assert(lockTab.elements['practice-root'].inert,'Fullscreen in Practice cannot bypass Practice Lock');
+  await lockTab.elements['practice-lock-dialog'].close(); await tick();
+  assert(lockTab.elements['practice-lock-dialog'].open,'closing the modal does not bypass the lock');
+  assert.strictEqual(JSON.stringify(lockTab.storage.data),draftsBeforeLock,'lock never clears source drafts');
+  statusOffline=true;
+  await lockTab.api.pollCatalogChanges();
+  assert(lockTab.elements['practice-root'].inert,'network failure cannot unlock');
+  const beforeUnlock = lockProgressFetches;
+  statusOffline=false; examActive=false;
+  await lockTab.api.pollCatalogChanges();
+  assert.strictEqual(lockTab.elements['practice-root'].inert,false,'authoritative inactive attempt unlocks');
+  assert(lockProgressFetches > beforeUnlock,'unlock refreshes progress even when Question Bank token did not change');
+  assert.strictEqual(lockTab.elements['practice-code-editor'].value,'preserved local solution');
+  lockTab.api.stopCatalogPolling();
+  const openedLocked=createTab({statusRequest:async () => ({active_exam_attempt:true})});
+  await tick();
+  assert(openedLocked.elements['practice-root'].inert && openedLocked.elements['practice-lock-dialog'].open,'Practice opened after Start is blocked');
+  openedLocked.api.stopCatalogPolling();
+  assert(template.includes('href="/" class="btn btn-primary">Quay về trang thi'));
+  console.log('PASS Phase 4 initial/open-tab lock, protected modal, network recovery, unlock and source preservation');
 
   await tick();
   console.log('\nAll Practice workspace and Run integration regression tests passed.');

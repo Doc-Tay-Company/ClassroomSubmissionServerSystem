@@ -169,7 +169,7 @@ def persist_distribution(mode: str, config: dict, assignments: dict, code_exam_i
     audit("exam.distributed", "admin", None, {"release_id": release_id, "mode": mode, "student_count": len(persisted), "exam_count": len(set(assignments.values()))})
     return {"release_id": release_id, "assigned_count": len(assignments), "distribution": assignments}
 
-def start_exam(student_id: str, supplied_password: str | None = None, ip: str | None = None) -> dict:
+def start_exam(student_id: str, supplied_password: str | None = None, ip: str | None = None, *, confirmed_multiple_tabs: bool = False) -> dict:
     settings = read_json("settings.json")
     if settings.get("exam_state") != "started":
         raise ValueError("Giảng viên chưa bắt đầu kỳ thi.")
@@ -181,6 +181,9 @@ def start_exam(student_id: str, supplied_password: str | None = None, ip: str | 
     if not item or item.get("release_id") != settings.get("exam_release_id"):
         raise ValueError("Bạn chưa được giao đề trong kỳ thi này.")
     if item.get("started_at"):
+        if confirmed_multiple_tabs and is_active_exam_attempt(student_id, settings, item):
+            item["monitoring_precheck_pending"] = True
+            write_json("assignments.json", assignments)
         return item
 
 
@@ -190,6 +193,8 @@ def start_exam(student_id: str, supplied_password: str | None = None, ip: str | 
     item["ends_at"] = (now + timedelta(minutes=duration)).isoformat(timespec="seconds")
     item["status"] = "in_progress"
     item["ip_at_start"] = ip or item.get("ip_at_assignment")
+    if confirmed_multiple_tabs and is_active_exam_attempt(student_id, settings, item):
+        item["monitoring_precheck_pending"] = True
     assignments[student_id] = item
     write_json("assignments.json", assignments)
     audit("exam.started", student_id, ip or item.get("ip_at_assignment"), {"exam_file": item["exam_file"], "started_at": item["started_at"], "ends_at": item["ends_at"]})
