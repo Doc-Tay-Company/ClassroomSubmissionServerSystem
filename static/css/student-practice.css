@@ -314,7 +314,7 @@
 .practice-workspace-grid {
   display: grid;
   grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
-  align-items: start;
+  align-items: stretch;
   gap: 16px;
 }
 
@@ -457,18 +457,30 @@
   justify-content: flex-end;
 }
 
-#practice-run-result {
-  margin-top: 14px;
-  padding: 12px;
-  border: 1px solid var(--practice-line);
-  border-radius: 8px;
-  overflow-wrap: anywhere;
+#practice-editor-alert.notice-error {
+  background: #fef2f2;
+  border-color: #fecaca;
+  color: #991b1b;
 }
 
-#practice-run-result h3 {
-  margin: 0 0 6px;
+#practice-run-result {
+  grid-column: 1 / -1;
+}
+
+.practice-result-title {
+  margin: 0;
   color: var(--practice-ink);
+  font-size: 15px;
   font-weight: 750;
+}
+
+.practice-result-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0 12px;
+  font-size: 13px;
 }
 
 .practice-modal-backdrop {
@@ -531,39 +543,49 @@
 .fill-red { background: #dc2626; }
 .fill-neutral { background: #94a3b8; }
 
-.practice-feedback-list {
-  display: grid;
-  gap: 8px;
-  margin: 8px 0 0;
-  padding: 0;
-  list-style: none;
+.practice-feedback-scroll {
+  max-width: 100%;
 }
 
-.practice-feedback-row {
-  padding: 10px;
-  border: 1px solid var(--practice-line);
-  border-radius: 8px;
+.practice-feedback-scroll .practice-feedback-table {
+  min-width: 38rem;
+  table-layout: fixed;
 }
 
-.practice-feedback-heading {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px 8px;
-  align-items: center;
+.practice-feedback-table :is(th, td) {
+  padding: 8px 10px;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
-.practice-feedback-detail,
-.practice-feedback-diagnostic {
-  margin-top: 8px;
+.practice-feedback-table th:nth-child(1) {
+  width: 94px;
+}
+
+.practice-feedback-table th:nth-child(2),
+.practice-feedback-table th:nth-child(3) {
+  width: 76px;
+}
+
+.practice-feedback-verdict {
+  display: block;
+  margin-top: 3px;
 }
 
 .practice-feedback-output {
-  margin: 4px 0 0;
+  max-height: 10rem;
+  margin: 0;
   padding: 8px;
+  overflow: auto;
   border-radius: 6px;
   background: var(--practice-soft);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+.alert .practice-feedback-output {
+  margin-top: 6px;
 }
 
 @media (max-width: 860px) {
