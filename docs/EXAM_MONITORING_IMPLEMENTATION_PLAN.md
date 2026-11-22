@@ -1,13 +1,23 @@
-# Kế hoạch triển khai Exam Monitoring theo bốn Phase
+# Exam Monitoring: scope, implementation status, and acceptance plan
 
-> **Trạng thái:** Kế hoạch kiến trúc theo quyết định Owner; chưa phải authorization triển khai.  
-> **Phạm vi:** Bốn functional phase đã duyệt. Source hiện tại mô tả implementation, quyết định Owner mô tả hành vi đích.
+> **Reconciled against source on 2026-11-22.** All four functional scopes described below are present in the current source. This document remains the approved behavior/acceptance reference; it is not an instruction to restart implementation or evidence of completed browser acceptance, production deployment, or passing tests in this checkout.
 
 ## 1. Mục đích, phạm vi và thẩm quyền
 
-Đây là tài liệu tham chiếu chính cho các phiên triển khai Exam Monitoring sau này. Chỉ triển khai phase được Owner phê duyệt rõ ràng. Một phase chỉ hoàn tất khi deliverable dùng được độc lập, acceptance của phase pass, regression các phase trước pass, và Exam/Practice regression hiện hữu pass.
+Đây là tài liệu tham chiếu cho scope và acceptance của Exam Monitoring. Implementation status ở đầu tài liệu được đối chiếu từ source; mỗi phase chỉ được coi là nghiệm thu khi acceptance và regression phù hợp đã được thực hiện, ghi nhận.
 
-Tài liệu không cho phép tự triển khai, bắt đầu phase kế tiếp, thay đổi data, tạo commit, hay mở rộng phạm vi. Test chưa chạy/block phải được báo; không thể coi là pass. Browser signal là technical observation, không phải kết luận misconduct.
+Tài liệu không cho phép tự thay đổi runtime data, tạo commit, hay mở rộng phạm vi. Test chưa chạy/block phải được báo; không thể coi là pass. Browser signal là technical observation, không phải kết luận misconduct.
+
+## Current source status
+
+| Phase | Source evidence | Status in this checkout |
+|---|---|---|
+| 1 — Exam-aware telemetry | `app/exams.py::is_active_exam_attempt()`, `app/main.py` status/snapshot routes, `static/js/student.js` | Implemented: status polling remains available; snapshots are sent for active attempts. |
+| 2 — Persistent event history and Teacher Monitoring | `app/exam_monitoring.py`, monitoring/event routes in `app/main.py`, `static/js/admin.js` | Implemented: per-Student/release events, counters, sequence paging, and incremental admin history. |
+| 3 — Student Start precheck and fullscreen gate | `static/js/exam-entry.js`, `static/js/exam-telemetry.js`, Student Start/status backend | Implemented: multi-page precheck, fullscreen gate, and attempt-scoped events. |
+| 4 — Practice lock and final integration | `app/practice.py`, Practice routes in `app/main.py`, `static/js/practice-lock.js` | Implemented: active-attempt Practice operations are blocked per Student. |
+
+Relevant checked-in test suites include `tests/test_exam_monitoring.py`, `tests/test_exam_start_monitoring.py`, `tests/test_practice_lock.py`, `tests/test_exam_entry.js`, and `tests/test_practice_lock.js`. They were not run as part of this documentation update.
 
 ## 2. Tài liệu và cơ sở source
 
@@ -18,9 +28,8 @@ Tài liệu không cho phép tự triển khai, bắt đầu phase kế tiếp, 
 - [DECISIONS.md](DECISIONS.md) — Owner decisions tách khỏi source observations.
 - [KNOWN_ISSUES.md](KNOWN_ISSUES.md) — telemetry, JSON concurrency và deployment limits.
 - [ENGINEERING_LESSONS.md](ENGINEERING_LESSONS.md) — nested data, API compatibility, concurrency, presence/telemetry.
-- [TELEMETRY_ARCHITECTURE_AUDIT.md](TELEMETRY_ARCHITECTURE_AUDIT.md) — prior investigation chi tiết cho Student Start, telemetry, monitoring, Practice và fullscreen.
-
-Báo cáo Rebaseline mới nhất được cung cấp trong hội thoại, không có file báo cáo riêng tương ứng trong repository. Dùng báo cáo đó làm bối cảnh và đối chiếu các điểm trọng yếu với source hiện tại; không bịa path cho report. Không tìm thấy AGENTS.md trong Integration Workspace hoặc docs áp dụng.
+- [TELEMETRY_ARCHITECTURE_AUDIT.md](TELEMETRY_ARCHITECTURE_AUDIT.md) — historical pre-implementation investigation; do not use its old behavior claims as current.
+- [README.md](README.md) — documentation index, project footprint, and current/historical document ownership.
 
 ### Source navigation đã xác nhận
 
@@ -38,18 +47,18 @@ Báo cáo Rebaseline mới nhất được cung cấp trong hội thoại, khôn
 | Practice service | app/practice.py: is_practice_eligible(), run_practice(), active-run registry | Eligibility, Run/progress; Run đã accepted không được hủy bởi lock. |
 | Exam lifecycle | app/exams.py: start_exam(), start_exam_session(), end_exam_session(); app/general_exams.py | Teacher Start và Student Start là các bước riêng; assignment/release là nguồn trạng thái. |
 
-### Hành vi hiện tại cần giữ rõ ràng
+### Current behavior verified against source
 
-- POST /api/student/start kiểm tra Teacher đã Start, assignment/release và password nếu bật; success ghi started_at/ends_at rồi frontend reload.
-- GET /api/student/status trả started dựa trên started_at, cùng assignment status/release và exam_state. Không dùng started_at đơn độc để kết luận attempt còn active.
-- static/js/student.js gửi snapshot tới POST /api/student/telemetry ngay khi Student shell tải và trong các event/heartbeat; heartbeat chạy ngay, mỗi 15 giây, sau telemetry gọi status.
-- Backend thay session telemetry snapshot trong sessions.json; các field hiện tại là visibility, focused, tab_count, browser, updated_at. Chưa có Event History/counter bền vững.
-- app/main.py:monitoring_snapshot() tổng hợp Students, session gần nhất, assignment và alert từ snapshot. static/js/admin.js poll GET /api/admin/monitor mỗi 5 giây.
-- Practice nạp student-practice.js, catalog poll 15 giây; visibility listener dừng/tiếp tục polling. Chưa có Exam Lock trong Practice page/API.
-- tab_count đếm page instance cùng origin còn trong localStorage registry với tuổi tối đa 20 giây; không đếm toàn bộ browser tabs/windows.
-- storage lock chỉ process-local; atomic replace là theo file, không tạo multi-file transaction hoặc multi-process lock.
+- `POST /api/student/start` retains backend authorization for Teacher Start, assignment/release and optional password; the route records the tab precheck result for replay into monitoring history.
+- `GET /api/student/status` returns `active_exam_attempt` based on the current assignment/release/deadline state, not `started_at` alone.
+- `static/js/student.js` polls status every 10 seconds. It sends telemetry snapshots only while status reports an active attempt; authenticated requests continue to refresh session presence independently.
+- `POST /api/student/telemetry` stores the current active-attempt snapshot in the session. `POST /api/student/telemetry/event` validates active attempt/release and appends deduplicated events to `exam_monitoring.json`.
+- `monitoring_snapshot()` filters snapshots to the active assignment/release and exposes counters plus `latest_event_seq`; the admin UI polls every 5 seconds and pages event history incrementally.
+- `exam-entry.js` implements the multi-page Start precheck and fullscreen gate. `practice-lock.js` and backend Practice checks block Practice operations for the Student with an active Official Exam attempt.
+- `tab_count` estimates recent same-origin page instances from localStorage; it does not count every browser tab/window.
+- Storage locking is process-local and JSON replacement is per-file; there is no cross-process lock or multi-file transaction.
 
-Các nội dung này phù hợp với [Telemetry Architecture Audit](TELEMETRY_ARCHITECTURE_AUDIT.md), nhưng mỗi phiên triển khai cần xác nhận source và line numbers mới nhất.
+The older detailed audit below is historical; current behavior should be checked against source. File/line coordinates in this plan are navigation hints and may drift.
 
 ## 3. Kiến trúc được duyệt và các feature deferred
 
@@ -100,12 +109,14 @@ Không thực hiện trong bốn phase: redesign tab detection; Teacher add/dism
 
 ## 4. Roadmap bốn phase
 
-| Phase | Kết quả chức năng độc lập | Dependency |
-|---|---|---|
-| 1 — Exam-Aware Telemetry | Presence vẫn chạy; snapshot chỉ thu trong active Student attempt và phục hồi qua reload. Event History chưa cần có. | Backend active-attempt determination. |
-| 2 — Persistent Event History and Teacher Monitoring | Focus/visibility transitions lưu bền; counters và history xem được, incremental sync qua monitor. | Phase 1 và attempt identity; không phụ thuộc Fullscreen/Practice Lock. |
-| 3 — Student Start Precheck and Fullscreen Gate | Student precheck/start và vào Exam bằng Fullscreen gate; event hiện ở Teacher Monitoring. | Phase 2; không phụ thuộc Practice Lock. |
-| 4 — Practice Lock and Final Integration | Active examinee không mở/khởi tạo Practice operation mới; accepted Run được hoàn tất; đúng lúc thì unlock. | Shared active-attempt contract và Phase 1–3. |
+> The phase-by-phase sections below preserve the original objectives, contracts, and acceptance criteria. Any phrase such as “not yet included” describes that phase's planned boundary at the time, not the current source status shown above.
+
+| Phase | Kết quả chức năng độc lập | Dependency | Source status |
+|---|---|---|---|
+| 1 — Exam-Aware Telemetry | Presence vẫn chạy; snapshot chỉ thu trong active Student attempt và phục hồi qua reload. Event History chưa cần có. | Backend active-attempt determination. | Implemented; acceptance not verified here. |
+| 2 — Persistent Event History and Teacher Monitoring | Focus/visibility transitions lưu bền; counters và history xem được, incremental sync qua monitor. | Phase 1 và attempt identity; không phụ thuộc Fullscreen/Practice Lock. | Implemented; acceptance not verified here. |
+| 3 — Student Start Precheck and Fullscreen Gate | Student precheck/start và vào Exam bằng Fullscreen gate; event hiện ở Teacher Monitoring. | Phase 2; không phụ thuộc Practice Lock. | Implemented; browser acceptance not verified here. |
+| 4 — Practice Lock and Final Integration | Active examinee không mở/khởi tạo Practice operation mới; accepted Run được hoàn tất; đúng lúc thì unlock. | Shared active-attempt contract và Phase 1–3. | Implemented; end-to-end acceptance not verified here. |
 
 Phase N không hoàn tất nếu chỉ hoàn thành các phần frontend/backend riêng lẻ. Cần usable end-to-end result, acceptance riêng, regression cộng dồn và Owner review.
 

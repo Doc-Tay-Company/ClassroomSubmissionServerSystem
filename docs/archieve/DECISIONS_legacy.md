@@ -1,4 +1,6 @@
-# Decisions and provenance
+# Decisions and provenance — archived baseline
+
+> Historical snapshot. This file is retained for provenance and is not the active decision log. Use [current Decisions](../DECISIONS.md) and [documentation index](../README.md).
 
 Baseline: 2026-11-10. Approval source below means the project owner's explicit “Phase 2 — Project Context Initialization & Technical Risk Documentation” request in the project conversation on that date. These directions establish a revisable baseline. Source observations alone are not approvals or evidence of historical rationale.
 
@@ -6,19 +8,19 @@ Baseline: 2026-11-10. Approval source below means the project owner's explicit �
 
 | ID | Decision | Evidence / approval | Known rationale | Consequences | Status |
 |---|---|---|---|---|---|
-| DEC-001 | Preserve publication, admin start, student start and currently permitted pre-start changes | Owner Phase 2 §1; general_exams.py/exams.py as described in [architecture](ARCHITECTURE.md#exam-lifecycle-and-state) | Owner selected current behavior as the documentation baseline; historical rationale unknown | Describe legacy exceptions and separate start transitions accurately | Approved baseline |
+| DEC-001 | Preserve publication, admin start, student start and currently permitted pre-start changes | Owner Phase 2 §1; general_exams.py/exams.py as described in [historical architecture overview](../ARCHITECTURE.md) | Owner selected current behavior as the documentation baseline; historical rationale unknown | Describe legacy exceptions and separate start transitions accurately | Approved baseline |
 | DEC-002 | Preserve configurable submission extensions | Owner Phase 2 §1; submissions.py/general_exams.py | Explicit owner direction; historical rationale unknown | ZIP inspection applies to ZIP; do not describe all uploads as ZIP-only | Approved baseline |
 | DEC-003 | Maintain the current architecture until a future authorized task changes it | Owner Phase 2 §1 | Current priority is reliable shared context and incremental investigation | No refactoring or migration follows from documenting a risk | Approved baseline |
 | DEC-004 | Keep public hosting, simultaneous running exams, Docker, SQLite and other roadmap ideas outside approved scope | Owner Phase 2 §1 | Explicit scope control; no separate architectural rationale asserted | Root README roadmap entries remain proposals, not commitments | Approved baseline |
-| DEC-005 | Keep shared project context, workflow status, implementation history, review history, and reusable lessons in documents with distinct responsibilities | Owner documentation-workflow authorization; [AGENTS.md](../AGENTS.md) and [documentation index](README.md) | Maintainable handoffs with low duplication and explicit evidence; historical rationale not asserted | Use the document ownership table in README; links replace copied histories | Approved documentation approach |
+| DEC-005 | Keep shared project context, workflow status, implementation history, review history, and reusable lessons in documents with distinct responsibilities | Owner documentation-workflow authorization; historical AGENTS.md guidance and [current documentation index](../README.md) | Maintainable handoffs with low duplication and explicit evidence; historical rationale not asserted | Use the document ownership table in the current index; links replace copied histories | Approved documentation approach |
 
 ## Approved Practice contract
 
-These are Owner-approved product and phase-boundary decisions, not claims that every feature is implemented. Current implementation status is in [PROJECT_CONTEXT](PROJECT_CONTEXT.md#current-practice-feature-status) and [CURRENT](../ai-workflow/CURRENT.md).
+These are Owner-approved product and phase-boundary decisions, not claims that every feature was implemented at the time. Current context is in [PROJECT_CONTEXT](../PROJECT_CONTEXT.md); the historical `ai-workflow/CURRENT.md` record is not retained in this checkout.
 
 | ID | Decision | Evidence / approval | Consequences | Status |
 |---|---|---|---|---|
-| DEC-006 | Keep the Question Bank as the single source; Practice listing requires `published && practice_enabled`; preserve the safe Student projection and hidden-test/reference confidentiality | Owner-approved Phase 2 plan and subsequent Phase 2 instructions; [PLAN](../ai-workflow/PLAN.md) | Practice visibility is independent of official exam selection; public projection remains allowlisted | Approved requirement |
+| DEC-006 | Keep the Question Bank as the single source; Practice listing requires `published && practice_enabled`; preserve the safe Student projection and hidden-test/reference confidentiality | Owner-approved Phase 2 plan and subsequent Phase 2 instructions; historical `ai-workflow/PLAN.md` | Practice visibility is independent of official exam selection; public projection remains allowlisted | Approved requirement |
 | DEC-007 | Keep one authoritative current progress/attempt per Student-Question. Students continue the current attempt; Update preserves attempt and local source, adopts current revision, and invalidates the old result. There is no Redo operation. | Owner-approved Phase 2 decisions, superseded by the Owner authorization to permanently remove Practice Redo | No historical attempts, best score, Saved Work, or server source persistence; Reset Code only replaces editor text with starter code within the current attempt | Approved requirement |
 | DEC-008 | Keep source and `needs_retest` in local browser storage, with independent tab-local drafts and shared server attempt/progress authority; first actual edit creates the attempt ID; no server-side source autosave during Phases 1-3 | Owner-approved Phase 2 persistence, attempt lifecycle, and multi-tab decisions | Same-profile browser recovery only; deleting browser storage or switching devices can lose source; deferred autosave needs separate later approval | Approved requirement |
 | DEC-009 | Keep Practice Run disabled in Checkpoint 2; real Practice execution evaluates visible tests only and belongs to Checkpoint 3; Phase 3 owns catalog/revision polling and reconnect synchronization | Owner-approved C2-F01 correction and three-phase/checkpoint scope | No fabricated result in CP2; official exam hidden-test grading, snapshots, submissions, quotas, and telemetry remain unchanged | Approved phase boundary |
@@ -35,7 +37,7 @@ These are observations, not newly approved architectural mandates. Detailed evid
 
 | ID | Observed choice | Evidence | Historical rationale | Consequences | Status |
 |---|---|---|---|---|---|
-| OBS-001 | Standard-library threaded HTTP server, Jinja2, direct module calls | main.py; requirements.txt; supplied Architecture §§1–3 | Root README attributes framework removal to institutional native-extension restrictions; not independently confirmed by the authoritative sources | Local threaded request handling; [components](ARCHITECTURE.md#components-and-communication) | Implemented observation |
+| OBS-001 | Standard-library threaded HTTP server, Jinja2, direct module calls | main.py; requirements.txt; supplied Architecture §§1–3 | Root README attributes framework removal to institutional native-extension restrictions; not independently confirmed by the authoritative sources | Local threaded request handling; [current architecture](../ARCHITECTURE.md) | Implemented observation |
 | OBS-002 | JSON/JSONL persistence with atomic replacement and process lock | storage.py; supplied Architecture §6 | Unknown | One-process coordination and no crash rollback; KI-002/KI-003 | Implemented observation |
 | OBS-003 | One running exam, one file/code type per exam | general_exams.py `_normalize_items`, `start_exam`; tests/test_code_api.py | Unknown | Saved records can coexist; mixed/running parallel exams are unsupported | Implemented observation |
 | OBS-004 | Windows Job Objects and Windows JDK startup preflight | windows_job.py; main.py `main`; java_runner.py `verify_jdk_configuration` | Resource containment is evidenced; reason for mandatory JDK on file-only startup is unknown | Platform and isolation limits; KI-001/KI-005 | Implemented observation |
@@ -43,4 +45,4 @@ These are observations, not newly approved architectural mandates. Detailed evid
 
 ## Future proposals
 
-The root README §2 lists public hosting/proxy deployment, rate limiting, CSRF work, SQLite, Docker and multi-session ideas. They have no approved schedule or selected design under this baseline (DEC-004). Entries in [KNOWN_ISSUES](KNOWN_ISSUES.md) request investigation only; they are not implementation tasks or architectural selections.
+The root README §2 lists public hosting/proxy deployment, rate limiting, CSRF work, SQLite, Docker and multi-session ideas. They have no approved schedule or selected design under this baseline (DEC-004). Entries in [current KNOWN_ISSUES](../KNOWN_ISSUES.md) request investigation only; they are not implementation tasks or architectural selections.

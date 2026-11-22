@@ -2,16 +2,14 @@
 
 > Các mục dưới đây có evidence từ source hoặc báo cáo Owner. Severity để “Chưa đánh giá” khi chưa có căn cứ; limitation không đồng nghĩa exploit hoặc data loss đã tái hiện. Không mục nào tự cấp quyền triển khai.
 
-> **Cập nhật Official Exam Completion:** sáu mục liên quan là `DATA-01`, `EXAM-COMP-01`, `EXAM-DRAFT-01`, `EXAM-DRAFT-02`, `EXAM-DEADLINE-01`, `RUN-02`. Evidence là source/control flow hiện tại và kết quả regression đã báo trước; lần cập nhật này không chạy tests hoặc tái hiện crash. Các mô tả cũ `TEL-03`, `TEL-04` và ghi chú “Fullscreen/gesture behavior chưa triển khai” được giữ nguyên như nội dung lịch sử trước Phases 1–4, không được coi là kết luận hiện tại sau các phase đã được Owner chấp nhận.
+> Reconciled against source on 2026-11-22. This update did not run tests, browser checks, or crash-injection. The four Exam Monitoring feature phases are present in source; pre-implementation audit findings are moved to the resolved-history note below. See [documentation index](README.md) for current and historical references.
 
 ## Issues / limitations hiện tại
 
 | ID | Severity | Affected Feature | Symptom | Evidence | Status | Suggested Next Action |
 |---|---|---|---|---|---|---|
-| TEL-01 | Chưa đánh giá | Teacher Monitoring | Alert có thể còn hiển thị khi telemetry snapshot cũ; code kiểm tra độ mới của session `last_seen` nhưng không lọc riêng `telemetry.updated_at`. | `app/main.py::monitoring_snapshot()` 128-178 đọc snapshot và derive alerts từ visibility/focus/tab_count. | Confirmed source limitation; thời gian tồn tại phụ thuộc request/session. | Nếu UI cần freshness, chốt semantics và test; không coi alert cũ là kết luận misconduct. |
-| TEL-02 | Chưa đánh giá | Multiple-tab signal | `tab_count` là số page ID còn trong localStorage key `css-exam-tabs`, không phải toàn bộ tab/window; key không gắn Student/session/Exam. Races/storage privacy có thể làm tín hiệu thiếu chính xác. | `static/js/student.js::updateTabs()`; backend chỉ parse/clamp client value 1..20. | Confirmed limitation; target-browser behavior chưa kiểm chứng runtime trong lần rebaseline. | Nêu đúng phạm vi signal trong UI; kiểm thử browser mục tiêu trước khi dùng làm policy. |
-| TEL-03 | Chưa đánh giá | Exam-only monitoring | Telemetry không có `exam_id`, `release_id`, `assignment_id`; Monitor ghép nó với assignment hiện tại nhưng không chứng minh telemetry thuộc Exam đó. | `app/main.py` telemetry handler và `monitoring_snapshot()`; xem [audit](TELEMETRY_ARCHITECTURE_AUDIT.md). | Confirmed architecture gap so với proposal; proposal chưa triển khai. | Owner chốt snapshot-only hay event history, association và retention. |
-| TEL-04 | Chưa đánh giá | Monitoring history | Không có persistent telemetry event list/counter; mỗi POST ghi đè snapshot và alerts được tính lúc đọc. | Session storage contract; `tests/test_core.py::test_student_telemetry_uses_hashed_session_key_and_reaches_monitor` test snapshot hiện tại. | Confirmed limitation. | Không gọi current alert là lịch sử vi phạm; event persistence cần quyết định riêng. |
+| TEL-01 | Chưa đánh giá | Teacher Monitoring | While an attempt is active, the latest snapshot can be old; monitor does not apply a separate freshness threshold to `telemetry.updated_at`. | `app/main.py::monitoring_snapshot()`; telemetry snapshot in `sessions.json`. | Confirmed source limitation. Inactive attempts and release mismatches are filtered, but a stale snapshot within an active attempt may remain visible. | If freshness matters to UI/policy, define the threshold and test it; do not interpret an old signal as misconduct. |
+| TEL-02 | Chưa đánh giá | Multiple-page signal | `tab_count` estimates recent page instances in same-origin localStorage; it does not enumerate every browser tab/window and can be affected by storage restrictions/races. | `static/js/student.js::updateTabs()`; `static/js/exam-entry.js` precheck. | Confirmed limitation; target-browser behavior has not been verified in this documentation pass. | Preserve the qualified UI wording; do not treat this as a browser-wide tab inventory or policy proof. |
 | DATA-01 | Chưa đánh giá | JSON concurrency / Official Exam Completion | Crash/I/O failure giữa các lần ghi submission, completion ledger và assignment có thể để `code_attempts.json` đã finalized nhưng assignment chưa updated, hoặc ngược lại. | `app/storage.py:85` (`atomic_write()`), `app/storage.py:112` (`transaction()`); `app/exam_completion.py:137` reserve submissions, `:140` ghi ledger, `:142` ghi assignment. | Confirmed capability limit: atomic replace + `fsync` bảo vệ từng file và RLock bảo vệ threads trong một process; không có crash-atomic transaction/rollback đa file hoặc bảo vệ cross-process. Chưa tái hiện bằng crash injection. | Không suy ra consistency sau restart từ process lock; các marker có thể lệch và ảnh hưởng completion/active-attempt. Không tự sửa runtime data; recovery cần được Owner phê duyệt riêng. |
 | PRACTICE-01 | Chưa đánh giá | Practice Run recovery | Active-run reservation nằm trong memory registry; progress/result mới là JSON. Trạng thái active không bền qua restart; kết quả của run bị gián đoạn chưa xác minh. | `app/practice.py::reserve_active_run()`, `get_active_run()`, module-local registry. | Limitation xác nhận; runtime impact chưa tái hiện. | Chỉ điều tra nếu restart recovery là requirement; dùng isolated runtime test. |
 | RUN-01 | Chưa đánh giá | Untrusted code execution | Windows Job Objects quản lý process/resource lifecycle; source đã rà không cho thấy application thiết lập filesystem ACL hoặc network sandbox. | `app/windows_job.py`, `app/java_runner.py`, `app/code_runner.py`. | Cần xác minh theo host identity/policy; không có exploit được tái hiện trong task này. | Kiểm tra ACL, identity, outbound network trong môi trường cách ly trước khi tuyên bố sandbox đầy đủ. |
@@ -28,13 +26,16 @@ Không xác nhận lỗi không đổi được Common/Random trước Start: `s
 
 ## Resolved historical issue
 
+### TEL-03 / TEL-04 — Exam association and persistent monitoring history
+
+These gaps were reported in the pre-implementation [Telemetry Audit](TELEMETRY_ARCHITECTURE_AUDIT.md). Current source scopes telemetry to the active Student/release attempt, persists supported events and counters in `exam_monitoring.json`, and exposes event pages to the admin monitor. Relevant coverage exists in `tests/test_exam_monitoring.py`, `tests/test_exam_start_monitoring.py`, and `tests/test_core.py`. This documentation pass inspected source/test presence but did not execute those tests; this is not a claim of browser acceptance or production verification.
+
 ### R03 Comparable editor round-trip — resolved theo báo cáo Owner
 
 R03 có nested Comparable `instances`, `comparisons`, `expected_order`. Trước đây editor conversion có thể làm mất/chuyển đổi array/index. Source hiện giữ canonical data bằng marker editor-only `__editor_comparable_source` và khôi phục khi cases không đổi (`static/js/questions.js`, khoảng lines 525-625). Regression guards có trong `tests/test_question_import_comparable.js` và `tests/test_question_concurrency.py::test_r03_comparable_import_preserves_legacy_arrays()`. Owner báo đã xác nhận qua browser. Rebaseline này không chạy lại tests/browser; không báo test PASS cho lần này.
 
 ## Chưa xác minh, không phải bug đã xác nhận
 
-- Fullscreen/gesture behavior chưa triển khai.
-- localStorage behavior/races trên browser privacy settings chưa runtime-tested.
+- Browser-specific Fullscreen API, storage/privacy behavior, and multi-page races have not been runtime-tested in this documentation pass.
 - Có test trong repository không chứng minh test đã chạy trên working tree hiện tại.
-- Working tree có thay đổi code, tests và runtime JSON từ công việc khác; audit này không quy kết hoặc sửa các thay đổi đó.
+- The working tree contains pre-existing changes to `data/code_exams.json` and `data/code_submissions.json`; this documentation update did not read or edit those runtime records.

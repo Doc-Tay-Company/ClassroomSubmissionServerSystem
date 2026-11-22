@@ -9,21 +9,24 @@ routes require an admin session; student routes require a student session.
 
 | Method | Route | Result |
 |---|---|---|
-| `GET` | `/api/admin/papers` | `{"papers":[...]}` summaries, including metadata, status, current version, source status and warnings. |
-| `POST` | `/api/admin/papers` | Create a draft; accepts `title`, optional `metadata`, ordered `question_ids` (including an empty list for an incomplete draft), and optional `question_limit` / `question_filters`. Returns `201` and `{"ok":true,"paper":...}`. |
-| `GET` | `/api/admin/papers/{paper_id}` | Paper draft, versions and teacher-side source warnings. |
-| `PUT` | `/api/admin/papers/{paper_id}` | Update draft fields `title`, `metadata`, ordered `question_ids`, optional `question_limit` / `question_filters`, and required `expected_revision`; returns the updated Paper. `/update` POST is also accepted. |
+| `GET` | `/api/admin/papers` | `{"papers":[...]}` summaries, including metadata, status/revision, source status and warnings. |
+| `POST` | `/api/admin/papers` | Legacy schema-v1 Paper creation route. Existing clients/data remain supported. |
+| `POST` | `/api/admin/papers/independent` | Create a schema-v2 independent Paper draft; accepts `title`, optional `metadata`, ordered `question_ids` (including an empty list for an incomplete draft), and optional `question_limit` / `question_filters`. Returns `201` and `{"ok":true,"paper":...}`. |
+| `GET` | `/api/admin/papers/{paper_id}` | Current Paper data, legacy version data when applicable, and teacher-side source warnings. |
+| `PUT` | `/api/admin/papers/{paper_id}` | Update current Paper fields `title`, `metadata`, ordered `question_ids`, optional `question_limit` / `question_filters`, and required `expected_revision`; returns the updated Paper. `/update` POST is also accepted. |
 | `GET` | `/api/admin/papers/{paper_id}/preview[?version_id=...][&draft=1]` | `{"preview":...}` for the saved draft (`draft=1`), the default current/published target, or the requested stored version. |
-| `POST` | `/api/admin/papers/{paper_id}/publish` | Capture and append an immutable version; body requires `expected_revision`. |
+| `POST` | `/api/admin/papers/{paper_id}/publish` | Validate and publish the current Paper record; body requires `expected_revision`. Immutable question snapshots are captured for an Exam release, not as nested Paper versions. |
 | `POST` | `/api/admin/papers/{paper_id}/archive` / `restore` | Archive or restore Paper; body requires `expected_revision`. |
 | `POST` | `/api/admin/papers/{paper_id}/delete` | Delete only when no exam/release/assignment/code-exam record references the Paper; body requires `expected_revision`. |
 
 New question IDs must exist, be `published`, and be eligible for a supported
-Code Exam. Existing snapshot questions can remain in a later version if their
-source is inactive or gone; this preserves history and the admin response
-includes `source_status` and `warnings`. Paper versions store ordered
-question snapshots and `source_ref` metadata. Student payloads do not use the
-admin Paper detail/preview serializer.
+Code Exam. Existing snapshot questions can remain in a later edit if their
+source is inactive or gone; this preserves the saved content and the admin
+response includes `source_status` and `warnings`. New schema-v2 Paper records
+store current ordered content and source metadata; immutable release snapshots
+are stored with release-scoped Code Exam records. Legacy schema-v1 Paper
+versions retain their ordered snapshots and explicit IDs. Student payloads do
+not use the admin Paper detail/preview serializer.
 
 The eligible new-question pool is based on published Questions with supported
 language/grading pairs: `java/reflection`, `java/stdio`, and `python/stdio`.
@@ -48,12 +51,13 @@ confirmation. The group checkbox adds/removes matching IDs while retaining
 nonmatching selections. The ordered explicit IDs are saved in the draft, so
 reload, preview and publish do not randomize again.
 
-Each Paper has one current mutable draft and a revision precondition; Model A
-does not provide prior-draft history or draft restore. Save may persist an
-incomplete draft. Preview is read-only; `?draft=1` explicitly selects the
-saved draft, and Preview is not required before Publish. The UI saves dirty
-content before publishing. Publish appends an immutable Paper version; a
-later edit changes the current draft only. Existing records without
+New schema-v2 Papers have one current mutable record/draft with a revision
+precondition; they do not create nested `versions` or a `current_version_id`.
+Save may persist an incomplete draft. Preview is read-only; `?draft=1`
+explicitly selects the saved draft, and Preview is not required before Publish.
+Publish validates the current Paper and its release snapshot preserves history;
+later Paper edits do not rewrite released code-exam snapshots. Legacy schema-v1
+Paper/version records remain readable by explicit IDs. Existing records without
 `question_limit` / `question_filters` remain readable and require no migration.
 
 ## Exam configuration and release (admin)
@@ -163,14 +167,17 @@ and student submission/execution routes are retained; no stored exam data is del
 The existing student UI draft key remains question/exam/student scoped as
 `css-code-draft-v1:<student>:<exam>:<question>`.
 
-Paper submissions persist `paper_id`, `paper_version_id`, `question_id`, and
-`snapshot_version` alongside the submission. Default regrading resolves the
-Code Exam's stored question snapshot. **Current behavior caveat:** the shared
-`use_latest_spec=true` regrade option replaces that question snapshot with the
-latest published Question Bank record even for a Paper Code Exam. This does
-not meet a strict “always regrade the assigned Paper version” policy and
-requires a code-phase correction or an explicit product decision; this page
-documents the current source behavior.
+Paper submissions persist their Paper reference (including `paper_version_id`
+only for legacy Paper records), question ID, and snapshot information alongside
+the submission. Default regrading uses the Code Exam's release-scoped question
+snapshot. `use_latest_spec=true` is rejected for Paper releases; it cannot
+replace the assigned Paper snapshot with a current Question Bank record.
+
+Code Exam drafts received by the server are stored in `code_attempts.json`.
+Student status exposes completion state; `POST /api/student/finalize` triggers
+the bounded due-attempt finalizer, while the server also runs a periodic
+deadline sweep. Automatic code submission can use only source accepted by the
+server before the deadline. The ZIP/file upload path remains separate.
 
 ## ZIP boundary and storage notes
 
@@ -178,7 +185,7 @@ ZIP release distribution remains the separate `distribution_mode` /
 `distribution_config` workflow. Its random mode chooses exam files, not Paper
 versions. Existing `/api/student/submit` and ZIP validation are unchanged.
 
-Paper versions, exam releases, assignments and submissions are stored in
-separate JSON files. Storage uses process-local locking and per-file atomic
+Paper records (including legacy versions), exam releases, assignments and
+submissions are stored in separate JSON files. Storage uses process-local locking and per-file atomic
 replacement; there is no transaction spanning all files or multi-process
 coordination. Run a single server process against a data directory.

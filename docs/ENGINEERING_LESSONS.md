@@ -36,7 +36,7 @@ Khi merge branch, giữ riêng code/schema và data records. Inventory IDs/count
 
 ## EL-08 — Presence không phải behavioral monitoring
 
-`security.get_session()` refreshes `last_seen` cho authenticated request; heartbeat frontend hiện gửi behavioral telemetry cùng status poll. Monitor derive alert từ snapshot, không có event history/Exam association. Tách hai khái niệm trước khi đổi policy và không dừng heartbeat ngoài Exam cùng telemetry.
+Authenticated status/API requests refresh session presence independently of telemetry. Current telemetry snapshots and persistent events are accepted only for an active Student/release attempt; event history is stored and paged separately from the current snapshot. Client-reported focus, visibility, tab count, and fullscreen transitions remain technical signals, not independently verified evidence. Preserve the presence/attempt boundary and avoid interpreting event history as an automatic misconduct finding.
 
 ## EL-09 — Storage helper không thay thế analysis concurrency
 
