@@ -115,6 +115,41 @@
     heading.querySelector("button").type = "button";
     heading.querySelector("button").addEventListener("click", () => detail.classList.add("hidden"));
     detail.append(heading);
+    const questionGrid = el("nav", undefined, "submission-question-grid");
+    questionGrid.setAttribute("aria-label", "Các câu hỏi trong bài thi");
+    const studentRow = matrix.find((entry) => entry.student_id === record.student_id);
+    const questions = selectedExam.questions || [];
+    questions.forEach((question, index) => {
+      const cell = studentRow?.cells.find((item) => item.question_id === question.question_id);
+      if (cell?.status === "not_assigned") return;
+      const button = el("button", String(index + 1), "question-nav-button");
+      button.type = "button";
+      const status = cell ? cellLabel(cell) : "Chưa có thông tin";
+      const label = `Câu ${index + 1}: ${question.title || question.question_id} · ${status}`;
+      button.title = label;
+      button.setAttribute("aria-label", label);
+      if (question.question_id === record.question_id) button.setAttribute("aria-current", "true");
+      button.disabled = !cell?.submission_id;
+      button.addEventListener("click", async () => {
+        const existing = submissions.find((item) => item.id === cell.submission_id);
+        if (existing) { renderDetail(existing); return; }
+        const examId = selectedExam.id;
+        const generation = resultsGeneration;
+        const params = new URLSearchParams({ student_id: record.student_id, question_id: question.question_id });
+        button.disabled = true;
+        try {
+          const response = await window.cssRequest(`/api/admin/exam-results/${encodeURIComponent(examId)}?${params}`);
+          if (resultsGeneration !== generation || selectedSubmission !== record || detail.classList.contains("hidden")) return;
+          const match = response.submissions?.find((item) => item.id === cell.submission_id);
+          if (!match) throw new Error("Không tìm thấy bài nộp của câu này.");
+          renderDetail(match);
+        } catch (error) {
+          if (resultsGeneration === generation && selectedSubmission === record) setNotice(error.message, true);
+        } finally { button.disabled = false; }
+      });
+      questionGrid.append(button);
+    });
+    if (questions.length) detail.append(questionGrid);
     detail.append(el("p", `${students.get(record.student_id) || "Sinh viên"} · MSSV ${record.student_id || "—"} · Lần nộp ${text(record.attempt)} · ${text(record.submitted_at)}`));
     detail.append(el("p", `Trạng thái: ${text(record.status)} · ${verdictLabel(record.verdict)} · Điểm ${text(record.score)}/${text(record.total_points)} · Spec: ${text(record.grading_spec_version)}`));
     if (record.error) detail.append(el("div", `${record.error_category ? record.error_category + ": " : ""}${record.error}`, "alert alert-warning"));

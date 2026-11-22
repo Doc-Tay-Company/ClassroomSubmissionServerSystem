@@ -220,3 +220,7 @@ small.fine-print{font-style:italic;font-weight:400}
 .q-row-clickable:hover,.q-row-clickable:focus-visible{background:rgba(0,0,0,.04);outline:none}
 @media(max-width:850px){.exam-filters{grid-template-columns:repeat(2,minmax(0,1fr))}.exam-filters .exam-filter-field:first-child{grid-column:1/-1}.code-results-filters{grid-template-columns:repeat(2,minmax(0,1fr))}.code-result-filter-actions{grid-column:1/-1}}
 @media(max-width:560px){.exam-filters,.code-results-filters{grid-template-columns:minmax(0,1fr);gap:10px;padding:12px}.exam-filters .exam-filter-field:first-child,.code-result-filter-actions{grid-column:auto}.code-result-filter-actions .btn{flex:1}.paper-save-status{padding:9px 10px}.paper-save-status-meta{gap:5px}}
+
+#code-results-view .code-result-detail{margin-top:16px;padding:16px;border:1px solid #e2e8f0;border-radius:10px;background:#fff}
+#code-results-view .submission-source{max-height:32rem;overflow:auto;margin-bottom:16px}
+#code-results-view .submission-detail-heading{display:flex;justify-content:space-between;align-items:center;gap:12px}

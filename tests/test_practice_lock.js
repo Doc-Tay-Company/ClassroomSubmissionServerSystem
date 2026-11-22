@@ -2,8 +2,8 @@ const assert = require('assert');
 const fs = require('fs');
 const vm = require('vm');
 const nodes = {};
-for (const id of ['practice-lock-title', 'practice-lock-message']) nodes[id] = {textContent:''};
-const root = {inert:false};
+for (const id of ['practice-lock-title', 'practice-lock-message', 'practice-access-status']) nodes[id] = {textContent:''};
+const root = {inert:false, hidden:false};
 const handlers = {};
 const dialog = {open:false, addEventListener(type, fn) {handlers[type] = fn;}, showModal() {this.open=true;}, close() {this.open=false; handlers.close?.();}};
 const window = {};
@@ -15,7 +15,7 @@ const lock = window.createPracticeLock({root,dialog,request:(url) => {
 }});
 const deferred = () => {let resolve,reject; const promise=new Promise((yes,no)=>{resolve=yes;reject=no;});return {promise,resolve,reject};};
 (async () => {
-  assert(root.inert && dialog.open, 'initial unknown state is blocked');
+  assert(root.inert && root.hidden && !dialog.open, 'initial unknown state is blocked without opening the dialog');
   statusHandler=async()=>{throw new Error('initial status offline');};
   await lock.check();
   assert(root.inert && nodes['practice-lock-message'].textContent.includes('Chưa thể xác minh'),'initial network error is not an unlocked response');
@@ -24,14 +24,17 @@ const deferred = () => {let resolve,reject; const promise=new Promise((yes,no)=>
   const first=lock.check(), second=lock.check(); assert.strictEqual(first,second,'status calls share one in-flight request');
   assert.strictEqual(statusCalls,beforeStatusCalls+1);
   pending.resolve({active_exam_attempt:false}); await first;
-  assert(!root.inert && !dialog.open);
+  assert(!root.inert && !root.hidden && !dialog.open && nodes['practice-access-status'].hidden);
 
   statusHandler=async()=>({active_exam_attempt:false,practice_locked:true});
   await lock.check();
   assert(root.inert && dialog.open, 'ZIP Exam can keep Practice locked while submission eligibility remains');
   statusHandler=async()=>({active_exam_attempt:false,practice_locked:false});
   await lock.check();
-  assert(!root.inert && !dialog.open, 'quota exhaustion releases Practice through authoritative status');
+  assert(!root.inert && !root.hidden && !dialog.open, 'quota exhaustion releases Practice through authoritative status');
+  statusHandler=async()=>({active_exam_attempt:true,practice_locked:false});
+  await lock.check();
+  assert(!root.inert && !root.hidden, 'explicit Practice eligibility takes precedence over generic active-attempt status');
 
   const execution=deferred(); runHandler=()=>execution.promise;
   const accepted=lock.request('/api/student/practice/run');
