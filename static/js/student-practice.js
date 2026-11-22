@@ -562,8 +562,27 @@
     }
   }
 
+  function renderWorkspaceQuestionGrid(questionId) {
+    const grid = document.getElementById("practice-question-grid");
+    if (!grid) return;
+    const escape = getEscape();
+    grid.innerHTML = catalog.map((item, index) => `
+      <button type="button" class="btn btn-secondary" data-question-id="${escape(item.question_id)}"
+        ${item.question_id === questionId ? 'aria-current="true"' : ""}
+        ${!item.available ? "disabled" : ""}>
+        <strong>Câu ${index + 1}: ${escape(item.title || item.question_id)}</strong>
+        ${!item.available ? "<small>Không khả dụng</small>" : ""}
+      </button>`).join("");
+    grid.querySelectorAll("button").forEach((button) => {
+      button.addEventListener("click", () => {
+        if (button.dataset.questionId !== questionId) openWorkspace(button.dataset.questionId);
+      });
+    });
+  }
+
   function reconcileWorkspaceCatalog() {
     if (currentView !== "workspace" || !currentQuestion) return;
+    renderWorkspaceQuestionGrid(currentQuestion.question_id);
     const item = catalog.find((entry) => entry.question_id === currentQuestion.question_id);
     const unavailable = !item || item.available !== true;
     if (unavailable) {
@@ -990,6 +1009,8 @@
     libraryView.classList.add("hidden");
     workspaceView.classList.remove("hidden");
     window.location.hash = `q=${encodeURIComponent(questionId)}`;
+
+    renderWorkspaceQuestionGrid(questionId);
 
     // Reset UI
     wsTitle.textContent = "Đang tải đề bài...";

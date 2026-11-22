@@ -36,3 +36,7 @@
 .student-result-details{margin:12px 0}
 .student-result-details summary{cursor:pointer;font-weight:650}
 @media(max-width:960px){.code-workspace{grid-template-columns:minmax(0,1fr)}}
+
+.code-layout{grid-template-columns:minmax(0,1fr)}
+.code-question-nav{position:static;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,150px),1fr))}
+.code-question-nav .code-nav-item{width:100%;min-width:0}
