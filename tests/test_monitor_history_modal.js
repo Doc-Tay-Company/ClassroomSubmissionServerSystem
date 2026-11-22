@@ -6,7 +6,7 @@ const tick = () => new Promise((resolve) => setImmediate(resolve));
 const handlers = new Map();
 const nodes = new Map();
 const node = (id) => {
-  if (!nodes.has(id)) nodes.set(id, { id, textContent: '', innerHTML: '', value: '', classList: { add() {}, remove() {}, toggle() {} }, style: {}, addEventListener(type, fn) { handlers.set(`${id}:${type}`, fn); }, querySelector() { return null; } });
+  if (!nodes.has(id)) nodes.set(id, { id, textContent: '', innerHTML: '', value: '', href: '', classList: { add() {}, remove() {}, toggle() {} }, style: {}, addEventListener(type, fn) { handlers.set(`${id}:${type}`, fn); }, removeAttribute(name) { if (name === 'href') this.href = ''; }, querySelector() { return null; } });
   return nodes.get(id);
 };
 const monitorBody = node('monitor-body');
@@ -36,6 +36,7 @@ const window = {
   prompt() { return null; },
   cssRequest: async (url) => {
     if (url === '/api/admin/monitor') return { students: [makeRow(currentSeq)], occurred_at: '2026-11-17T01:02:03Z', online_count: 1 };
+    if (url === '/api/admin/exam-records') return { exams: [{ id: 'exam-current', status: 'started', release: { release_id: 'release-3' } }] };
     if (url.startsWith('/api/admin/monitor/events?')) {
       const params = new URLSearchParams(url.split('?')[1]);
       eventRequests.push(Number(params.get('after_seq')));
@@ -46,7 +47,7 @@ const window = {
   },
 };
 const document = {
-  getElementById(id) { return id === 'monitor-body' ? monitorBody : id === 'monitor-history-modal' ? dialog : id === 'monitor-history-content' ? content : id === 'refresh-monitor' ? node(id) : null; },
+  getElementById(id) { return id === 'monitor-body' ? monitorBody : id === 'monitor-history-modal' ? dialog : id === 'monitor-history-content' ? content : id === 'monitor-return-exam' ? node(id) : id === 'refresh-monitor' ? node(id) : null; },
   querySelector() { return null; },
   querySelectorAll() { return []; },
   body: { addEventListener(type, fn) { handlers.set(`body:${type}`, fn); } },
@@ -57,6 +58,7 @@ vm.runInNewContext(fs.readFileSync('static/js/admin.js', 'utf8'), { window, docu
 (async () => {
   await tick();
   await tick();
+  assert.strictEqual(node('monitor-return-exam').href, '/admin?section=exam&id=exam-current', 'Monitoring links directly to the matching General Exam');
   assert(monitorBody.innerHTML.includes('<summary>Xem chi tiết</summary>'), 'disclosure uses only the required label');
   assert(monitorBody.innerHTML.includes('<details class="monitor-event-history"'), 'native disclosure arrow remains');
   assert(!monitorBody.innerHTML.includes('<ol>'), 'event history is not rendered inline');

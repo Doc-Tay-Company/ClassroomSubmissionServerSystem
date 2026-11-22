@@ -6,6 +6,7 @@ sweep does not accept fresh answers from a late/disconnected client.
 from copy import deepcopy
 from datetime import datetime, timezone
 from . import code_exams as ce
+from .submissions import zip_submission_eligibility
 from .storage import read_json, write_json, transaction, utc_now, audit
 
 
@@ -58,6 +59,30 @@ def save_code_drafts(sid, exam_id, answers):
 
 def completion_state(sid):
     assignment = read_json('assignments.json').get(sid, {})
+    if assignment.get('exam_file'):
+        settings = read_json('settings.json')
+        zip_state = zip_submission_eligibility(sid, assignment, settings)
+        started = bool(assignment.get('started_at'))
+        reason = None
+        if assignment.get('forced_submit'):
+            reason = 'forced'
+        elif assignment.get('finalized_at'):
+            reason = assignment.get('finalization_reason') or 'finalized'
+        elif assignment.get('status') in {'ended', 'expired'} or settings.get('exam_state') == 'ended':
+            reason = 'teacher_end' if settings.get('exam_state') == 'ended' or assignment.get('status') == 'ended' else 'deadline'
+        elif zip_state.get('reason') in {'deadline', 'quota_exhausted', 'inactive_release', 'terminal'}:
+            reason = zip_state['reason']
+        explicit_termination = bool(
+            assignment.get('forced_submit') or assignment.get('finalized_at')
+            or assignment.get('status') in {'ended', 'expired'}
+            or settings.get('exam_state') == 'ended'
+        )
+        finalized = bool(explicit_termination or (started and reason))
+        return {
+            'finalized': finalized, 'exam_id': None, 'reason': reason,
+            'result_available': False,
+            'zip_submission': zip_state,
+        }
     exam_id = assignment.get('code_exam_id')
     record = _store().get('attempts', {}).get(sid, {}).get(exam_id, {})
     finalized = bool(record.get('finalized_at') or assignment.get('finalized_at') or (assignment.get('status') == 'submitted' and not exam_id))

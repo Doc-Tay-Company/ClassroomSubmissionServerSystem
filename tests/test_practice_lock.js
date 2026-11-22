@@ -26,6 +26,13 @@ const deferred = () => {let resolve,reject; const promise=new Promise((yes,no)=>
   pending.resolve({active_exam_attempt:false}); await first;
   assert(!root.inert && !dialog.open);
 
+  statusHandler=async()=>({active_exam_attempt:false,practice_locked:true});
+  await lock.check();
+  assert(root.inert && dialog.open, 'ZIP Exam can keep Practice locked while submission eligibility remains');
+  statusHandler=async()=>({active_exam_attempt:false,practice_locked:false});
+  await lock.check();
+  assert(!root.inert && !dialog.open, 'quota exhaustion releases Practice through authoritative status');
+
   const execution=deferred(); runHandler=()=>execution.promise;
   const accepted=lock.request('/api/student/practice/run');
   statusHandler=async()=>({active_exam_attempt:true}); await lock.check();

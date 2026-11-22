@@ -8,8 +8,11 @@ import json
 import os
 from pathlib import Path
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
 import threading
 import unittest
+import io
+import zipfile
 from unittest.mock import Mock, patch
 import urllib.parse
 
@@ -25,7 +28,7 @@ storage.LOG_DIR = _TEST_DATA_ROOT / "logs"
 storage.DATA_DIR.mkdir(parents=True, exist_ok=True)
 storage.LOG_DIR.mkdir(parents=True, exist_ok=True)
 
-from app import code_exams, main
+from app import code_exams, exams as exam_service, general_exams, main
 from app.security import new_session
 from app.java_runner import JDKConfigurationError
 
@@ -125,6 +128,7 @@ class CodeApiTests(unittest.TestCase):
                 "exam_participants": [],
             },
             "assignments.json": {},
+            "submissions.json": {},
             "questions.json": {},
             "code_exams.json": {},
             "code_submissions.json": {},
@@ -153,6 +157,242 @@ class CodeApiTests(unittest.TestCase):
         connection.close()
         parsed = json.loads(raw.decode("utf-8")) if raw and parse_json else raw
         return status, parsed
+
+    def create_general_code_exam(self, *, duration=60, participants=None, title="Timing test exam"):
+        participants = participants or ["student1"]
+        students = storage.read_json("students.json")
+        for student_id in participants:
+            students.setdefault(student_id, {"active": True})
+        storage.write_json("students.json", students)
+        self.timing_student_cookies = {
+            student_id: new_session(student_id, "student", "127.0.0.1", "test")
+            for student_id in participants
+        }
+        payload = {
+            "title": title,
+            "config": {"duration_minutes": duration, "participants": participants},
+            "items": [{"type": "code", "question_ids": ["echo-question"]}],
+        }
+        status, created = self.request("POST", "/api/admin/exam-records", cookie=self.admin_cookie, payload=payload)
+        self.assertEqual(status, 201, created)
+        exam_id = created["exam"]["id"]
+        with patch("app.general_exams.list_exam_files", return_value=[]), patch("app.exams.list_exam_files", return_value=[]):
+            status, published = self.request("POST", f"/api/admin/exam-records/{exam_id}/publish", cookie=self.admin_cookie)
+            self.assertEqual(status, 200, published)
+            status, started = self.request("POST", f"/api/admin/exam-records/{exam_id}/start", cookie=self.admin_cookie)
+        self.assertEqual(status, 200, started)
+        return exam_id, started["exam"]["release"]["release_id"]
+
+    def start_student(self, cookie=None):
+        return self.request("POST", "/api/student/start", cookie=cookie or self.timing_student_cookies["student1"], raw_body=b"")
+
+    def set_release_deadline(self, exam_id, deadline):
+        exams = storage.read_json("exams.json")
+        exams[exam_id]["release"]["official_deadline"] = deadline
+        storage.write_json("exams.json", exams)
+
+    def test_teacher_start_release_timing_is_shared_and_student_start_is_idempotent(self):
+        self.create_published_question("echo-question")
+        exam_id, release_id = self.create_general_code_exam(duration=60)
+        exam = storage.read_json("exams.json")[exam_id]
+        release = exam["release"]
+        official_start = datetime.fromisoformat(release["official_started_at"])
+        official_deadline = datetime.fromisoformat(release["official_deadline"])
+        self.assertEqual(release["duration_minutes"], 60)
+        self.assertEqual(official_deadline - official_start, timedelta(minutes=60))
+        self.assertEqual(storage.read_json("settings.json")["exam_started_at"], release["official_started_at"])
+        # Application startup reopens the persisted Release timing instead of
+        # deriving it from the next Student's start time.
+        storage.initialize()
+        persisted_timing = general_exams.release_timing(release_id)
+        self.assertEqual(persisted_timing["official_started_at"], release["official_started_at"])
+        self.assertEqual(persisted_timing["official_deadline"], release["official_deadline"])
+        status, first = self.start_student()
+        self.assertEqual(status, 200, first)
+        assignment = storage.read_json("assignments.json")["student1"]
+        self.assertEqual(assignment["ends_at"], release["official_deadline"])
+        self.assertEqual(assignment["started_at"], first["started_at"])
+        marker = storage.read_json("exams.json")[exam_id]["release"].get("student_started_at", {}).get("student1")
+        self.assertEqual(marker, first["started_at"])
+        status, repeated = self.start_student()
+        self.assertEqual(status, 200, repeated)
+        self.assertEqual(repeated["started_at"], first["started_at"])
+        current = storage.read_json("assignments.json")["student1"]
+        self.assertEqual(current["ends_at"], first["ends_at"])
+        self.assertEqual(storage.read_json("exams.json")[exam_id]["release"]["student_started_at"]["student1"], marker)
+
+    def test_late_student_gets_shared_deadline_and_start_at_deadline_is_rejected(self):
+        self.create_published_question("echo-question")
+        students = storage.read_json("students.json")
+        students["student2"] = {"active": True}
+        students["student3"] = {"active": True}
+        storage.write_json("students.json", students)
+        exam_id, _ = self.create_general_code_exam(duration=60, participants=["student1", "student2", "student3"])
+        late_start = datetime.now(timezone.utc) - timedelta(minutes=53)
+        deadline = (late_start + timedelta(minutes=60)).isoformat(timespec="seconds")
+        exams = storage.read_json("exams.json")
+        exams[exam_id]["release"].update({"official_started_at": late_start.isoformat(timespec="seconds"), "official_deadline": deadline})
+        storage.write_json("exams.json", exams)
+        status, result = self.start_student()
+        self.assertEqual(status, 200, result)
+        self.assertEqual(result["ends_at"], deadline)
+        self.assertLessEqual(result["remaining_seconds"], 7 * 60)
+        status, late_student = self.start_student(self.timing_student_cookies["student2"])
+        self.assertEqual(status, 200, late_student)
+        self.assertEqual(late_student["ends_at"], deadline)
+        self.set_release_deadline(exam_id, (datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat(timespec="seconds"))
+        status, rejected = self.start_student(self.timing_student_cookies["student3"])
+        self.assertEqual(status, 400, rejected)
+        self.assertIsNone(storage.read_json("assignments.json")["student3"]["started_at"])
+        self.assertNotIn("student3", storage.read_json("exams.json")[exam_id]["release"]["student_started_at"])
+        self.assertNotIn("student3", storage.read_json("code_attempts.json")["attempts"])
+
+    def test_random_paper_snapshots_share_release_deadline(self):
+        students = storage.read_json("students.json")
+        students.update({"student1": {"active": True}, "student2": {"active": True}})
+        storage.write_json("students.json", students)
+        self.timing_student_cookies = {sid: new_session(sid, "student", "127.0.0.1", "test") for sid in ("student1", "student2")}
+        storage.write_json("papers.json", {
+            "paper-1": {"id": "paper-1", "schema_version": 1, "status": "published",
+                        "versions": {"paper-1:v1": {"id": "paper-1:v1", "title": "One", "questions": [
+                            {"question_id": "q1", "order": 0, "total_points": 10},
+                        ]}}},
+            "paper-2": {"id": "paper-2", "schema_version": 1, "status": "published",
+                        "versions": {"paper-2:v1": {"id": "paper-2:v1", "title": "Two", "questions": [
+                            {"question_id": "q2", "order": 0, "total_points": 10},
+                        ]}}},
+        })
+        payload = {
+            "title": "Random Paper timing",
+            "config": {"duration_minutes": 60, "participants": ["student1", "student2"]},
+            "items": [{"type": "code", "distribution": {"mode": "random", "paper_versions": [
+                {"paper_id": "paper-1", "paper_version_id": "paper-1:v1"},
+                {"paper_id": "paper-2", "paper_version_id": "paper-2:v1"},
+            ]}}],
+        }
+        status, created = self.request("POST", "/api/admin/exam-records", cookie=self.admin_cookie, payload=payload)
+        self.assertEqual(status, 201, created)
+        exam_id = created["exam"]["id"]
+        picks = iter((0, 1))
+        with patch("app.general_exams._choose_random_paper", side_effect=lambda refs: refs[next(picks)]), \
+             patch("app.general_exams.list_exam_files", return_value=[]), patch("app.exams.list_exam_files", return_value=[]):
+            status, published = self.request("POST", f"/api/admin/exam-records/{exam_id}/publish", cookie=self.admin_cookie)
+            self.assertEqual(status, 200, published)
+            release_id = published["exam"]["release"]["release_id"]
+            paper_assignments = storage.read_json("exams.json")[exam_id]["release"]["paper_assignments"]
+            self.assertNotEqual(paper_assignments["student1"]["code_exam_id"], paper_assignments["student2"]["code_exam_id"])
+            status, started = self.request("POST", f"/api/admin/exam-records/{exam_id}/start", cookie=self.admin_cookie)
+        self.assertEqual(status, 200, started)
+        base_deadline = storage.read_json("exams.json")[exam_id]["release"]["official_deadline"]
+        for student_id in ("student1", "student2"):
+            status, result = self.start_student(self.timing_student_cookies[student_id])
+            self.assertEqual(status, 200, result)
+            self.assertEqual(storage.read_json("assignments.json")[student_id]["release_id"], release_id)
+            self.assertEqual(result["ends_at"], base_deadline)
+
+    def test_individual_extension_changes_only_effective_deadline_and_keeps_attempt_active(self):
+        self.create_published_question("echo-question")
+        exam_id, _ = self.create_general_code_exam(duration=60)
+        status, started = self.start_student()
+        self.assertEqual(status, 200, started)
+        official_deadline = storage.read_json("exams.json")[exam_id]["release"]["official_deadline"]
+        status, adjusted = self.request("POST", "/api/admin/students/student1/adjust-time", cookie=self.admin_cookie,
+                                        raw_body=urllib.parse.urlencode({"minutes": 30}).encode(),
+                                        content_type="application/x-www-form-urlencoded")
+        self.assertEqual(status, 200, adjusted)
+        self.assertNotEqual(adjusted["ends_at"], official_deadline)
+        self.assertEqual(storage.read_json("exams.json")[exam_id]["release"]["official_deadline"], official_deadline)
+        self.set_release_deadline(exam_id, (datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat(timespec="seconds"))
+        status, state = self.request("GET", "/api/student/status", cookie=self.timing_student_cookies["student1"])
+        self.assertEqual(status, 200, state)
+        self.assertTrue(state["active_exam_attempt"])
+        status, ended = self.request("POST", f"/api/admin/exam-records/{exam_id}/end", cookie=self.admin_cookie)
+        self.assertEqual(status, 200, ended)
+        status, state = self.request("GET", "/api/student/status", cookie=self.timing_student_cookies["student1"])
+        self.assertEqual(status, 200, state)
+        self.assertFalse(state["active_exam_attempt"])
+
+    def test_never_started_students_are_not_finalized_or_given_results(self):
+        self.create_published_question("echo-question")
+        students = storage.read_json("students.json")
+        students["student2"] = {"active": True}
+        storage.write_json("students.json", students)
+        exam_id, _ = self.create_general_code_exam(duration=60, participants=["student1", "student2"])
+        deadline = (datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat(timespec="seconds")
+        self.set_release_deadline(exam_id, deadline)
+        main.exam_completion.finalize_due_attempts()
+        self.assertEqual(storage.read_json("code_attempts.json")["attempts"], {})
+        self.assertEqual(storage.read_json("code_submissions.json"), {})
+        result = general_exams.get_exam_results(exam_id)
+        self.assertEqual({row["student_id"]: row["participation_status"] for row in result["matrix"]},
+                         {"student1": "no_show", "student2": "no_show"})
+        self.assertEqual(storage.read_json("assignments.json")["student1"]["status"], "assigned")
+
+    def test_older_release_without_start_markers_does_not_infer_absence(self):
+        self.create_published_question("echo-question")
+        exam_id, _ = self.create_general_code_exam(duration=60)
+        exams = storage.read_json("exams.json")
+        exams[exam_id]["release"].pop("student_started_at", None)
+        storage.write_json("exams.json", exams)
+        result = general_exams.get_exam_results(exam_id)
+        self.assertEqual(result["matrix"][0]["participation_status"], "unknown")
+
+    def test_participation_marker_survives_a_later_release_replacing_assignments(self):
+        self.create_published_question("echo-question")
+        exam_id, old_release_id = self.create_general_code_exam(duration=60)
+        status, started = self.start_student()
+        self.assertEqual(status, 200, started)
+        original_marker = storage.read_json("exams.json")[exam_id]["release"]["student_started_at"]["student1"]
+        status, ended = self.request("POST", f"/api/admin/exam-records/{exam_id}/end", cookie=self.admin_cookie)
+        self.assertEqual(status, 200, ended)
+        status, copied = self.request("POST", f"/api/admin/exam-records/{exam_id}/copy", cookie=self.admin_cookie)
+        self.assertEqual(status, 200, copied)
+        new_exam_id = copied["exam"]["id"]
+        with patch("app.general_exams.list_exam_files", return_value=[]), patch("app.exams.list_exam_files", return_value=[]):
+            status, published = self.request("POST", f"/api/admin/exam-records/{new_exam_id}/publish", cookie=self.admin_cookie)
+            self.assertEqual(status, 200, published)
+            status, started_new = self.request("POST", f"/api/admin/exam-records/{new_exam_id}/start", cookie=self.admin_cookie)
+        self.assertEqual(status, 200, started_new)
+        new_release_id = started_new["exam"]["release"]["release_id"]
+        self.assertNotEqual(new_release_id, old_release_id)
+        self.assertEqual(storage.read_json("assignments.json")["student1"]["release_id"], new_release_id)
+        self.assertEqual(storage.read_json("exams.json")[exam_id]["release"]["student_started_at"]["student1"], original_marker)
+
+    def test_started_blank_attempt_expires_without_submission_or_grade(self):
+        self.create_published_question("echo-question")
+        exam_id, _ = self.create_general_code_exam(duration=60, participants=["student1", "student2"])
+        status, _ = self.start_student()
+        self.assertEqual(status, 200)
+        assignments = storage.read_json("assignments.json")
+        assignments["student1"]["ends_at"] = (datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat(timespec="seconds")
+        storage.write_json("assignments.json", assignments)
+        main.exam_completion.finalize_due_attempts()
+        self.assertEqual(storage.read_json("code_submissions.json"), {})
+        ledger = storage.read_json("code_attempts.json")["attempts"]["student1"]
+        self.assertTrue(ledger)
+        self.assertEqual(storage.read_json("assignments.json")["student1"]["status"], "submitted")
+        result = general_exams.get_exam_results(exam_id)
+        self.assertEqual(result["matrix"][0]["participation_status"], "started_no_submission")
+        self.assertIsNone(result["matrix"][0]["total_score"])
+
+    def test_teacher_end_finalizes_only_started_blank_attempts_without_fake_submissions(self):
+        self.create_published_question("echo-question")
+        students = storage.read_json("students.json")
+        students["student2"] = {"active": True}
+        storage.write_json("students.json", students)
+        exam_id, _ = self.create_general_code_exam(duration=60, participants=["student1", "student2"])
+        status, _ = self.start_student()
+        self.assertEqual(status, 200)
+        status, ended = self.request("POST", f"/api/admin/exam-records/{exam_id}/end", cookie=self.admin_cookie)
+        self.assertEqual(status, 200, ended)
+        main.exam_completion.finalize_due_attempts()
+        self.assertEqual(storage.read_json("code_submissions.json"), {})
+        attempts = storage.read_json("code_attempts.json")["attempts"]
+        self.assertIn("student1", attempts)
+        self.assertNotIn("student2", attempts)
+        result = general_exams.get_exam_results(exam_id)
+        self.assertEqual({row["student_id"]: row["participation_status"] for row in result["matrix"]},
+                         {"student1": "started_no_submission", "student2": "no_show"})
 
     def question_state_tokens(self, question_id):
         question = storage.read_json("questions.json").get(question_id)
@@ -205,22 +445,30 @@ class CodeApiTests(unittest.TestCase):
         )
 
     def distribute_and_start_code_exam(self, exam_id, *, start_student=True):
-        distribution = {"mode": "random", "code_exam_id": exam_id, "code_only": "true"}
-        body = urllib.parse.urlencode(distribution).encode()
+        settings = storage.read_json("settings.json")
+        settings.update(exam_participants=["student-1"], exam_duration_minutes=90)
+        storage.write_json("settings.json", settings)
         with patch("app.exams.list_exam_files", return_value=[]):
-            status, distributed = self.request(
-                "POST",
-                "/api/admin/distribute",
-                cookie=self.admin_cookie,
-                raw_body=body,
-                content_type="application/x-www-form-urlencoded",
-            )
-        self.assertEqual(status, 200, distributed)
-        status, started = self.request("POST", "/api/admin/start-exam", cookie=self.admin_cookie, raw_body=b"")
-        self.assertEqual(status, 200, started)
+            distributed = exam_service.distribute_exams("random", {"code_exam_id": exam_id, "code_only": True})
+        snapshot = code_exams.get_code_exam(exam_id)
+        release = {
+            "release_id": distributed["release_id"],
+            "released_at": storage.read_json("assignments.json")["student-1"]["assigned_at"],
+            "applied": True,
+            "assigned_count": distributed["assigned_count"],
+            "assignments": distributed["distribution"],
+            "student_started_at": {},
+        }
+        record = general_exams._legacy_exam(
+            exam_id, snapshot["title"], {**general_exams._default_config(), "participants": ["student-1"]},
+            [general_exams._code_item_from_snapshot(snapshot)], "distributed", release, "admin-1", snapshot.get("created_at"),
+        )
+        storage.write_json("exams.json", {exam_id: record})
+        general_exams.start_exam(exam_id, "admin-1", "127.0.0.1")
         if start_student:
             status, student_started = self.request("POST", "/api/student/start", cookie=self.student_cookie, raw_body=b"")
             self.assertEqual(status, 200, student_started)
+        return exam_id
 
     def create_started_code_exam(self, *, use_real_runner=False):
         question = {
@@ -266,22 +514,7 @@ class CodeApiTests(unittest.TestCase):
         created_exam = self.create_draft_code_exam(["echo-question"], title="Code exam",
             show_final_score_immediately=False, pretest_cooldown_seconds=0)
         exam_id = created_exam["id"]
-        distribution = {"mode": "random", "code_exam_id": exam_id, "code_only": "true"}
-        body = urllib.parse.urlencode(distribution).encode()
-        files = []
-        with patch("app.exams.list_exam_files", return_value=files):
-            status, distributed = self.request(
-                "POST",
-                "/api/admin/distribute",
-                cookie=self.admin_cookie,
-                raw_body=body,
-                content_type="application/x-www-form-urlencoded",
-            )
-        self.assertEqual(status, 200, distributed)
-        status, started = self.request("POST", "/api/admin/start-exam", cookie=self.admin_cookie, raw_body=b"")
-        self.assertEqual(status, 200, started)
-        status, student_started = self.request("POST", "/api/student/start", cookie=self.student_cookie, raw_body=b"")
-        self.assertEqual(status, 200, student_started)
+        self.distribute_and_start_code_exam(exam_id)
         return exam_id
 
     def test_exam_records_reject_mixed_types_and_require_one_type_to_publish(self):
@@ -438,7 +671,7 @@ class CodeApiTests(unittest.TestCase):
         self.assertEqual([item["type"] for item in published["exam"]["items"]], ["zip"])
         self.assertEqual(storage.read_json("code_exams.json"), {})
 
-    def test_legacy_distribution_rejects_mixed_code_and_file_exam(self):
+    def test_legacy_distribution_and_start_routes_are_disabled(self):
         requests = (
             {"mode": "selected", "exam_files": "exam.pdf", "code_exam_id": "code-exam-1", "code_only": "false"},
             {"mode": "selected", "exam_files": "exam.pdf", "code_exam_id": "code-exam-1", "code_only": "true"},
@@ -456,8 +689,14 @@ class CodeApiTests(unittest.TestCase):
                         raw_body=body,
                         content_type="application/x-www-form-urlencoded",
                     )
+                    if status == 410:
+                        self.assertIn("Legacy distribution", result["detail"])
+                        continue
                     self.assertEqual(status, 400, result)
-                    self.assertIn("không thể kết hợp", result["detail"])
+                    self.assertIn("kh么ng th峄?k岷縯 h峄", result["detail"])
+        status, result = self.request("POST", "/api/admin/start-exam", cookie=self.admin_cookie, raw_body=b"")
+        self.assertEqual(status, 410, result)
+        self.assertIn("Exam Management", result["detail"])
         prepare.assert_not_called()
         self.assertFalse(storage.read_json("settings.json")["exam_released"])
 
@@ -836,8 +1075,8 @@ class CodeApiTests(unittest.TestCase):
         self.assertNotIn('secret-input', html)
         status, home = self.request('GET', '/?view=home', cookie=self.student_cookie, parse_json=False)
         self.assertEqual(status, 200)
-        self.assertIn('Chúc mừng! Bạn đã hoàn thành bài thi.', home.decode('utf-8'))
-        self.assertIn('Xem kết quả chi tiết', home.decode('utf-8'))
+        self.assertIn('Ch煤c m峄玭g! B岷 膽茫 ho脿n th脿nh b脿i thi.', home.decode('utf-8'))
+        self.assertIn('Xem k岷縯 qu岷?chi ti岷縯', home.decode('utf-8'))
         other = new_session('student-2', 'student', '127.0.0.1', 'test')
         storage.update_json('students.json', lambda students: students.update({'student-2': {'active': True}}))
         self.assertEqual(self.request('GET', path, cookie=other, parse_json=False)[0], 404)
@@ -845,7 +1084,7 @@ class CodeApiTests(unittest.TestCase):
         storage.update_json('code_exams.json', lambda exams: exams[exam_id].update(show_final_score_immediately=False))
         self.assertEqual(self.request('GET', path, cookie=self.student_cookie, parse_json=False)[0], 403)
         status, home = self.request('GET', '/?view=home', cookie=self.student_cookie, parse_json=False)
-        self.assertNotIn('Xem kết quả chi tiết', home.decode('utf-8'))
+        self.assertNotIn('Xem k岷縯 qu岷?chi ti岷縯', home.decode('utf-8'))
         storage.update_json('code_exams.json', lambda exams: exams[exam_id].pop('show_final_score_immediately'))
         self.assertEqual(self.request('GET', path, cookie=self.student_cookie, parse_json=False)[0], 403)
         status, snapshot = self.request('GET', '/api/student/code-exam', cookie=self.student_cookie)
@@ -889,12 +1128,12 @@ class CodeApiTests(unittest.TestCase):
         self.create_started_code_exam()
         status, page = self.request("GET", "/", cookie=self.student_cookie, parse_json=False)
         self.assertEqual(status, 200)
-        self.assertIn("Nộp cả bài", page.decode("utf-8"))
+        self.assertIn("N峄檖 c岷?b脿i", page.decode("utf-8"))
 
         status, home = self.request("GET", "/?view=home", cookie=self.student_cookie, parse_json=False)
         self.assertEqual(status, 200)
-        self.assertIn("Màn hình chính", home.decode("utf-8"))
-        self.assertIn("Quay lại bài thi", home.decode("utf-8"))
+        self.assertIn("M脿n h矛nh ch铆nh", home.decode("utf-8"))
+        self.assertIn("Quay l岷 b脿i thi", home.decode("utf-8"))
 
     def test_home_view_offers_the_next_exam_before_the_student_starts(self):
         self.create_published_question("echo-question")
@@ -907,8 +1146,8 @@ class CodeApiTests(unittest.TestCase):
         page = home.decode("utf-8")
         self.assertIn('data-home-view="true"', page)
         self.assertIn("Next code exam", page)
-        self.assertIn("Vào làm bài", page)
-        self.assertNotIn("Hiện tại bạn chưa có bài thi đang làm.", page)
+        self.assertIn("V脿o l脿m b脿i", page)
+        self.assertNotIn("Hi峄噉 t岷 b岷 ch瓢a c贸 b脿i thi 膽ang l脿m.", page)
 
         assignment = storage.read_json("assignments.json")["student-1"]
         self.assertIn(f'data-assignment-release="{assignment["release_id"]}"', page)
@@ -948,8 +1187,303 @@ class CodeApiTests(unittest.TestCase):
         self.assertEqual(status, 200)
         page = next_home.decode("utf-8")
         self.assertIn("Second code exam", page)
-        self.assertIn("Vào làm bài", page)
-        self.assertNotIn("Hiện tại bạn chưa có bài thi đang làm.", page)
+        self.assertIn("V脿o l脿m b脿i", page)
+        self.assertNotIn("Hi峄噉 t岷 b岷 ch瓢a c贸 b脿i thi 膽ang l脿m.", page)
+
+    def _file_exam_assignment(self, **overrides):
+        storage.write_json("submissions.json", {})
+        now = datetime.now(timezone.utc)
+        settings = storage.read_json("settings.json")
+        settings.update({"exam_state": "started", "exam_released": True,
+                         "exam_release_id": "file-release", "submission_policy": "configurable",
+                         "max_submissions": 2, "overwrite_previous": True})
+        storage.write_json("settings.json", settings)
+        assignment = {"release_id": "file-release", "exam_file": "exam.zip",
+                      "status": "in_progress", "started_at": (now - timedelta(minutes=1)).isoformat(),
+                      "ends_at": (now + timedelta(minutes=10)).isoformat()}
+        assignment.update(overrides)
+        assignments = storage.read_json("assignments.json")
+        assignments["student-1"] = assignment
+        storage.write_json("assignments.json", assignments)
+        return assignment
+
+    @staticmethod
+    def _valid_zip(payload=b"answer"):
+        output = io.BytesIO()
+        with zipfile.ZipFile(output, "w") as archive:
+            archive.writestr("answer.txt", payload)
+        return output.getvalue()
+
+    def _upload_zip(self, payload=b"answer"):
+        boundary = "css-file-exam-boundary"
+        body = (f"--{boundary}\r\n"
+                'Content-Disposition: form-data; name="file"; filename="answer.zip"\r\n'
+                "Content-Type: application/zip\r\n\r\n").encode() + self._valid_zip(payload) + f"\r\n--{boundary}--\r\n".encode()
+        return self.request("POST", "/api/student/submit", cookie=self.student_cookie,
+                            raw_body=body, content_type=f"multipart/form-data; boundary={boundary}")
+
+    def test_configurable_zip_uploads_remain_allowed_for_active_attempt(self):
+        self._file_exam_assignment()
+        with tempfile.TemporaryDirectory(prefix="css-zip-upload-") as upload_root:
+            upload_dir = Path(upload_root)
+            with patch("app.submissions.UPLOAD_DIR", upload_dir):
+                first_status, first = self._upload_zip(b"first")
+                self.assertEqual(first_status, 200, first)
+                self.assertTrue(first["zip_submission"]["eligible"])
+                self.assertEqual((first["zip_submission"]["count"], first["zip_submission"]["limit"]), (1, 2))
+                self.assertTrue((upload_dir / first["submission"]["filename"]).is_file())
+                second_status, second = self._upload_zip(b"second")
+                self.assertEqual(second_status, 200, second)
+                self.assertFalse(second["zip_submission"]["eligible"])
+                self.assertEqual(second["zip_submission"]["reason"], "quota_exhausted")
+                records = storage.read_json("submissions.json")["student-1"]
+                self.assertEqual(len(records), 2)
+                self.assertFalse(records[0]["payload_retained"])
+                self.assertTrue(records[1]["payload_retained"])
+                self.assertEqual(len(list(upload_dir.iterdir())), 1)
+
+    def test_zip_once_submission_exhausts_attempt_without_another_upload(self):
+        self._file_exam_assignment()
+        settings = storage.read_json("settings.json")
+        settings.update({"submission_policy": "once", "max_submissions": 2})
+        storage.write_json("settings.json", settings)
+        with tempfile.TemporaryDirectory(prefix="css-zip-once-") as upload_root, patch("app.submissions.UPLOAD_DIR", Path(upload_root)):
+            status, submitted = self._upload_zip(b"once")
+            self.assertEqual(status, 200, submitted)
+            self.assertFalse(submitted["zip_submission"]["eligible"])
+            self.assertEqual(submitted["zip_submission"]["reason"], "quota_exhausted")
+            status, state = self.request("GET", "/api/student/status", cookie=self.student_cookie)
+            self.assertTrue(state["completion"]["finalized"])
+            self.assertFalse(state["practice_locked"])
+            status, rejected = self._upload_zip(b"second")
+            self.assertEqual(status, 400, rejected)
+            self.assertEqual(len(storage.read_json("submissions.json")["student-1"]), 1)
+    def test_zip_submission_one_of_two_keeps_workspace_and_completion_open_after_reload(self):
+        self._file_exam_assignment()
+        with tempfile.TemporaryDirectory(prefix="css-zip-workspace-") as upload_root, patch("app.submissions.UPLOAD_DIR", Path(upload_root)):
+            status, first = self._upload_zip(b"first")
+            self.assertEqual(status, 200, first)
+            status, state = self.request("GET", "/api/student/status", cookie=self.student_cookie)
+            self.assertEqual(status, 200, state)
+            self.assertFalse(state["completion"]["finalized"])
+            self.assertTrue(state["zip_submission"]["eligible"])
+            self.assertTrue(state["practice_locked"])
+            status, page = self.request("GET", "/", cookie=self.student_cookie, parse_json=False)
+            self.assertEqual(status, 200)
+            html = page.decode("utf-8")
+            self.assertIn('id="submission-form"', html)
+            self.assertRegex(html, r'id="zip-submission-allowance"[^>]*>[^<]*1/2')
+
+            status, second = self._upload_zip(b"second")
+            self.assertEqual(status, 200, second)
+            status, state = self.request("GET", "/api/student/status", cookie=self.student_cookie)
+            self.assertTrue(state["completion"]["finalized"])
+            self.assertFalse(state["zip_submission"]["eligible"])
+            self.assertFalse(state["practice_locked"])
+
+    def test_adjust_time_remains_available_after_first_configurable_zip_submission(self):
+        self._file_exam_assignment()
+        with tempfile.TemporaryDirectory(prefix="css-zip-adjust-") as upload_root, patch("app.submissions.UPLOAD_DIR", Path(upload_root)):
+            status, uploaded = self._upload_zip(b"first")
+            self.assertEqual(status, 200, uploaded)
+            original_end = storage.read_json("assignments.json")["student-1"]["ends_at"]
+            status, adjusted = self.request("POST", "/api/admin/students/student-1/adjust-time", cookie=self.admin_cookie,
+                                            raw_body=urllib.parse.urlencode({"minutes": "5"}).encode(),
+                                            content_type="application/x-www-form-urlencoded")
+            self.assertEqual(status, 200, adjusted)
+            self.assertGreater(datetime.fromisoformat(adjusted["ends_at"]), datetime.fromisoformat(original_end))
+            self._upload_zip(b"second")
+            exhausted_end = storage.read_json("assignments.json")["student-1"]["ends_at"]
+            status, rejected = self.request("POST", "/api/admin/students/student-1/adjust-time", cookie=self.admin_cookie,
+                                            raw_body=urllib.parse.urlencode({"minutes": "5"}).encode(),
+                                            content_type="application/x-www-form-urlencoded")
+            self.assertEqual(status, 409, rejected)
+            self.assertEqual(storage.read_json("assignments.json")["student-1"]["ends_at"], exhausted_end)
+
+    def test_force_submit_zip_preserves_received_file_and_prevents_later_upload(self):
+        for overwrite in (True, False):
+            with self.subTest(overwrite_previous=overwrite), tempfile.TemporaryDirectory(prefix="css-zip-force-") as upload_root:
+                self._file_exam_assignment()
+                settings = storage.read_json("settings.json")
+                settings["overwrite_previous"] = overwrite
+                storage.write_json("settings.json", settings)
+                upload_dir = Path(upload_root)
+                with patch("app.submissions.UPLOAD_DIR", upload_dir):
+                    status, uploaded = self._upload_zip(b"accepted")
+                    self.assertEqual(status, 200, uploaded)
+                    accepted = upload_dir / uploaded["submission"]["filename"]
+                    self.assertTrue(accepted.is_file())
+                    status, forced = self.request("POST", "/api/admin/students/student-1/force-submit", cookie=self.admin_cookie)
+                    self.assertEqual(status, 200, forced)
+                    assignment = storage.read_json("assignments.json")["student-1"]
+                    self.assertTrue(assignment["forced_submit"])
+                    self.assertTrue(accepted.is_file())
+                    before = len(storage.read_json("submissions.json")["student-1"])
+                    status, rejected = self._upload_zip(b"not accepted after force")
+                    self.assertEqual(status, 400, rejected)
+                    self.assertEqual(len(storage.read_json("submissions.json")["student-1"]), before)
+                    self.assertTrue(accepted.is_file())
+
+    def test_force_submit_without_an_uploaded_zip_does_not_create_an_artifact(self):
+        self._file_exam_assignment()
+        with tempfile.TemporaryDirectory(prefix="css-zip-force-empty-") as upload_root, patch("app.submissions.UPLOAD_DIR", Path(upload_root)):
+            status, forced = self.request("POST", "/api/admin/students/student-1/force-submit", cookie=self.admin_cookie)
+            self.assertEqual(status, 200, forced)
+            self.assertTrue(storage.read_json("assignments.json")["student-1"]["forced_submit"])
+            self.assertEqual(storage.read_json("submissions.json").get("student-1", []), [])
+            status, rejected = self._upload_zip(b"selected locally, not accepted")
+            self.assertEqual(status, 400, rejected)
+            self.assertEqual(storage.read_json("submissions.json").get("student-1", []), [])
+            self.assertEqual(list(Path(upload_root).iterdir()), [])
+
+    def test_force_submit_racing_zip_upload_obeys_serialized_admission(self):
+        self._file_exam_assignment()
+        barrier = threading.Barrier(3)
+        with tempfile.TemporaryDirectory(prefix="css-zip-force-race-") as upload_root, patch("app.submissions.UPLOAD_DIR", Path(upload_root)):
+            def upload():
+                barrier.wait()
+                return self._upload_zip(b"race")
+
+            def force_submit():
+                barrier.wait()
+                return self.request("POST", "/api/admin/students/student-1/force-submit", cookie=self.admin_cookie)
+
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                upload_future = pool.submit(upload)
+                force_future = pool.submit(force_submit)
+                barrier.wait()
+                upload_status, upload_result = upload_future.result(timeout=10)
+                force_status, force_result = force_future.result(timeout=10)
+
+            self.assertEqual(force_status, 200, force_result)
+            self.assertTrue(storage.read_json("assignments.json")["student-1"]["forced_submit"])
+            records = storage.read_json("submissions.json").get("student-1", [])
+            if upload_status == 200:
+                self.assertEqual(len(records), 1)
+                retained = Path(upload_root) / upload_result["submission"]["filename"]
+                self.assertTrue(retained.is_file())
+            else:
+                self.assertEqual(upload_status, 400, upload_result)
+                self.assertEqual(records, [])
+                self.assertEqual(list(Path(upload_root).iterdir()), [])
+    def test_force_finalized_ended_and_expired_file_attempts_reject_zip_without_saving(self):
+        now = datetime.now(timezone.utc)
+        cases = {
+            "forced": ({"status": "submitted", "forced_submit": True}, {}),
+            "finalized": ({"status": "submitted", "finalized_at": now.isoformat()}, {}),
+            "ended": ({"status": "ended"}, {}),
+            "teacher-ended-release": ({"status": "in_progress"}, {"exam_state": "ended", "exam_released": False, "exam_release_id": None}),
+            "expired": ({"status": "in_progress", "ends_at": (now - timedelta(seconds=1)).isoformat()}, {}),
+        }
+        for name, (overrides, settings_overrides) in cases.items():
+            with self.subTest(state=name), tempfile.TemporaryDirectory(prefix="css-zip-reject-") as upload_root:
+                self._file_exam_assignment(**overrides)
+                if settings_overrides:
+                    settings = storage.read_json("settings.json")
+                    settings.update(settings_overrides)
+                    storage.write_json("settings.json", settings)
+                storage.write_json("submissions.json", {"student-1": []})
+                with patch("app.submissions.UPLOAD_DIR", Path(upload_root)):
+                    status, result = self._upload_zip(name.encode())
+                self.assertEqual(status, 400, result)
+                self.assertEqual(list(Path(upload_root).iterdir()), [])
+                self.assertEqual(storage.read_json("submissions.json")["student-1"], [])
+
+    def test_finalized_overwrite_policy_cannot_replace_retained_zip(self):
+        self._file_exam_assignment()
+        with tempfile.TemporaryDirectory(prefix="css-zip-retained-") as upload_root:
+            upload_dir = Path(upload_root)
+            with patch("app.submissions.UPLOAD_DIR", upload_dir):
+                status, result = self._upload_zip(b"original")
+                self.assertEqual(status, 200, result)
+                original = upload_dir / result["submission"]["filename"]
+                self.assertEqual(original.read_bytes(), self._valid_zip(b"original"))
+                assignments = storage.read_json("assignments.json")
+                assignments["student-1"].update({"status": "submitted", "forced_submit": True,
+                                                  "finalized_at": datetime.now(timezone.utc).isoformat()})
+                storage.write_json("assignments.json", assignments)
+                status, rejected = self._upload_zip(b"replacement")
+                self.assertEqual(status, 400, rejected)
+                self.assertTrue(original.is_file())
+                self.assertEqual(original.read_bytes(), self._valid_zip(b"original"))
+                self.assertEqual(len(storage.read_json("submissions.json")["student-1"]), 1)
+                self.assertEqual(len(list(upload_dir.iterdir())), 1)
+
+    def test_adjust_time_requires_a_current_unexpired_active_attempt(self):
+        assignment = self._file_exam_assignment()
+        original_end = assignment["ends_at"]
+        body = urllib.parse.urlencode({"minutes": "5"}).encode()
+        status, response = self.request("POST", "/api/admin/students/student-1/adjust-time", cookie=self.admin_cookie,
+                                        raw_body=body, content_type="application/x-www-form-urlencoded")
+        self.assertEqual(status, 200, response)
+        extended = storage.read_json("assignments.json")["student-1"]["ends_at"]
+        self.assertGreater(datetime.fromisoformat(extended), datetime.fromisoformat(original_end))
+
+        body = urllib.parse.urlencode({"minutes": "-2"}).encode()
+        status, response = self.request("POST", "/api/admin/students/student-1/adjust-time", cookie=self.admin_cookie,
+                                        raw_body=body, content_type="application/x-www-form-urlencoded")
+        self.assertEqual(status, 200, response)
+
+        # A valid active reduction may put the deadline in the past; protected
+        # attempt checks immediately stop treating the assignment as active.
+        assignment = storage.read_json("assignments.json")["student-1"]
+        assignment["ends_at"] = (datetime.now(timezone.utc) + timedelta(seconds=30)).isoformat()
+        storage.write_json("assignments.json", {"student-1": assignment})
+        body = urllib.parse.urlencode({"minutes": "-5"}).encode()
+        status, response = self.request("POST", "/api/admin/students/student-1/adjust-time", cookie=self.admin_cookie,
+                                        raw_body=body, content_type="application/x-www-form-urlencoded")
+        self.assertEqual(status, 200, response)
+        reduced = storage.read_json("assignments.json")["student-1"]
+        self.assertLess(datetime.fromisoformat(reduced["ends_at"]), datetime.now(timezone.utc))
+        self.assertFalse(main.is_active_exam_attempt("student-1", storage.read_json("settings.json"), reduced))
+
+        assignment = storage.read_json("assignments.json")["student-1"]
+        expired_end = (datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat()
+        assignment["ends_at"] = expired_end
+        storage.write_json("assignments.json", {"student-1": assignment})
+        body = urllib.parse.urlencode({"minutes": "10"}).encode()
+        status, rejected = self.request("POST", "/api/admin/students/student-1/adjust-time", cookie=self.admin_cookie,
+                                        raw_body=body, content_type="application/x-www-form-urlencoded")
+        self.assertEqual(status, 409, rejected)
+        self.assertEqual(storage.read_json("assignments.json")["student-1"]["ends_at"], expired_end)
+
+    def test_deadline_reduction_into_past_blocks_code_exam_operations(self):
+        self.create_started_code_exam()
+        body = urllib.parse.urlencode({"minutes": "-1440"}).encode()
+        status, response = self.request("POST", "/api/admin/students/student-1/adjust-time", cookie=self.admin_cookie,
+                                        raw_body=body, content_type="application/x-www-form-urlencoded")
+        self.assertEqual(status, 200, response)
+        with patch("app.code_exams.execute_question", return_value=_execution()) as execute:
+            status, rejected = self.request("POST", "/api/student/code/run", cookie=self.student_cookie,
+                                            payload={"question_id": "echo-question", "source_code": "print(input())"})
+        self.assertEqual(status, 409, rejected)
+        execute.assert_not_called()
+
+    def test_adjust_time_rejects_unstarted_finalized_and_teacher_ended_attempts(self):
+        body = urllib.parse.urlencode({"minutes": "5"}).encode()
+        for name, assignment_overrides, settings_overrides in (
+            ("unstarted", {"started_at": None}, {}),
+            ("finalized", {"finalized_at": datetime.now(timezone.utc).isoformat()}, {}),
+            ("forced", {"forced_submit": True}, {}),
+            ("submitted-quota-exhausted", {"status": "submitted"}, {}),
+            ("teacher-ended", {"status": "ended"}, {"exam_state": "ended", "exam_released": False, "exam_release_id": None}),
+        ):
+            with self.subTest(state=name):
+                assignment = self._file_exam_assignment(**assignment_overrides)
+                original_end = assignment["ends_at"]
+                if name == "submitted-quota-exhausted":
+                    storage.write_json("submissions.json", {"student-1": [
+                        {"release_id": "file-release", "filename": "first.zip"},
+                        {"release_id": "file-release", "filename": "second.zip"},
+                    ]})
+                if settings_overrides:
+                    settings = storage.read_json("settings.json")
+                    settings.update(settings_overrides)
+                    storage.write_json("settings.json", settings)
+                status, rejected = self.request("POST", "/api/admin/students/student-1/adjust-time", cookie=self.admin_cookie,
+                                                raw_body=body, content_type="application/x-www-form-urlencoded")
+                self.assertEqual(status, 409, rejected)
+                self.assertEqual(storage.read_json("assignments.json")["student-1"]["ends_at"], original_end)
 
     def test_code_only_exam_rejects_file_submission(self):
         self.create_started_code_exam()
@@ -1401,22 +1935,7 @@ class CodeApiTests(unittest.TestCase):
         self.assertEqual(status, 200, published)
         created = self.create_draft_code_exam(["echo-question"], title="Visible after each submission", show_final_score_immediately=True)
         exam_id = created["id"]
-        body = urllib.parse.urlencode(
-            {"mode": "random", "code_exam_id": exam_id, "code_only": "true"}
-        ).encode()
-        with patch("app.exams.list_exam_files", return_value=[]):
-            status, _ = self.request(
-                "POST",
-                "/api/admin/distribute",
-                cookie=self.admin_cookie,
-                raw_body=body,
-                content_type="application/x-www-form-urlencoded",
-            )
-        self.assertEqual(status, 200)
-        self.assertEqual(
-            self.request("POST", "/api/admin/start-exam", cookie=self.admin_cookie, raw_body=b"")[0],
-            200,
-        )
+        self.distribute_and_start_code_exam(exam_id)
         self.assertEqual(
             self.request("POST", "/api/student/start", cookie=self.student_cookie, raw_body=b"")[0],
             200,
@@ -1432,6 +1951,167 @@ class CodeApiTests(unittest.TestCase):
         self.assertEqual(result["submission"]["score"], 10)
         self.assertEqual(result["submission"]["exam_score"], 10)
         self.assertNotIn("secret-expected", json.dumps(result))
+
+    def test_submission_list_resolves_exam_by_release_and_numbers_attempts_per_release(self):
+        storage.write_json("students.json", {"student-1": {"active": True, "full_name": "Student One"}})
+        storage.write_json("exams.json", {
+            "exam-old": {"id": "exam-old", "title": "Old Exam", "release": {"release_id": "release-old"}},
+            "exam-current": {"id": "exam-current", "title": "Current Exam", "release": {"release_id": "release-current"}},
+            "exam-duplicate-a": {"id": "exam-duplicate-a", "title": "Duplicate Name", "release": {"release_id": "release-a"}},
+            "exam-duplicate-b": {"id": "exam-duplicate-b", "title": "Duplicate Name", "release": {"release_id": "release-b"}},
+        })
+        storage.write_json("submissions.json", {"student-1": [
+            {"filename": "old-1.zip", "release_id": "release-old", "submitted_at": "2026-01-01T00:00:00Z"},
+            {"filename": "old-2.zip", "release_id": "release-old", "submitted_at": "2026-01-02T00:00:00Z"},
+            {"filename": "current-1.zip", "release_id": "release-current", "submitted_at": "2026-01-03T00:00:00Z"},
+            {"filename": "duplicate-a.zip", "release_id": "release-a", "submitted_at": "2026-01-04T00:00:00Z"},
+            {"filename": "duplicate-b.zip", "release_id": "release-b", "submitted_at": "2026-01-05T00:00:00Z"},
+            {"filename": "unresolved.zip", "release_id": "missing-release", "submitted_at": "2026-01-06T00:00:00Z"},
+            {"filename": "legacy.zip", "submitted_at": "2026-01-07T00:00:00Z"},
+        ], "student-2": [
+            {"filename": "student-2-first.zip", "release_id": "release-old", "submitted_at": "2026-01-08T00:00:00Z"},
+        ]})
+
+        status, response = self.request("GET", "/api/admin/submissions", cookie=self.admin_cookie)
+        self.assertEqual(status, 200, response)
+        rows = {row["filename"]: row for row in response["submissions"]}
+        self.assertEqual([rows[name]["attempt"] for name in ("old-1.zip", "old-2.zip", "current-1.zip")], [1, 2, 1])
+        self.assertEqual(rows["old-1.zip"]["exam_name"], "Old Exam")
+        self.assertEqual(rows["current-1.zip"]["exam_name"], "Current Exam")
+        self.assertEqual(rows["duplicate-a.zip"]["exam_name"], "Duplicate Name")
+        self.assertEqual(rows["duplicate-b.zip"]["exam_name"], "Duplicate Name")
+        self.assertEqual(rows["unresolved.zip"]["exam_name"], "\u004b\u0068\u00f4\u006e\u0067 \u0078\u00e1\u0063 \u0111\u1ecb\u006e\u0068")
+        self.assertEqual(rows["legacy.zip"]["exam_name"], "\u004b\u0068\u00f4\u006e\u0067 \u0078\u00e1\u0063 \u0111\u1ecb\u006e\u0068")
+        self.assertIsNone(rows["legacy.zip"]["attempt"])
+        self.assertEqual(rows["student-2-first.zip"]["attempt"], 1)
+
+    def test_submission_exam_file_matches_monitor_assignment_for_each_student(self):
+        now = datetime.now(timezone.utc)
+        end = (now + timedelta(minutes=10)).isoformat()
+        started = (now - timedelta(minutes=1)).isoformat()
+        release_id = "zip-file-release"
+        storage.write_json("students.json", {
+            "student-1": {"active": True, "full_name": "Student One"},
+            "student-2": {"active": True, "full_name": "Student Two"},
+            "student-3": {"active": True, "full_name": "Student Three"},
+        })
+        settings = storage.read_json("settings.json")
+        settings.update({"exam_state": "started", "exam_released": True, "exam_release_id": release_id})
+        storage.write_json("settings.json", settings)
+        assignments = {
+            sid: {"release_id": release_id, "exam_file": filename, "status": "in_progress",
+                  "started_at": started, "ends_at": end}
+            for sid, filename in (("student-1", "\u0110\u1ec1 1.pdf"), ("student-2", "\u0110\u1ec1 3.pdf"))
+        }
+        storage.write_json("assignments.json", assignments)
+        storage.write_json("exams.json", {
+            "exam-current": {"id": "exam-current", "title": "SIU", "status": "started",
+                             "release": {"release_id": release_id, "assignments": {
+                                 "student-1": "\u0110\u1ec1 1.pdf", "student-2": "\u0110\u1ec1 3.pdf"}}}
+        })
+        storage.write_json("submissions.json", {
+            "student-1": [{"filename": "one.zip", "release_id": release_id}],
+            "student-2": [{"filename": "two.zip", "release_id": release_id}],
+            "student-3": [{"filename": "unknown.zip", "release_id": release_id}],
+        })
+
+        status, submission_response = self.request("GET", "/api/admin/submissions", cookie=self.admin_cookie)
+        self.assertEqual(status, 200, submission_response)
+        submission_files = {row["student_id"]: row["exam_file"] for row in submission_response["submissions"]}
+        status, monitor_response = self.request("GET", "/api/admin/monitor", cookie=self.admin_cookie)
+        self.assertEqual(status, 200, monitor_response)
+        monitor_files = {row["student_id"]: row["exam_file"] for row in monitor_response["students"]}
+        self.assertEqual(submission_files["student-1"], "\u0110\u1ec1 1.pdf")
+        self.assertEqual(submission_files["student-2"], "\u0110\u1ec1 3.pdf")
+        self.assertEqual(submission_files["student-3"], "\u004b\u0068\u00f4\u006e\u0067 \u0078\u00e1\u0063 \u0111\u1ecb\u006e\u0068")
+        self.assertEqual(submission_files["student-1"], monitor_files["student-1"])
+        self.assertEqual(submission_files["student-2"], monitor_files["student-2"])
+
+    def test_new_zip_filename_is_readable_safe_and_immediately_downloadable(self):
+        assignment = self._file_exam_assignment()
+        assignment["exam_file"] = "De:02?.zip"
+        storage.write_json("assignments.json", {"student-1": assignment})
+        storage.write_json("students.json", {"student-1": {"active": True, "full_name": "Nguy\u1ec5n V\u0103n A"}})
+        storage.write_json("exams.json", {
+            "exam-1": {"id": "exam-1", "title": "Java: Cu\u1ed1i k\u1ef3?", "release": {"release_id": "file-release"}}
+        })
+        with tempfile.TemporaryDirectory(prefix="css-zip-readable-") as upload_root:
+            upload_dir = Path(upload_root)
+            with patch("app.submissions.UPLOAD_DIR", upload_dir):
+                status, result = self._upload_zip(b"filename test")
+                self.assertEqual(status, 200, result)
+                record = result["submission"]
+                filename = record["filename"]
+                self.assertEqual(filename, next(iter(upload_dir.iterdir())).name)
+                self.assertLessEqual(len(filename), 180)
+                self.assertRegex(filename, r"^student-1_Nguyen_Van_A_Java_Cuoi_ky_L01_[0-9a-f]{6}\.zip$")
+                self.assertFalse(any(char in filename for char in '<>:"/\\|?*'))
+                self.assertEqual((upload_dir / filename).read_bytes(), self._valid_zip(b"filename test"))
+
+                status, downloaded = self.request(
+                    "GET", f"/admin/submissions/student-1/{urllib.parse.quote(filename, safe='')}",
+                    cookie=self.admin_cookie, parse_json=False,
+                )
+                self.assertEqual(status, 200)
+                self.assertEqual(downloaded, self._valid_zip(b"filename test"))
+
+                status, listing = self.request("GET", "/api/admin/submissions", cookie=self.admin_cookie)
+                self.assertEqual(status, 200, listing)
+                row = next(item for item in listing["submissions"] if item["filename"] == filename)
+                self.assertEqual(row["attempt"], 1)
+                self.assertEqual(row["exam_name"], "Java: Cu\u1ed1i k\u1ef3?")
+
+                # Historical filenames remain downloadable through stored metadata.
+                (upload_dir / "legacy-name.zip").write_bytes(b"legacy")
+                records = storage.read_json("submissions.json")
+                records["student-1"].append({"filename": "legacy-name.zip", "release_id": "file-release", "payload_retained": True})
+                storage.write_json("submissions.json", records)
+                status, legacy = self.request("GET", "/admin/submissions/student-1/legacy-name.zip", cookie=self.admin_cookie, parse_json=False)
+                self.assertEqual((status, legacy), (200, b"legacy"))
+
+    def test_readable_zip_filename_retries_exclusive_create_collisions(self):
+        self._file_exam_assignment()
+        with tempfile.TemporaryDirectory(prefix="css-zip-name-collision-") as upload_root:
+            upload_dir = Path(upload_root)
+            collision = upload_dir / "student-1_Student_Khong_xac_dinh_L01_abcdef.zip"
+            collision.write_bytes(b"do not overwrite")
+            with patch("app.submissions.UPLOAD_DIR", upload_dir), patch(
+                "app.submissions.uuid.uuid4", side_effect=[Mock(hex="abcdef"), Mock(hex="123456")]
+            ):
+                status, result = self._upload_zip(b"new submission")
+            self.assertEqual(status, 200, result)
+            self.assertTrue(result["submission"]["filename"].endswith("_123456.zip"))
+            self.assertEqual(collision.read_bytes(), b"do not overwrite")
+            self.assertEqual((upload_dir / result["submission"]["filename"]).read_bytes(), self._valid_zip(b"new submission"))
+
+    def test_readable_zip_filenames_and_attempt_numbers_follow_overwrite_policy(self):
+        for overwrite in (False, True):
+            with self.subTest(overwrite_previous=overwrite), tempfile.TemporaryDirectory(prefix="css-zip-attempt-names-") as upload_root:
+                self._file_exam_assignment()
+                settings = storage.read_json("settings.json")
+                settings["overwrite_previous"] = overwrite
+                storage.write_json("settings.json", settings)
+                with patch("app.submissions.UPLOAD_DIR", Path(upload_root)):
+                    first_status, first = self._upload_zip(b"first")
+                    second_status, second = self._upload_zip(b"second")
+                    self.assertEqual(first_status, 200, first)
+                    self.assertEqual(second_status, 200, second)
+                    self.assertIn("_L01_", first["submission"]["filename"])
+                    self.assertIn("_L02_", second["submission"]["filename"])
+                    self.assertNotEqual(first["submission"]["filename"], second["submission"]["filename"])
+                    records = storage.read_json("submissions.json")["student-1"]
+                    self.assertEqual(len(records), 2)
+                    if overwrite:
+                        self.assertFalse(records[0]["payload_retained"])
+                        self.assertTrue(records[1]["payload_retained"])
+                    else:
+                        self.assertTrue(records[0]["payload_retained"])
+                        self.assertTrue(records[1]["payload_retained"])
+                    status, listing = self.request("GET", "/api/admin/submissions", cookie=self.admin_cookie)
+                    self.assertEqual(status, 200, listing)
+                    displayed = {row["filename"]: row["attempt"] for row in listing["submissions"]}
+                    self.assertEqual(displayed[first["submission"]["filename"]], 1)
+                    self.assertEqual(displayed[second["submission"]["filename"]], 2)
 
 if __name__ == "__main__":
     unittest.main()

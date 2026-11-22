@@ -213,6 +213,16 @@
     return `${cell.score}/${cell.total_points}`;
   }
 
+  function participationLabel(status) {
+    return ({
+      submitted: "Đã nộp",
+      started_no_submission: "Đã bắt đầu · Chưa có bài",
+      not_started: "Chưa bắt đầu",
+      no_show: "Không dự thi",
+      unknown: "Không rõ lịch sử tham gia",
+    })[status] || "";
+  }
+
   const specMode = el("select");
   specMode.setAttribute("aria-label", "Phiên bản đề dùng khi chấm lại");
   for (const [value, label] of [["false", "Chấm lại bằng snapshot đã phát"], ["true", "Chấm lại bằng phiên bản câu hỏi mới nhất"]]) {
@@ -262,6 +272,8 @@
       const row = el("tr");
       const who = el("td");
       who.append(el("strong", entry.full_name || students.get(entry.student_id) || entry.student_id), el("div", `MSSV: ${entry.student_id}`, "fine-print"));
+      const participation = participationLabel(entry.participation_status);
+      if (participation) who.append(el("div", participation, "fine-print"));
       row.append(who);
       const buttons = [];
       entry.cells.forEach((cell) => {

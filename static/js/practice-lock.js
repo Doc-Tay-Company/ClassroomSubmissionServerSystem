@@ -27,9 +27,10 @@
         try {
           const response = await request("/api/student/status");
           if (requestEpoch !== decisionEpoch) return state === "allowed";
-          if (typeof response?.active_exam_attempt !== "boolean") throw new Error("Invalid Student status");
-          if (!response.active_exam_attempt && ["locked", "error", "unauthenticated"].includes(state)) recovered = true;
-          state = response.active_exam_attempt ? "locked" : "allowed";
+          const locked = typeof response?.practice_locked === "boolean" ? response.practice_locked : response?.active_exam_attempt;
+          if (typeof locked !== "boolean") throw new Error("Invalid Student status");
+          if (!locked && ["locked", "error", "unauthenticated"].includes(state)) recovered = true;
+          state = locked ? "locked" : "allowed";
         } catch (error) {
           // A failed request never proves that Practice is available.
           if (state !== "locked") state = error.status === 401 ? "unauthenticated" : "error";

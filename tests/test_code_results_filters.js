@@ -47,6 +47,7 @@ async function main() {
   const requests = [];
   const operations = [];
   let includeSubmission = false;
+  let participationStatus = null;
   const questions = [
     { question_id: 'q1', title: 'Question One' }, { question_id: 'q2', title: 'Question Two' },
   ];
@@ -72,7 +73,8 @@ async function main() {
       if (url === '/api/admin/accounts') return { students: [{ student_id: 'student-1', full_name: 'Student One' }] };
       if (url.startsWith('/api/admin/exam-results/exam-1?')) return { status: 'ended', questions,
         submissions: includeSubmission ? [submission] : [],
-        matrix: includeSubmission ? [{ student_id: 'student-1', total_score: 8, total_points: 10, cells: [
+        matrix: participationStatus ? [{ student_id: 'student-1', participation_status: participationStatus,
+          total_score: includeSubmission ? 8 : null, total_points: includeSubmission ? 10 : null, cells: [
           { question_id: 'q1', status: 'graded', score: 8, total_points: 10, submission_id: 'submission-1', attempts: 1 },
           { question_id: 'q2', status: 'not_assigned' },
         ] }] : [] };
@@ -113,9 +115,14 @@ async function main() {
   assert.strictEqual(examSelect.value, 'exam-1', 'clear retains the selected exam');
   assert.deepStrictEqual([...new URL(requests.at(-1), 'http://local').searchParams.entries()], [],
     'clearing filters reloads the full result set for the selected exam');
+  participationStatus = 'no_show';
+  await elements.get('cr-refresh').dispatch('click');
+  assert(elements.get('cr-matrix').textContent.includes('Không dự thi'), 'release roster shows students who never started');
   includeSubmission = true;
+  participationStatus = 'submitted';
   await elements.get('cr-refresh').dispatch('click');
   assert(elements.get('cr-matrix').textContent.includes('Không được giao'), 'other Papers do not count as unsubmitted questions');
+  assert(elements.get('cr-matrix').textContent.includes('Đã nộp'), 'submitted participation status is visible beside the Student');
   await elements.get('cr-list').querySelector('button').dispatch('click');
   const buttons = (node) => node.children.flatMap((child) => child instanceof Element
     ? [...(child.tagName === 'BUTTON' ? [child] : []), ...buttons(child)] : []);

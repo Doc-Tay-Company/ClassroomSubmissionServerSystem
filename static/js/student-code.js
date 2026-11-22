@@ -137,6 +137,7 @@
 
   async function syncServerStatus() {
     const status = await window.cssRequest("/api/student/status");
+    window.refreshExamDeadlineClock(status.ends_at);
     if (status.completion?.finalized) { await window.completeOfficialExam(); return; }
     if (status.remaining_seconds === null || status.remaining_seconds === undefined) {
       serverRemaining = 0;

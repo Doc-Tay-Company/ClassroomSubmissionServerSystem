@@ -3,15 +3,19 @@ const fs = require('fs');
 const vm = require('vm');
 const tick = () => new Promise(resolve => setImmediate(resolve));
 
-const display = { window: {}, Intl, Date };
+const deadlineClock = {textContent:""};
+const display = { window: {}, Intl, Date, document: {querySelector: selector => selector === "[data-effective-deadline]" ? deadlineClock : null} };
 vm.runInNewContext(fs.readFileSync('static/js/student-display.js', 'utf8'), display);
 assert.equal(display.window.formatExamClock('2026-11-17T10:17:15+00:00'), '17:17:15');
 assert.equal(display.window.formatExamClock('2026-11-17T10:17:15+07:00'), '10:17:15');
 assert.equal(display.window.formatExamClock('invalid'), '—');
 assert.equal(display.window.formatExamClock(''), '—');
+display.window.refreshExamDeadlineClock('2026-11-17T10:17:15+07:00');
+assert.equal(deadlineClock.textContent, '10:17:15');
 const template = fs.readFileSync('templates/student.html', 'utf8');
 assert(!template.includes('id="code-submit"'));
 assert(template.includes('id="code-submit-all"'));
+assert(template.includes("data-effective-deadline"));
 assert(template.includes("'in_progress':'Đã bắt đầu'"));
 
 function setup({remaining = 20, finalized = true, failed = false} = {}) {
@@ -33,6 +37,7 @@ function setup({remaining = 20, finalized = true, failed = false} = {}) {
     setTimeout(fn,ms){timers.push({fn,ms});return timers.length;},clearTimeout(){},
     setInterval(fn,ms){intervals.push({fn,ms});return intervals.length;},
     completeOfficialExam:async()=>{completed++;},
+    refreshExamDeadlineClock:()=>{},
     cssRequest:async(path,options)=>{
       requests.push({path,payload:options?.body && JSON.parse(options.body)});
       if(path==='/api/student/code-exam') return {exam_id:'exam',title:'Exam',questions:[question],progress:[],drafts:{}};

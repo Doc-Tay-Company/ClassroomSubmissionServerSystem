@@ -40,7 +40,7 @@ from . import exam_monitoring
 from . import exam_completion
 from . import general_exams
 from .general_exams import ExamError
-from .submissions import accept_submission
+from .submissions import accept_submission, zip_submission_eligibility
 from .questions import (
     QuestionError,
     archive_question,
@@ -122,10 +122,66 @@ class ClientError(Exception):
 def current_exam_for(student_id: str):
     return read_json("assignments.json").get(student_id)
 
+
+def _monitor_attempt_state(student_id: str, assignment: dict, settings: dict, now: datetime, release: dict | None, submissions: dict) -> tuple[str, int | None, bool, dict | None]:
+    """Derive Monitor display state without changing the stored effective deadline."""
+    release_id = assignment.get("release_id")
+    started = bool(assignment.get("started_at"))
+    release_status = (release or {}).get("status")
+    if not started:
+        if release_status == "distributed":
+            return "not_started", None, False, None
+        if release_status == "started":
+            deadline = (release or {}).get("official_deadline")
+            try:
+                official_end = datetime.fromisoformat(deadline)
+                if official_end.tzinfo is None:
+                    official_end = official_end.replace(tzinfo=timezone.utc)
+                if now < official_end.astimezone(timezone.utc):
+                    return "not_started", None, False, None
+            except (TypeError, ValueError):
+                pass
+            return "no_show", None, False, None
+        return ("no_show" if release_status == "ended" else "unassigned"), None, False, None
+
+    is_zip = bool(assignment.get("exam_file"))
+    zip_state = zip_submission_eligibility(student_id, assignment, settings, submissions, now) if is_zip else None
+    is_terminal = bool(
+        assignment.get("forced_submit") or assignment.get("finalized_at")
+        or assignment.get("status") == "ended" or settings.get("exam_state") == "ended"
+        or release_status == "ended"
+    )
+    if not is_zip and assignment.get("code_exam_id") and not is_terminal:
+        completion = exam_completion.completion_state(student_id)
+        is_terminal = is_terminal or bool(completion.get("finalized"))
+    if is_terminal:
+        return "completed", 0, bool(zip_state and zip_state.get("eligible")), zip_state
+
+    if is_zip:
+        if zip_state and zip_state.get("eligible"):
+            return "active", zip_state["remaining_seconds"], True, zip_state
+        if zip_state and zip_state.get("reason") == "deadline":
+            return "awaiting_completion", 0, False, zip_state
+        if zip_state and zip_state.get("reason") == "quota_exhausted":
+            return "completed", 0, False, zip_state
+        return "completed", 0, False, zip_state
+
+    remaining = remaining_seconds(assignment)
+    if remaining <= 0:
+        return "awaiting_completion", 0, False, None
+    active = is_active_exam_attempt(student_id, settings, assignment, now)
+    return ("active", remaining, False, None) if active else ("completed", 0, False, None)
+
+
 def monitoring_snapshot() -> dict:
     students, sessions = read_json("students.json"), read_json("sessions.json")
     assignments, submissions = read_json("assignments.json"), read_json("submissions.json")
     settings = read_json("settings.json")
+    exams = read_json("exams.json")
+    releases = {
+        (exam.get("release") or {}).get("release_id"): {**(exam.get("release") or {}), "status": exam.get("status")}
+        for exam in exams.values() if (exam.get("release") or {}).get("release_id")
+    }
     monitoring_data = read_json("exam_monitoring.json")
     code_submissions = read_json("code_submissions.json")
     latest = {}; now = datetime.now(timezone.utc)
@@ -141,24 +197,31 @@ def monitoring_snapshot() -> dict:
             try: online=(now-datetime.fromisoformat(sess["last_seen"])).total_seconds() <= 45
             except (ValueError, TypeError): pass
         records=submissions.get(sid, [])
+        is_zip = bool(assignment.get("exam_file"))
+        if is_zip:
+            records = [item for item in records if item.get("release_id") == assignment.get("release_id")]
         code_records = [
             item
             for item in code_submissions.get(sid, [])
             if item.get("release_id") == assignment.get("release_id")
         ]
-        active_attempt = is_active_exam_attempt(sid, settings, assignment)
+        attempt_state, monitor_remaining, zip_practice_locked, zip_state = _monitor_attempt_state(
+            sid, assignment, settings, now, releases.get(assignment.get("release_id")), submissions
+        )
+        active_attempt = is_active_exam_attempt(sid, settings, assignment) or zip_practice_locked
         monitoring_identity = {"student_id": sid, "release_id": assignment.get("release_id")} if assignment.get("release_id") else None
         event_summary = exam_monitoring.attempt_summary(sid, assignment.get("release_id"), monitoring_data)
         telemetry=sess.get("telemetry",{}) if sess else {}
-        if not active_attempt or telemetry.get("release_id") != assignment.get("release_id"):
+        if is_zip or not active_attempt or telemetry.get("release_id") != assignment.get("release_id"):
             telemetry = {}
         alerts=[]
-        if telemetry.get("visibility") == "hidden": alerts.append("tab_hidden")
-        if telemetry.get("focused") is False: alerts.append("window_unfocused")
-        if int(telemetry.get("tab_count",1) or 1)>1: alerts.append("multiple_tabs")
         event_counters = event_summary["event_counters"]
-        if event_counters.get("window_blur", 0): alerts.append("recorded_window_blur")
-        if event_counters.get("document_hidden", 0): alerts.append("recorded_document_hidden")
+        if not is_zip:
+            if telemetry.get("visibility") == "hidden": alerts.append("tab_hidden")
+            if telemetry.get("focused") is False: alerts.append("window_unfocused")
+            if int(telemetry.get("tab_count",1) or 1)>1: alerts.append("multiple_tabs")
+            if event_counters.get("window_blur", 0): alerts.append("recorded_window_blur")
+            if event_counters.get("document_hidden", 0): alerts.append("recorded_document_hidden")
         latest_code = code_records[-1] if code_records else None
         code_summary = (
             {
@@ -180,7 +243,7 @@ def monitoring_snapshot() -> dict:
             if latest_code
             else None
         )
-        result.append({"student_id":sid,"full_name":student.get("full_name",""),"active":student.get("active",True),"logged_in":online,"ip":sess.get("ip") if sess else student.get("last_ip"),"user_agent":sess.get("user_agent","") if sess else "","last_seen":sess.get("last_seen") if sess else student.get("last_seen"),"exam_file":assignment.get("exam_file"),"exam_status":assignment.get("status","not_assigned"),"started_at":assignment.get("started_at"),"ends_at":assignment.get("ends_at"),"remaining_seconds":remaining_seconds(assignment) if assignment.get("started_at") else None,"active_exam_attempt":active_attempt,"monitoring_attempt":monitoring_identity,"event_counters":event_counters,"latest_event_seq":event_summary["latest_event_seq"],"submission_count":len(records),"latest_submission":records[-1] if records else None,"code_submission_count":len(code_records),"latest_code_submission":code_summary,"telemetry":telemetry,"alerts":alerts})
+        result.append({"student_id":sid,"full_name":student.get("full_name",""),"active":student.get("active",True),"logged_in":online,"ip":sess.get("ip") if sess else student.get("last_ip"),"user_agent":sess.get("user_agent","") if sess else "","last_seen":sess.get("last_seen") if sess else student.get("last_seen"),"exam_file":assignment.get("exam_file"),"exam_status":assignment.get("status","not_assigned"),"attempt_state":attempt_state,"started_at":assignment.get("started_at"),"ends_at":assignment.get("ends_at"),"remaining_seconds":monitor_remaining,"active_exam_attempt":active_attempt,"practice_locked":(is_active_exam_attempt(sid, settings, assignment) or zip_practice_locked),"zip_submission_count":zip_state.get("count") if zip_state else None,"zip_submission_limit":zip_state.get("limit") if zip_state else None,"monitoring_attempt":monitoring_identity,"event_counters":event_counters,"latest_event_seq":event_summary["latest_event_seq"],"submission_count":len(records),"latest_submission":records[-1] if records else None,"code_submission_count":len(code_records),"latest_code_submission":code_summary,"telemetry":telemetry,"alerts":alerts})
     abnormal_count=sum(1 for row in result if row["alerts"])
     return {"occurred_at":utc_now(),"students":result,"online_count":sum(1 for row in result if row["logged_in"]),"abnormal_count":abnormal_count}
 
@@ -290,7 +353,8 @@ class Handler(BaseHTTPRequestHandler):
                 if not sess: return self._redirect("/login")
                 if sess["role"]=="admin": return self._redirect("/admin")
                 student=self._get_user_record(sess); assignment=current_exam_for(sess["user_id"]); settings=read_json("settings.json")
-                return self._html(self._render("student.html",session=sess,student=student,completion=exam_completion.completion_state(sess["user_id"]),published_exams=general_exams.published_for_students(sess["user_id"]),assignment=assignment,current_exam=general_exams.assignment_exam(assignment),settings=settings,home_view=req.query.get("view",[""])[0]=="home",remaining=remaining_seconds(assignment or {}) if assignment and assignment.get("started_at") else None))
+                zip_state=zip_submission_eligibility(sess["user_id"],assignment,settings) if assignment and assignment.get("exam_file") and assignment.get("started_at") else None
+                return self._html(self._render("student.html",session=sess,student=student,completion=exam_completion.completion_state(sess["user_id"]),published_exams=general_exams.published_for_students(sess["user_id"]),assignment=assignment,current_exam=general_exams.assignment_exam(assignment),settings=settings,home_view=req.query.get("view",[""])[0]=="home",remaining=remaining_seconds(assignment or {}) if assignment and assignment.get("started_at") else None,zip_submission=zip_state))
             if path=="/student/results":
                 sess=self._auth(req,"student"); student=self._get_user_record(sess)
                 result=exam_completion.student_results(sess["user_id"],req.query.get("exam_id",[""])[0])
@@ -350,8 +414,35 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"students":[{"student_id":sid,"full_name":s.get("full_name"),"active":s.get("active",True),"last_ip":s.get("last_ip"),"last_seen":s.get("last_seen"),"exam_participant":sid in participants} for sid,s in read_json("students.json").items()]})
             if path=="/api/admin/submissions":
                 self._auth(req,"admin"); students=read_json("students.json"); records=read_json("submissions.json"); result=[]
+                assignments=read_json("assignments.json"); exams=read_json("exams.json")
+                exam_names_by_release={}
+                exam_files_by_release_student={}
+                for exam in exams.values():
+                    release=exam.get("release") if isinstance(exam,dict) else None
+                    if not isinstance(release,dict) or not release.get("release_id"):
+                        continue
+                    release_id=release["release_id"]
+                    exam_names_by_release[release_id]=exam.get("title")
+                    release_assignments=release.get("assignments")
+                    if isinstance(release_assignments,dict):
+                        for assigned_student,exam_file in release_assignments.items():
+                            if exam_file:
+                                exam_files_by_release_student[(release_id,assigned_student)]=exam_file
                 for sid,attempts in records.items():
-                    for index,item in enumerate(attempts,start=1): result.append({"student_id":sid,"full_name":students.get(sid,{}).get("full_name",""),"attempt":index,**item})
+                    release_attempts={}
+                    for item in attempts:
+                        release_id=item.get("release_id")
+                        attempt=None
+                        if isinstance(release_id,str) and release_id:
+                            release_attempts[release_id]=release_attempts.get(release_id,0)+1
+                            attempt=release_attempts[release_id]
+                        assigned_exam_file=exam_files_by_release_student.get((release_id,sid))
+                        current_assignment=assignments.get(sid,{})
+                        if not assigned_exam_file and current_assignment.get("release_id")==release_id:
+                            assigned_exam_file=current_assignment.get("exam_file")
+                        result.append({**item,"student_id":sid,"full_name":students.get(sid,{}).get("full_name",""),
+                                       "attempt":attempt,"exam_name":exam_names_by_release.get(release_id) or "\u004b\u0068\u00f4\u006e\u0067 \u0078\u00e1\u0063 \u0111\u1ecb\u006e\u0068",
+                                       "exam_file":assigned_exam_file or "\u004b\u0068\u00f4\u006e\u0067 \u0078\u00e1\u0063 \u0111\u1ecb\u006e\u0068"})
                 result.sort(key=lambda x:x.get("submitted_at",""),reverse=True); return self._json({"submissions":result})
             if path=="/api/admin/admins":
                 self._auth(req,"admin"); return self._json({"admins":[{"username":n,"active":d.get("active",True),"created_at":d.get("created_at"),"created_by":d.get("created_by")} for n,d in read_json("admins.json").items()]})
@@ -424,7 +515,8 @@ class Handler(BaseHTTPRequestHandler):
                 except (OSError, RuntimeError): pass # Retain the durable Start outbox for retry.
                 notifications=read_json("notifications.json", [])
                 personal=[item for item in notifications if item.get("student_id") in (None, sess["user_id"])]
-                return self._json({"completion":exam_completion.completion_state(sess["user_id"]),"assigned":bool(item),"started":bool(item and item.get("started_at")),"active_exam_attempt":is_active_exam_attempt(sess["user_id"], settings, item),"exam_file":item.get("exam_file") if item and item.get("started_at") else None,"status":item.get("status") if item else "not_assigned","release_id":item.get("release_id") if item else None,"remaining_seconds":remaining_seconds(item or {}) if item and item.get("started_at") else None,"started_at":item.get("started_at") if item else None,"ends_at":item.get("ends_at") if item else None,"server_time":utc_now(),"exam_state":settings.get("exam_state") or "idle","notifications":personal[-10:],"exam_password_enabled":settings.get("exam_password_enabled",False),                "accepted_submission_extensions":settings.get("accepted_submission_extensions",[".zip"]),"published_exams":general_exams.published_for_students(sess["user_id"])})
+                zip_state=zip_submission_eligibility(sess["user_id"],item,settings) if item and item.get("exam_file") and item.get("started_at") else None
+                return self._json({"completion":exam_completion.completion_state(sess["user_id"]),"assigned":bool(item),"started":bool(item and item.get("started_at")),"active_exam_attempt":is_active_exam_attempt(sess["user_id"], settings, item),"practice_locked":(is_active_exam_attempt(sess["user_id"], settings, item) or bool(zip_state and zip_state.get("eligible"))),"zip_submission":zip_state,"exam_file":item.get("exam_file") if item and item.get("started_at") else None,"status":item.get("status") if item else "not_assigned","release_id":item.get("release_id") if item else None,"remaining_seconds":remaining_seconds(item or {}) if item and item.get("started_at") else None,"started_at":item.get("started_at") if item else None,"ends_at":item.get("ends_at") if item else None,"server_time":utc_now(),"exam_state":settings.get("exam_state") or "idle","notifications":personal[-10:],"exam_password_enabled":settings.get("exam_password_enabled",False),                "accepted_submission_extensions":settings.get("accepted_submission_extensions",[".zip"]),"published_exams":general_exams.published_for_students(sess["user_id"])})
             if path=="/api/student/code-exam":
                 sess=self._auth(req,"student"); return self._json(get_student_code_exam(sess["user_id"]))
             if path=="/api/student/code/submission":
@@ -737,6 +829,8 @@ class Handler(BaseHTTPRequestHandler):
                 settings.update({"exam_duration_minutes":duration,"submission_policy":policy,"max_submissions":max_sub,"overwrite_previous":f.get("overwrite_previous","false").lower() in {"true","1","on","yes"},"exam_password_enabled":enabled,"accepted_submission_extensions":accepted_extensions}); write_json("settings.json",settings)
                 audit("admin.settings_updated",sess["user_id"],client_ip(req),{"exam_duration_minutes":duration,"submission_policy":policy,"max_submissions":max_sub,"exam_password_enabled":enabled}); return self._json({"ok":True,"settings":settings})
             if path=="/api/admin/distribute":
+                self._auth(req,"admin")
+                raise ClientError(410,"Legacy distribution is disabled. Use the General Exam publish and release workflow.")
                 sess=self._auth(req,"admin"); mode=f.get("mode","random"); config={}
                 try:
                     selected_files = [value for value in f.get("exam_files", "").split(",") if value]
@@ -767,6 +861,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"ok":True,"note":"Lượt thi đã kết thúc; các đề đã phát của lượt cũ vẫn được giữ trong log nhưng không còn cho phép bắt đầu mới."})
             if path=="/api/admin/start-exam":
                 self._auth(req,"admin")
+                raise ClientError(410,"Legacy exam start is disabled. Start the published Exam from Teacher Exam Management.")
                 try: settings=start_exam_session()
                 except ValueError as e: raise ClientError(409,str(e))
                 return self._json({"ok":True,"state":settings["exam_state"],"started_at":settings["exam_started_at"]})
@@ -774,15 +869,32 @@ class Handler(BaseHTTPRequestHandler):
                 sess=self._auth(req,"admin"); sid=urllib.parse.unquote(path[len("/api/admin/students/"):-len("/force-submit")])
                 with transaction():
                     assignments=read_json("assignments.json"); item=assignments.get(sid)
-                    if not item or item.get("status") not in {"assigned","in_progress"}: raise ClientError(404,"Sinh viên không có bài thi đang hoạt động.")
+                    if not item: raise ClientError(404,"Sinh viên không có bài thi đang hoạt động.")
+                    if item.get("exam_file") and item.get("status") == "submitted":
+                        zip_state=zip_submission_eligibility(sid,item,read_json("settings.json"))
+                        if zip_state.get("reason") == "quota_exhausted":
+                            return self._json({"ok":True,"already_complete":True})
+                        if not zip_state.get("eligible"):
+                            raise ClientError(409,"ZIP attempt is no longer eligible for Force Submit.")
+                    elif item.get("status") not in {"assigned","in_progress"}:
+                        raise ClientError(404,"Sinh viên không có bài thi đang hoạt động.")
+                    if item.get("forced_submit") or item.get("finalized_at"):
+                        raise ClientError(409,"The Student attempt is already terminated.")
                     item.update({"status":"submitted","forced_submit":True,"forced_submit_at":utc_now()}); assignments[sid]=item; write_json("assignments.json",assignments)
                 audit("admin.forced_submission",sess["user_id"],client_ip(req),{"student_id":sid}); return self._json({"ok":True})
             if path.startswith("/api/admin/students/") and path.endswith("/adjust-time"):
                 sess=self._auth(req,"admin"); sid=urllib.parse.unquote(path[len("/api/admin/students/"):-len("/adjust-time")]); minutes=int(f.get("minutes","0"))
                 if minutes < -1440 or minutes > 1440: raise ClientError(400,"Số phút điều chỉnh không hợp lệ.")
                 with transaction():
-                    assignments=read_json("assignments.json"); item=assignments.get(sid)
-                    if not item or not item.get("ends_at"): raise ClientError(404,"Sinh viên chưa bắt đầu làm bài.")
+                    settings=read_json("settings.json"); assignments=read_json("assignments.json"); item=assignments.get(sid)
+                    if not item or not item.get("ends_at"):
+                        raise ClientError(409,"Cannot adjust time: the Student has no active exam attempt.")
+                    if item.get("exam_file"):
+                        eligible=zip_submission_eligibility(sid,item,settings).get("eligible",False)
+                    else:
+                        eligible=is_active_exam_attempt(sid, settings, item)
+                    if item.get("forced_submit") or item.get("finalized_at") or not eligible:
+                        raise ClientError(409,"Cannot adjust time: the attempt is unstarted, expired, submitted/finalized, or the Exam has ended.")
                     end=datetime.fromisoformat(item["ends_at"])+timedelta(minutes=minutes); item["ends_at"]=end.isoformat(timespec="seconds"); assignments[sid]=item; write_json("assignments.json",assignments)
                 audit("admin.exam_time_adjusted",sess["user_id"],client_ip(req),{"student_id":sid,"minutes":minutes}); return self._json({"ok":True,"ends_at":item["ends_at"]})
             if path=="/api/admin/notifications":
@@ -821,7 +933,13 @@ class Handler(BaseHTTPRequestHandler):
                 if precheck not in {"true", "false"}: raise ClientError(400,"confirmed_multiple_tabs must be true or false.")
                 try:
                     with transaction():
-                        item=start_exam(sess["user_id"],f.get("exam_password",""),client_ip(req),confirmed_multiple_tabs=precheck=="true")
+                        settings=read_json("settings.json")
+                        release_id=settings.get("exam_release_id")
+                        timing=general_exams.release_timing(release_id) if release_id else None
+                        if not timing:
+                            raise ClientError(409,"This running release has no valid official timing contract. Student Start is unavailable.")
+                        item=start_exam(sess["user_id"],f.get("exam_password",""),client_ip(req),confirmed_multiple_tabs=precheck=="true",official_deadline=timing["official_deadline"])
+                        general_exams.record_student_start(release_id,sess["user_id"],item["started_at"])
                         try: exam_monitoring.flush_start_precheck(sess["user_id"])
                         except (OSError, RuntimeError): pass # Durable assignment outbox retries on status/repeated Start.
                 except PermissionError as e: raise ClientError(403,str(e))
@@ -860,10 +978,13 @@ class Handler(BaseHTTPRequestHandler):
                 if len(data)>MAX_REQUEST_SIZE: raise ClientError(413,"File vượt giới hạn 50 MiB.")
                 try: record=accept_submission(sess["user_id"],file["filename"],data,client_ip(req))
                 except ValueError as e: raise ClientError(400,str(e))
-                return self._json({"ok":True,"submission":record})
+                zip_state=zip_submission_eligibility(sess["user_id"])
+                return self._json({"ok":True,"submission":record,"zip_submission":zip_state})
             if path=="/api/student/telemetry":
                 sess=self._auth(req,"student")
                 settings=read_json("settings.json"); assignment=current_exam_for(sess["user_id"])
+                if assignment and assignment.get("exam_file"):
+                    return self._json({"ok":True,"recorded":False,"reason":"zip_exam"})
                 if not is_active_exam_attempt(sess["user_id"], settings, assignment):
                     return self._json({"ok":True})
                 sessions=read_json("sessions.json"); token_key=sess.get("token_key")
@@ -888,6 +1009,8 @@ class Handler(BaseHTTPRequestHandler):
                 with transaction():
                     settings=read_json("settings.json")
                     assignment=current_exam_for(sess["user_id"])
+                    if assignment and assignment.get("exam_file"):
+                        return self._json({"ok":True,"recorded":False,"reason":"zip_exam"})
                     if not is_active_exam_attempt(sess["user_id"],settings,assignment):
                         return self._json({"ok":True,"recorded":False,"reason":"inactive_attempt"})
                     if assignment.get("release_id")!=client_release_id:

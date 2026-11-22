@@ -2,7 +2,7 @@
   "200ea0e9d161479388aa32d9cf7f45ab": {
     "id": "200ea0e9d161479388aa32d9cf7f45ab",
     "schema_version": 2,
-    "status": "started",
+    "status": "ended",
     "release_id": "bbffe58d82ee49d296b4863a45ce21e4",
     "general_exam_id": "4976d1b22eea44a68eabac128cb6289a",
     "paper_ref": {
@@ -268,7 +268,7 @@
     },
     "created_by": "minh",
     "created_at": "2026-11-18T12:15:04+00:00",
-    "updated_at": "2026-11-18T12:16:14+00:00",
+    "updated_at": "2026-11-19T16:41:07+00:00",
     "title": "JSD Dai Chien",
     "show_final_score_immediately": true,
     "allow_pretest": true,
@@ -277,12 +277,13 @@
     "submission_policy": "configurable",
     "max_submissions": 1,
     "distributed_at": "2026-11-18T12:15:04+00:00",
-    "started_at": "2026-11-18T12:16:14+00:00"
+    "started_at": "2026-11-18T12:16:14+00:00",
+    "ended_at": "2026-11-19T16:41:07+00:00"
   },
   "b90886b1af4a47edb708fc9c1008c63f": {
     "id": "b90886b1af4a47edb708fc9c1008c63f",
     "schema_version": 2,
-    "status": "started",
+    "status": "ended",
     "release_id": "bbffe58d82ee49d296b4863a45ce21e4",
     "general_exam_id": "4976d1b22eea44a68eabac128cb6289a",
     "paper_ref": {
@@ -626,7 +627,7 @@
     },
     "created_by": "minh",
     "created_at": "2026-11-18T12:15:04+00:00",
-    "updated_at": "2026-11-18T12:16:14+00:00",
+    "updated_at": "2026-11-19T16:41:07+00:00",
     "title": "JSD Dai Chien",
     "show_final_score_immediately": true,
     "allow_pretest": true,
@@ -635,6 +636,3847 @@
     "submission_policy": "configurable",
     "max_submissions": 1,
     "distributed_at": "2026-11-18T12:15:04+00:00",
-    "started_at": "2026-11-18T12:16:14+00:00"
+    "started_at": "2026-11-18T12:16:14+00:00",
+    "ended_at": "2026-11-19T16:41:07+00:00"
+  },
+  "9eaf02f5cca5477fa1a82add429e36f9": {
+    "id": "9eaf02f5cca5477fa1a82add429e36f9",
+    "schema_version": 2,
+    "status": "ended",
+    "release_id": "6fdf09376c264a119ea51d48679aa7de",
+    "general_exam_id": "ce14883f507e4b5ab5a8a1ed85d276d9",
+    "paper_ref": {
+      "paper_id": "fc740fdac6a94fc8ad5221c005340a9e"
+    },
+    "paper_snapshot": {
+      "id": "fc740fdac6a94fc8ad5221c005340a9e",
+      "title": "JSD-1999",
+      "metadata": {},
+      "questions": [
+        {
+          "title": "Arithmetic Summary",
+          "statement": "Read two signed 32-bit integers a and b. Print exactly one line in this format: sum=<a+b>;diff=<a-b>;product=<a*b>. Do not add spaces around separators.",
+          "language": "java",
+          "grading_mode": "stdio",
+          "target_class": "Main",
+          "target_package": "",
+          "target_file": "Main.java",
+          "starter_code": "import java.util.Scanner;\n\npublic class Main {\n    public static void main(String[] args) {\n        Scanner scanner = new Scanner(System.in);\n        int a = scanner.nextInt();\n        int b = scanner.nextInt();\n        // Print the required arithmetic summary.\n    }\n}\n",
+          "time_limit_seconds": 5.0,
+          "memory_limit_mb": 256,
+          "max_output_bytes": 65536,
+          "allow_pretest": true,
+          "max_pretest_runs": 20,
+          "category": "Arithmetic",
+          "tags": [
+            "java",
+            "stdio",
+            "formatting"
+          ],
+          "difficulty": "easy",
+          "practice_enabled": false,
+          "tests": [
+            {
+              "id": "j01-positive",
+              "stdin": "12 5\n",
+              "expected_stdout": "sum=17;diff=7;product=60\n",
+              "points": 25,
+              "is_visible": true
+            },
+            {
+              "id": "j01-negative",
+              "stdin": "-3 8\n",
+              "expected_stdout": "sum=5;diff=-11;product=-24\n",
+              "points": 25,
+              "is_visible": true
+            },
+            {
+              "id": "j01-zero",
+              "stdin": "0 19\n",
+              "expected_stdout": "sum=19;diff=-19;product=0\n",
+              "points": 25,
+              "is_visible": false
+            },
+            {
+              "id": "j01-small",
+              "stdin": "-4 -6\n",
+              "expected_stdout": "sum=-10;diff=2;product=24\n",
+              "points": 25,
+              "is_visible": true
+            }
+          ],
+          "total_points": 100,
+          "problem_kind": "java_stdio",
+          "id": "65cf650fab404ab385f3c236ad2506a5",
+          "status": "published",
+          "source": {
+            "created_by": "minh",
+            "created_at": "2026-11-18T12:08:35+00:00",
+            "updated_by": "minh",
+            "updated_at": "2026-11-18T12:08:35+00:00"
+          },
+          "usage_count": 0,
+          "version": 1,
+          "validation": {
+            "spec_hash": "d214bf1fbcb881530356965b2c2ab8ced9959fe4454d172eb85297118ca35c17",
+            "passed": true,
+            "validated_at": "2026-11-18T12:08:35+00:00",
+            "validated_by": "minh",
+            "sample_sha256": "2ced83b9a99af1e7271786721fe492a3c77259c3579756b23f10a15bd3875c53",
+            "verdict": "AC",
+            "score": 100,
+            "total_points": 100
+          },
+          "practice_revision": "842e83e182bc47acb0fe64899dd9308e",
+          "question_id": "65cf650fab404ab385f3c236ad2506a5",
+          "snapshot_version": 1,
+          "snapshot_at": "2026-11-18T12:14:14+00:00",
+          "order": 0
+        },
+        {
+          "title": "Comparable Ranked Label",
+          "statement": "Create class model.RankedLabel with private int rank and private String label, plus a public constructor RankedLabel(int rank, String label). Implement Comparable<RankedLabel>; compareTo orders by rank ascending, then by label lexicographically. Override compareTo with public int compareTo(RankedLabel other). The supported Reflection checks verify the interface contract, declared override signature, and comparison outcomes.",
+          "language": "java",
+          "grading_mode": "reflection",
+          "target_class": "model.RankedLabel",
+          "target_package": "model",
+          "target_file": "RankedLabel.java",
+          "starter_code": "package model;\n\npublic class RankedLabel {\n    // Implement Comparable<RankedLabel>, its ordering, fields, and constructor.\n}\n",
+          "time_limit_seconds": 5.0,
+          "memory_limit_mb": 256,
+          "max_output_bytes": 65536,
+          "allow_pretest": true,
+          "max_pretest_runs": 20,
+          "category": "Java Reflection",
+          "tags": [
+            "java",
+            "reflection",
+            "interfaces",
+            "overriding"
+          ],
+          "difficulty": "hard",
+          "practice_enabled": false,
+          "checks": [
+            {
+              "id": "r03-comparable-interface",
+              "kind": "implements",
+              "points": 20,
+              "is_visible": true,
+              "interface": "java.lang.Comparable"
+            },
+            {
+              "id": "r03-rank-field",
+              "kind": "field",
+              "points": 15,
+              "is_visible": true,
+              "name": "rank",
+              "type": "int",
+              "modifier": "private"
+            },
+            {
+              "id": "r03-compare-override",
+              "kind": "method",
+              "points": 20,
+              "is_visible": true,
+              "name": "compareTo",
+              "return_type": "int",
+              "parameter_types": [
+                "model.RankedLabel"
+              ],
+              "modifier": "public"
+            },
+            {
+              "id": "r03-ordering",
+              "kind": "comparable",
+              "points": 30,
+              "is_visible": true,
+              "instances": [
+                {
+                  "constructor_parameter_types": [
+                    "int",
+                    "String"
+                  ],
+                  "constructor_args": [
+                    2,
+                    "Beta"
+                  ]
+                },
+                {
+                  "constructor_parameter_types": [
+                    "int",
+                    "String"
+                  ],
+                  "constructor_args": [
+                    1,
+                    "Zulu"
+                  ]
+                },
+                {
+                  "constructor_parameter_types": [
+                    "int",
+                    "String"
+                  ],
+                  "constructor_args": [
+                    2,
+                    "Alpha"
+                  ]
+                }
+              ],
+              "comparisons": [
+                {
+                  "left": 1,
+                  "right": 0,
+                  "expected_sign": -1
+                },
+                {
+                  "left": 2,
+                  "right": 0,
+                  "expected_sign": -1
+                }
+              ],
+              "expected_order": [
+                1,
+                2,
+                0
+              ]
+            },
+            {
+              "id": "r03-tie-label",
+              "kind": "comparable",
+              "points": 15,
+              "is_visible": false,
+              "instances": [
+                {
+                  "constructor_parameter_types": [
+                    "int",
+                    "String"
+                  ],
+                  "constructor_args": [
+                    4,
+                    "A"
+                  ]
+                },
+                {
+                  "constructor_parameter_types": [
+                    "int",
+                    "String"
+                  ],
+                  "constructor_args": [
+                    4,
+                    "B"
+                  ]
+                }
+              ],
+              "comparisons": [
+                {
+                  "left": 0,
+                  "right": 1,
+                  "expected_sign": -1
+                }
+              ]
+            }
+          ],
+          "total_points": 100,
+          "problem_kind": "java_reflection",
+          "id": "10f7ee74c8d44381a3f5ddad08979f8b",
+          "status": "published",
+          "source": {
+            "created_by": "minh",
+            "created_at": "2026-11-18T12:10:23+00:00",
+            "updated_by": "minh",
+            "updated_at": "2026-11-18T12:10:23+00:00"
+          },
+          "usage_count": 0,
+          "version": 1,
+          "validation": {
+            "spec_hash": "cd2d5c84ee83c2d08d55abe503e2d3b4d313226a1583bdba5692c2e982ec5693",
+            "passed": true,
+            "validated_at": "2026-11-18T12:10:23+00:00",
+            "validated_by": "minh",
+            "sample_sha256": "5f27b4e708703aee072b4998968fd1f7f364cc78e8cc337f58b744bb113f0650",
+            "verdict": "AC",
+            "score": 100,
+            "total_points": 100
+          },
+          "practice_revision": "1418d6c1caa24720b740b08413719f1b",
+          "question_id": "10f7ee74c8d44381a3f5ddad08979f8b",
+          "snapshot_version": 1,
+          "snapshot_at": "2026-11-18T12:14:14+00:00",
+          "order": 1
+        }
+      ]
+    },
+    "created_by": "minh",
+    "created_at": "2026-11-19T16:41:25+00:00",
+    "updated_at": "2026-11-21T17:09:39+00:00",
+    "title": "Siu JSD",
+    "show_final_score_immediately": true,
+    "allow_pretest": true,
+    "max_pretest_runs": 20,
+    "pretest_cooldown_seconds": 2.0,
+    "submission_policy": "configurable",
+    "max_submissions": 1,
+    "distributed_at": "2026-11-19T16:41:25+00:00",
+    "started_at": "2026-11-19T16:43:46+00:00",
+    "ended_at": "2026-11-21T17:09:39+00:00"
+  },
+  "7dd6d06241a24fce8e39e2c36d4bf7e7": {
+    "id": "7dd6d06241a24fce8e39e2c36d4bf7e7",
+    "schema_version": 2,
+    "status": "ended",
+    "release_id": "6fdf09376c264a119ea51d48679aa7de",
+    "general_exam_id": "ce14883f507e4b5ab5a8a1ed85d276d9",
+    "paper_ref": {
+      "paper_id": "8909bf5d07064de2b2fdd9f8b37218e2"
+    },
+    "paper_snapshot": {
+      "id": "8909bf5d07064de2b2fdd9f8b37218e2",
+      "title": "JSD-2000",
+      "metadata": {},
+      "questions": [
+        {
+          "title": "Arithmetic Summary",
+          "statement": "Read two signed 32-bit integers a and b. Print exactly one line in this format: sum=<a+b>;diff=<a-b>;product=<a*b>. Do not add spaces around separators.",
+          "language": "java",
+          "grading_mode": "stdio",
+          "target_class": "Main",
+          "target_package": "",
+          "target_file": "Main.java",
+          "starter_code": "import java.util.Scanner;\n\npublic class Main {\n    public static void main(String[] args) {\n        Scanner scanner = new Scanner(System.in);\n        int a = scanner.nextInt();\n        int b = scanner.nextInt();\n        // Print the required arithmetic summary.\n    }\n}\n",
+          "time_limit_seconds": 5.0,
+          "memory_limit_mb": 256,
+          "max_output_bytes": 65536,
+          "allow_pretest": true,
+          "max_pretest_runs": 20,
+          "category": "Arithmetic",
+          "tags": [
+            "java",
+            "stdio",
+            "formatting"
+          ],
+          "difficulty": "easy",
+          "practice_enabled": false,
+          "tests": [
+            {
+              "id": "j01-positive",
+              "stdin": "12 5\n",
+              "expected_stdout": "sum=17;diff=7;product=60\n",
+              "points": 25,
+              "is_visible": true
+            },
+            {
+              "id": "j01-negative",
+              "stdin": "-3 8\n",
+              "expected_stdout": "sum=5;diff=-11;product=-24\n",
+              "points": 25,
+              "is_visible": true
+            },
+            {
+              "id": "j01-zero",
+              "stdin": "0 19\n",
+              "expected_stdout": "sum=19;diff=-19;product=0\n",
+              "points": 25,
+              "is_visible": false
+            },
+            {
+              "id": "j01-small",
+              "stdin": "-4 -6\n",
+              "expected_stdout": "sum=-10;diff=2;product=24\n",
+              "points": 25,
+              "is_visible": true
+            }
+          ],
+          "total_points": 100,
+          "problem_kind": "java_stdio",
+          "id": "65cf650fab404ab385f3c236ad2506a5",
+          "status": "published",
+          "source": {
+            "created_by": "minh",
+            "created_at": "2026-11-18T12:08:35+00:00",
+            "updated_by": "minh",
+            "updated_at": "2026-11-18T12:08:35+00:00"
+          },
+          "usage_count": 0,
+          "version": 1,
+          "validation": {
+            "spec_hash": "d214bf1fbcb881530356965b2c2ab8ced9959fe4454d172eb85297118ca35c17",
+            "passed": true,
+            "validated_at": "2026-11-18T12:08:35+00:00",
+            "validated_by": "minh",
+            "sample_sha256": "2ced83b9a99af1e7271786721fe492a3c77259c3579756b23f10a15bd3875c53",
+            "verdict": "AC",
+            "score": 100,
+            "total_points": 100
+          },
+          "practice_revision": "842e83e182bc47acb0fe64899dd9308e",
+          "question_id": "65cf650fab404ab385f3c236ad2506a5",
+          "snapshot_version": 1,
+          "snapshot_at": "2026-11-18T12:13:10+00:00",
+          "order": 0
+        },
+        {
+          "title": "Comparable Ranked Label",
+          "statement": "Create class model.RankedLabel with private int rank and private String label, plus a public constructor RankedLabel(int rank, String label). Implement Comparable<RankedLabel>; compareTo orders by rank ascending, then by label lexicographically. Override compareTo with public int compareTo(RankedLabel other). The supported Reflection checks verify the interface contract, declared override signature, and comparison outcomes.",
+          "language": "java",
+          "grading_mode": "reflection",
+          "target_class": "model.RankedLabel",
+          "target_package": "model",
+          "target_file": "RankedLabel.java",
+          "starter_code": "package model;\n\npublic class RankedLabel {\n    // Implement Comparable<RankedLabel>, its ordering, fields, and constructor.\n}\n",
+          "time_limit_seconds": 5.0,
+          "memory_limit_mb": 256,
+          "max_output_bytes": 65536,
+          "allow_pretest": true,
+          "max_pretest_runs": 20,
+          "category": "Java Reflection",
+          "tags": [
+            "java",
+            "reflection",
+            "interfaces",
+            "overriding"
+          ],
+          "difficulty": "hard",
+          "practice_enabled": false,
+          "checks": [
+            {
+              "id": "r03-comparable-interface",
+              "kind": "implements",
+              "points": 20,
+              "is_visible": true,
+              "interface": "java.lang.Comparable"
+            },
+            {
+              "id": "r03-rank-field",
+              "kind": "field",
+              "points": 15,
+              "is_visible": true,
+              "name": "rank",
+              "type": "int",
+              "modifier": "private"
+            },
+            {
+              "id": "r03-compare-override",
+              "kind": "method",
+              "points": 20,
+              "is_visible": true,
+              "name": "compareTo",
+              "return_type": "int",
+              "parameter_types": [
+                "model.RankedLabel"
+              ],
+              "modifier": "public"
+            },
+            {
+              "id": "r03-ordering",
+              "kind": "comparable",
+              "points": 30,
+              "is_visible": true,
+              "instances": [
+                {
+                  "constructor_parameter_types": [
+                    "int",
+                    "String"
+                  ],
+                  "constructor_args": [
+                    2,
+                    "Beta"
+                  ]
+                },
+                {
+                  "constructor_parameter_types": [
+                    "int",
+                    "String"
+                  ],
+                  "constructor_args": [
+                    1,
+                    "Zulu"
+                  ]
+                },
+                {
+                  "constructor_parameter_types": [
+                    "int",
+                    "String"
+                  ],
+                  "constructor_args": [
+                    2,
+                    "Alpha"
+                  ]
+                }
+              ],
+              "comparisons": [
+                {
+                  "left": 1,
+                  "right": 0,
+                  "expected_sign": -1
+                },
+                {
+                  "left": 2,
+                  "right": 0,
+                  "expected_sign": -1
+                }
+              ],
+              "expected_order": [
+                1,
+                2,
+                0
+              ]
+            },
+            {
+              "id": "r03-tie-label",
+              "kind": "comparable",
+              "points": 15,
+              "is_visible": false,
+              "instances": [
+                {
+                  "constructor_parameter_types": [
+                    "int",
+                    "String"
+                  ],
+                  "constructor_args": [
+                    4,
+                    "A"
+                  ]
+                },
+                {
+                  "constructor_parameter_types": [
+                    "int",
+                    "String"
+                  ],
+                  "constructor_args": [
+                    4,
+                    "B"
+                  ]
+                }
+              ],
+              "comparisons": [
+                {
+                  "left": 0,
+                  "right": 1,
+                  "expected_sign": -1
+                }
+              ]
+            }
+          ],
+          "total_points": 100,
+          "problem_kind": "java_reflection",
+          "id": "10f7ee74c8d44381a3f5ddad08979f8b",
+          "status": "published",
+          "source": {
+            "created_by": "minh",
+            "created_at": "2026-11-18T12:10:23+00:00",
+            "updated_by": "minh",
+            "updated_at": "2026-11-18T12:10:23+00:00"
+          },
+          "usage_count": 0,
+          "version": 1,
+          "validation": {
+            "spec_hash": "cd2d5c84ee83c2d08d55abe503e2d3b4d313226a1583bdba5692c2e982ec5693",
+            "passed": true,
+            "validated_at": "2026-11-18T12:10:23+00:00",
+            "validated_by": "minh",
+            "sample_sha256": "5f27b4e708703aee072b4998968fd1f7f364cc78e8cc337f58b744bb113f0650",
+            "verdict": "AC",
+            "score": 100,
+            "total_points": 100
+          },
+          "practice_revision": "1418d6c1caa24720b740b08413719f1b",
+          "question_id": "10f7ee74c8d44381a3f5ddad08979f8b",
+          "snapshot_version": 1,
+          "snapshot_at": "2026-11-18T12:13:10+00:00",
+          "order": 1
+        },
+        {
+          "title": "Integer Ledger",
+          "statement": "Read two signed integers a and b separated by whitespace. Print three lines: their sum, a minus b, and their product, in that order. Inputs fit the signed 32-bit range.",
+          "language": "python",
+          "grading_mode": "stdio",
+          "target_file": "solution.py",
+          "starter_code": "a, b = map(int, input().split())\n# Print sum, difference, and product on separate lines.\n",
+          "time_limit_seconds": 2.0,
+          "memory_limit_mb": 128,
+          "max_output_bytes": 65536,
+          "allow_pretest": true,
+          "max_pretest_runs": 20,
+          "category": "Arithmetic",
+          "tags": [
+            "python",
+            "integer",
+            "stdio"
+          ],
+          "difficulty": "easy",
+          "practice_enabled": false,
+          "tests": [
+            {
+              "id": "p01-small",
+              "stdin": "7 3\n",
+              "expected_stdout": "10\n4\n21\n",
+              "points": 25,
+              "is_visible": true
+            },
+            {
+              "id": "p01-negative",
+              "stdin": "-8 5\n",
+              "expected_stdout": "-3\n-13\n-40\n",
+              "points": 25,
+              "is_visible": true
+            },
+            {
+              "id": "p01-zero",
+              "stdin": "0 0\n",
+              "expected_stdout": "0\n0\n0\n",
+              "points": 25,
+              "is_visible": false
+            },
+            {
+              "id": "p01-large",
+              "stdin": "100000 200000\n",
+              "expected_stdout": "300000\n-100000\n20000000000\n",
+              "points": 25,
+              "is_visible": true
+            }
+          ],
+          "total_points": 100,
+          "problem_kind": "python_stdio",
+          "id": "5f2e352fa72c428986ab949ef80b5e13",
+          "status": "published",
+          "source": {
+            "created_by": "minh",
+            "created_at": "2026-11-18T12:09:34+00:00",
+            "updated_by": "minh",
+            "updated_at": "2026-11-18T12:09:34+00:00"
+          },
+          "usage_count": 0,
+          "version": 1,
+          "validation": {
+            "spec_hash": "737a38ce6404b713d59da4238252f43b15192c68ea73dbcea63c66c7d4852fb3",
+            "passed": true,
+            "validated_at": "2026-11-18T12:09:34+00:00",
+            "validated_by": "minh",
+            "sample_sha256": "d764066afec1b49123ee168b0296531ea01bdaa9ac3d47f03720ae53c18bc0cb",
+            "verdict": "AC",
+            "score": 100,
+            "total_points": 100
+          },
+          "practice_revision": "df779090849d49b29689d21a90c227e3",
+          "question_id": "5f2e352fa72c428986ab949ef80b5e13",
+          "snapshot_version": 1,
+          "snapshot_at": "2026-11-18T12:13:10+00:00",
+          "order": 2
+        }
+      ]
+    },
+    "created_by": "minh",
+    "created_at": "2026-11-19T16:41:25+00:00",
+    "updated_at": "2026-11-21T17:09:39+00:00",
+    "title": "Siu JSD",
+    "show_final_score_immediately": true,
+    "allow_pretest": true,
+    "max_pretest_runs": 20,
+    "pretest_cooldown_seconds": 2.0,
+    "submission_policy": "configurable",
+    "max_submissions": 1,
+    "distributed_at": "2026-11-19T16:41:25+00:00",
+    "started_at": "2026-11-19T16:43:46+00:00",
+    "ended_at": "2026-11-21T17:09:39+00:00"
+  },
+  "122626a6328146f8904937507bb88512": {
+    "id": "122626a6328146f8904937507bb88512",
+    "schema_version": 2,
+    "status": "ended",
+    "release_id": "507368d4e00b4b679c4dccb816bedb51",
+    "general_exam_id": "9aea8a97d9e8426a830d400b7ebfeee0",
+    "paper_ref": {
+      "paper_id": "fc740fdac6a94fc8ad5221c005340a9e"
+    },
+    "paper_snapshot": {
+      "id": "fc740fdac6a94fc8ad5221c005340a9e",
+      "title": "JSD-1999",
+      "metadata": {},
+      "questions": [
+        {
+          "title": "Arithmetic Summary",
+          "statement": "Read two signed 32-bit integers a and b. Print exactly one line in this format: sum=<a+b>;diff=<a-b>;product=<a*b>. Do not add spaces around separators.",
+          "language": "java",
+          "grading_mode": "stdio",
+          "target_class": "Main",
+          "target_package": "",
+          "target_file": "Main.java",
+          "starter_code": "import java.util.Scanner;\n\npublic class Main {\n    public static void main(String[] args) {\n        Scanner scanner = new Scanner(System.in);\n        int a = scanner.nextInt();\n        int b = scanner.nextInt();\n        // Print the required arithmetic summary.\n    }\n}\n",
+          "time_limit_seconds": 5.0,
+          "memory_limit_mb": 256,
+          "max_output_bytes": 65536,
+          "allow_pretest": true,
+          "max_pretest_runs": 20,
+          "category": "Arithmetic",
+          "tags": [
+            "java",
+            "stdio",
+            "formatting"
+          ],
+          "difficulty": "easy",
+          "practice_enabled": false,
+          "tests": [
+            {
+              "id": "j01-positive",
+              "stdin": "12 5\n",
+              "expected_stdout": "sum=17;diff=7;product=60\n",
+              "points": 25,
+              "is_visible": true
+            },
+            {
+              "id": "j01-negative",
+              "stdin": "-3 8\n",
+              "expected_stdout": "sum=5;diff=-11;product=-24\n",
+              "points": 25,
+              "is_visible": true
+            },
+            {
+              "id": "j01-zero",
+              "stdin": "0 19\n",
+              "expected_stdout": "sum=19;diff=-19;product=0\n",
+              "points": 25,
+              "is_visible": false
+            },
+            {
+              "id": "j01-small",
+              "stdin": "-4 -6\n",
+              "expected_stdout": "sum=-10;diff=2;product=24\n",
+              "points": 25,
+              "is_visible": true
+            }
+          ],
+          "total_points": 100,
+          "problem_kind": "java_stdio",
+          "id": "65cf650fab404ab385f3c236ad2506a5",
+          "status": "published",
+          "source": {
+            "created_by": "minh",
+            "created_at": "2026-11-18T12:08:35+00:00",
+            "updated_by": "minh",
+            "updated_at": "2026-11-18T12:08:35+00:00"
+          },
+          "usage_count": 0,
+          "version": 1,
+          "validation": {
+            "spec_hash": "d214bf1fbcb881530356965b2c2ab8ced9959fe4454d172eb85297118ca35c17",
+            "passed": true,
+            "validated_at": "2026-11-18T12:08:35+00:00",
+            "validated_by": "minh",
+            "sample_sha256": "2ced83b9a99af1e7271786721fe492a3c77259c3579756b23f10a15bd3875c53",
+            "verdict": "AC",
+            "score": 100,
+            "total_points": 100
+          },
+          "practice_revision": "842e83e182bc47acb0fe64899dd9308e",
+          "question_id": "65cf650fab404ab385f3c236ad2506a5",
+          "snapshot_version": 1,
+          "snapshot_at": "2026-11-18T12:14:14+00:00",
+          "order": 0
+        },
+        {
+          "title": "Comparable Ranked Label",
+          "statement": "Create class model.RankedLabel with private int rank and private String label, plus a public constructor RankedLabel(int rank, String label). Implement Comparable<RankedLabel>; compareTo orders by rank ascending, then by label lexicographically. Override compareTo with public int compareTo(RankedLabel other). The supported Reflection checks verify the interface contract, declared override signature, and comparison outcomes.",
+          "language": "java",
+          "grading_mode": "reflection",
+          "target_class": "model.RankedLabel",
+          "target_package": "model",
+          "target_file": "RankedLabel.java",
+          "starter_code": "package model;\n\npublic class RankedLabel {\n    // Implement Comparable<RankedLabel>, its ordering, fields, and constructor.\n}\n",
+          "time_limit_seconds": 5.0,
+          "memory_limit_mb": 256,
+          "max_output_bytes": 65536,
+          "allow_pretest": true,
+          "max_pretest_runs": 20,
+          "category": "Java Reflection",
+          "tags": [
+            "java",
+            "reflection",
+            "interfaces",
+            "overriding"
+          ],
+          "difficulty": "hard",
+          "practice_enabled": false,
+          "checks": [
+            {
+              "id": "r03-comparable-interface",
+              "kind": "implements",
+              "points": 20,
+              "is_visible": true,
+              "interface": "java.lang.Comparable"
+            },
+            {
+              "id": "r03-rank-field",
+              "kind": "field",
+              "points": 15,
+              "is_visible": true,
+              "name": "rank",
+              "type": "int",
+              "modifier": "private"
+            },
+            {
+              "id": "r03-compare-override",
+              "kind": "method",
+              "points": 20,
+              "is_visible": true,
+              "name": "compareTo",
+              "return_type": "int",
+              "parameter_types": [
+                "model.RankedLabel"
+              ],
+              "modifier": "public"
+            },
+            {
+              "id": "r03-ordering",
+              "kind": "comparable",
+              "points": 30,
+              "is_visible": true,
+              "instances": [
+                {
+                  "constructor_parameter_types": [
+                    "int",
+                    "String"
+                  ],
+                  "constructor_args": [
+                    2,
+                    "Beta"
+                  ]
+                },
+                {
+                  "constructor_parameter_types": [
+                    "int",
+                    "String"
+                  ],
+                  "constructor_args": [
+                    1,
+                    "Zulu"
+                  ]
+                },
+                {
+                  "constructor_parameter_types": [
+                    "int",
+                    "String"
+                  ],
+                  "constructor_args": [
+                    2,
+                    "Alpha"
+                  ]
+                }
+              ],
+              "comparisons": [
+                {
+                  "left": 1,
+                  "right": 0,
+                  "expected_sign": -1
+                },
+                {
+                  "left": 2,
+                  "right": 0,
+                  "expected_sign": -1
+                }
+              ],
+              "expected_order": [
+                1,
+                2,
+                0
+              ]
+            },
+            {
+              "id": "r03-tie-label",
+              "kind": "comparable",
+              "points": 15,
+              "is_visible": false,
+              "instances": [
+                {
+                  "constructor_parameter_types": [
+                    "int",
+                    "String"
+                  ],
+                  "constructor_args": [
+                    4,
+                    "A"
+                  ]
+                },
+                {
+                  "constructor_parameter_types": [
+                    "int",
+                    "String"
+                  ],
+                  "constructor_args": [
+                    4,
+                    "B"
+                  ]
+                }
+              ],
+              "comparisons": [
+                {
+                  "left": 0,
+                  "right": 1,
+                  "expected_sign": -1
+                }
+              ]
+            }
+          ],
+          "total_points": 100,
+          "problem_kind": "java_reflection",
+          "id": "10f7ee74c8d44381a3f5ddad08979f8b",
+          "status": "published",
+          "source": {
+            "created_by": "minh",
+            "created_at": "2026-11-18T12:10:23+00:00",
+            "updated_by": "minh",
+            "updated_at": "2026-11-18T12:10:23+00:00"
+          },
+          "usage_count": 0,
+          "version": 1,
+          "validation": {
+            "spec_hash": "cd2d5c84ee83c2d08d55abe503e2d3b4d313226a1583bdba5692c2e982ec5693",
+            "passed": true,
+            "validated_at": "2026-11-18T12:10:23+00:00",
+            "validated_by": "minh",
+            "sample_sha256": "5f27b4e708703aee072b4998968fd1f7f364cc78e8cc337f58b744bb113f0650",
+            "verdict": "AC",
+            "score": 100,
+            "total_points": 100
+          },
+          "practice_revision": "1418d6c1caa24720b740b08413719f1b",
+          "question_id": "10f7ee74c8d44381a3f5ddad08979f8b",
+          "snapshot_version": 1,
+          "snapshot_at": "2026-11-18T12:14:14+00:00",
+          "order": 1
+        }
+      ]
+    },
+    "created_by": "minh",
+    "created_at": "2026-11-21T17:09:55+00:00",
+    "updated_at": "2026-11-21T17:12:31+00:00",
+    "title": "JAV",
+    "show_final_score_immediately": true,
+    "allow_pretest": true,
+    "max_pretest_runs": 20,
+    "pretest_cooldown_seconds": 2.0,
+    "submission_policy": "configurable",
+    "max_submissions": 1,
+    "distributed_at": "2026-11-21T17:09:55+00:00",
+    "started_at": "2026-11-21T17:10:08+00:00",
+    "ended_at": "2026-11-21T17:12:31+00:00"
+  },
+  "2155d4f9c5fb44068256b3b959cfd91c": {
+    "id": "2155d4f9c5fb44068256b3b959cfd91c",
+    "schema_version": 2,
+    "status": "ended",
+    "release_id": "507368d4e00b4b679c4dccb816bedb51",
+    "general_exam_id": "9aea8a97d9e8426a830d400b7ebfeee0",
+    "paper_ref": {
+      "paper_id": "8909bf5d07064de2b2fdd9f8b37218e2"
+    },
+    "paper_snapshot": {
+      "id": "8909bf5d07064de2b2fdd9f8b37218e2",
+      "title": "JSD-2000",
+      "metadata": {},
+      "questions": [
+        {
+          "title": "Arithmetic Summary",
+          "statement": "Read two signed 32-bit integers a and b. Print exactly one line in this format: sum=<a+b>;diff=<a-b>;product=<a*b>. Do not add spaces around separators.",
+          "language": "java",
+          "grading_mode": "stdio",
+          "target_class": "Main",
+          "target_package": "",
+          "target_file": "Main.java",
+          "starter_code": "import java.util.Scanner;\n\npublic class Main {\n    public static void main(String[] args) {\n        Scanner scanner = new Scanner(System.in);\n        int a = scanner.nextInt();\n        int b = scanner.nextInt();\n        // Print the required arithmetic summary.\n    }\n}\n",
+          "time_limit_seconds": 5.0,
+          "memory_limit_mb": 256,
+          "max_output_bytes": 65536,
+          "allow_pretest": true,
+          "max_pretest_runs": 20,
+          "category": "Arithmetic",
+          "tags": [
+            "java",
+            "stdio",
+            "formatting"
+          ],
+          "difficulty": "easy",
+          "practice_enabled": false,
+          "tests": [
+            {
+              "id": "j01-positive",
+              "stdin": "12 5\n",
+              "expected_stdout": "sum=17;diff=7;product=60\n",
+              "points": 25,
+              "is_visible": true
+            },
+            {
+              "id": "j01-negative",
+              "stdin": "-3 8\n",
+              "expected_stdout": "sum=5;diff=-11;product=-24\n",
+              "points": 25,
+              "is_visible": true
+            },
+            {
+              "id": "j01-zero",
+              "stdin": "0 19\n",
+              "expected_stdout": "sum=19;diff=-19;product=0\n",
+              "points": 25,
+              "is_visible": false
+            },
+            {
+              "id": "j01-small",
+              "stdin": "-4 -6\n",
+              "expected_stdout": "sum=-10;diff=2;product=24\n",
+              "points": 25,
+              "is_visible": true
+            }
+          ],
+          "total_points": 100,
+          "problem_kind": "java_stdio",
+          "id": "65cf650fab404ab385f3c236ad2506a5",
+          "status": "published",
+          "source": {
+            "created_by": "minh",
+            "created_at": "2026-11-18T12:08:35+00:00",
+            "updated_by": "minh",
+            "updated_at": "2026-11-18T12:08:35+00:00"
+          },
+          "usage_count": 0,
+          "version": 1,
+          "validation": {
+            "spec_hash": "d214bf1fbcb881530356965b2c2ab8ced9959fe4454d172eb85297118ca35c17",
+            "passed": true,
+            "validated_at": "2026-11-18T12:08:35+00:00",
+            "validated_by": "minh",
+            "sample_sha256": "2ced83b9a99af1e7271786721fe492a3c77259c3579756b23f10a15bd3875c53",
+            "verdict": "AC",
+            "score": 100,
+            "total_points": 100
+          },
+          "practice_revision": "842e83e182bc47acb0fe64899dd9308e",
+          "question_id": "65cf650fab404ab385f3c236ad2506a5",
+          "snapshot_version": 1,
+          "snapshot_at": "2026-11-18T12:13:10+00:00",
+          "order": 0
+        },
+        {
+          "title": "Comparable Ranked Label",
+          "statement": "Create class model.RankedLabel with private int rank and private String label, plus a public constructor RankedLabel(int rank, String label). Implement Comparable<RankedLabel>; compareTo orders by rank ascending, then by label lexicographically. Override compareTo with public int compareTo(RankedLabel other). The supported Reflection checks verify the interface contract, declared override signature, and comparison outcomes.",
+          "language": "java",
+          "grading_mode": "reflection",
+          "target_class": "model.RankedLabel",
+          "target_package": "model",
+          "target_file": "RankedLabel.java",
+          "starter_code": "package model;\n\npublic class RankedLabel {\n    // Implement Comparable<RankedLabel>, its ordering, fields, and constructor.\n}\n",
+          "time_limit_seconds": 5.0,
+          "memory_limit_mb": 256,
+          "max_output_bytes": 65536,
+          "allow_pretest": true,
+          "max_pretest_runs": 20,
+          "category": "Java Reflection",
+          "tags": [
+            "java",
+            "reflection",
+            "interfaces",
+            "overriding"
+          ],
+          "difficulty": "hard",
+          "practice_enabled": false,
+          "checks": [
+            {
+              "id": "r03-comparable-interface",
+              "kind": "implements",
+              "points": 20,
+              "is_visible": true,
+              "interface": "java.lang.Comparable"
+            },
+            {
+              "id": "r03-rank-field",
+              "kind": "field",
+              "points": 15,
+              "is_visible": true,
+              "name": "rank",
+              "type": "int",
+              "modifier": "private"
+            },
+            {
+              "id": "r03-compare-override",
+              "kind": "method",
+              "points": 20,
+              "is_visible": true,
+              "name": "compareTo",
+              "return_type": "int",
+              "parameter_types": [
+                "model.RankedLabel"
+              ],
+              "modifier": "public"
+            },
+            {
+              "id": "r03-ordering",
+              "kind": "comparable",
+              "points": 30,
+              "is_visible": true,
+              "instances": [
+                {
+                  "constructor_parameter_types": [
+                    "int",
+                    "String"
+                  ],
+                  "constructor_args": [
+                    2,
+                    "Beta"
+                  ]
+                },
+                {
+                  "constructor_parameter_types": [
+                    "int",
+                    "String"
+                  ],
+                  "constructor_args": [
+                    1,
+                    "Zulu"
+                  ]
+                },
+                {
+                  "constructor_parameter_types": [
+                    "int",
+                    "String"
+                  ],
+                  "constructor_args": [
+                    2,
+                    "Alpha"
+                  ]
+                }
+              ],
+              "comparisons": [
+                {
+                  "left": 1,
+                  "right": 0,
+                  "expected_sign": -1
+                },
+                {
+                  "left": 2,
+                  "right": 0,
+                  "expected_sign": -1
+                }
+              ],
+              "expected_order": [
+                1,
+                2,
+                0
+              ]
+            },
+            {
+              "id": "r03-tie-label",
+              "kind": "comparable",
+              "points": 15,
+              "is_visible": false,
+              "instances": [
+                {
+                  "constructor_parameter_types": [
+                    "int",
+                    "String"
+                  ],
+                  "constructor_args": [
+                    4,
+                    "A"
+                  ]
+                },
+                {
+                  "constructor_parameter_types": [
+                    "int",
+                    "String"
+                  ],
+                  "constructor_args": [
+                    4,
+                    "B"
+                  ]
+                }
+              ],
+              "comparisons": [
+                {
+                  "left": 0,
+                  "right": 1,
+                  "expected_sign": -1
+                }
+              ]
+            }
+          ],
+          "total_points": 100,
+          "problem_kind": "java_reflection",
+          "id": "10f7ee74c8d44381a3f5ddad08979f8b",
+          "status": "published",
+          "source": {
+            "created_by": "minh",
+            "created_at": "2026-11-18T12:10:23+00:00",
+            "updated_by": "minh",
+            "updated_at": "2026-11-18T12:10:23+00:00"
+          },
+          "usage_count": 0,
+          "version": 1,
+          "validation": {
+            "spec_hash": "cd2d5c84ee83c2d08d55abe503e2d3b4d313226a1583bdba5692c2e982ec5693",
+            "passed": true,
+            "validated_at": "2026-11-18T12:10:23+00:00",
+            "validated_by": "minh",
+            "sample_sha256": "5f27b4e708703aee072b4998968fd1f7f364cc78e8cc337f58b744bb113f0650",
+            "verdict": "AC",
+            "score": 100,
+            "total_points": 100
+          },
+          "practice_revision": "1418d6c1caa24720b740b08413719f1b",
+          "question_id": "10f7ee74c8d44381a3f5ddad08979f8b",
+          "snapshot_version": 1,
+          "snapshot_at": "2026-11-18T12:13:10+00:00",
+          "order": 1
+        },
+        {
+          "title": "Integer Ledger",
+          "statement": "Read two signed integers a and b separated by whitespace. Print three lines: their sum, a minus b, and their product, in that order. Inputs fit the signed 32-bit range.",
+          "language": "python",
+          "grading_mode": "stdio",
+          "target_file": "solution.py",
+          "starter_code": "a, b = map(int, input().split())\n# Print sum, difference, and product on separate lines.\n",
+          "time_limit_seconds": 2.0,
+          "memory_limit_mb": 128,
+          "max_output_bytes": 65536,
+          "allow_pretest": true,
+          "max_pretest_runs": 20,
+          "category": "Arithmetic",
+          "tags": [
+            "python",
+            "integer",
+            "stdio"
+          ],
+          "difficulty": "easy",
+          "practice_enabled": false,
+          "tests": [
+            {
+              "id": "p01-small",
+              "stdin": "7 3\n",
+              "expected_stdout": "10\n4\n21\n",
+              "points": 25,
+              "is_visible": true
+            },
+            {
+              "id": "p01-negative",
+              "stdin": "-8 5\n",
+              "expected_stdout": "-3\n-13\n-40\n",
+              "points": 25,
+              "is_visible": true
+            },
+            {
+              "id": "p01-zero",
+              "stdin": "0 0\n",
+              "expected_stdout": "0\n0\n0\n",
+              "points": 25,
+              "is_visible": false
+            },
+            {
+              "id": "p01-large",
+              "stdin": "100000 200000\n",
+              "expected_stdout": "300000\n-100000\n20000000000\n",
+              "points": 25,
+              "is_visible": true
+            }
+          ],
+          "total_points": 100,
+          "problem_kind": "python_stdio",
+          "id": "5f2e352fa72c428986ab949ef80b5e13",
+          "status": "published",
+          "source": {
+            "created_by": "minh",
+            "created_at": "2026-11-18T12:09:34+00:00",
+            "updated_by": "minh",
+            "updated_at": "2026-11-18T12:09:34+00:00"
+          },
+          "usage_count": 0,
+          "version": 1,
+          "validation": {
+            "spec_hash": "737a38ce6404b713d59da4238252f43b15192c68ea73dbcea63c66c7d4852fb3",
+            "passed": true,
+            "validated_at": "2026-11-18T12:09:34+00:00",
+            "validated_by": "minh",
+            "sample_sha256": "d764066afec1b49123ee168b0296531ea01bdaa9ac3d47f03720ae53c18bc0cb",
+            "verdict": "AC",
+            "score": 100,
+            "total_points": 100
+          },
+          "practice_revision": "df779090849d49b29689d21a90c227e3",
+          "question_id": "5f2e352fa72c428986ab949ef80b5e13",
+          "snapshot_version": 1,
+          "snapshot_at": "2026-11-18T12:13:10+00:00",
+          "order": 2
+        }
+      ]
+    },
+    "created_by": "minh",
+    "created_at": "2026-11-21T17:09:55+00:00",
+    "updated_at": "2026-11-21T17:12:31+00:00",
+    "title": "JAV",
+    "show_final_score_immediately": true,
+    "allow_pretest": true,
+    "max_pretest_runs": 20,
+    "pretest_cooldown_seconds": 2.0,
+    "submission_policy": "configurable",
+    "max_submissions": 1,
+    "distributed_at": "2026-11-21T17:09:55+00:00",
+    "started_at": "2026-11-21T17:10:08+00:00",
+    "ended_at": "2026-11-21T17:12:31+00:00"
+  },
+  "50adf90b4b284ae6831282a7d19fa8ec": {
+    "id": "50adf90b4b284ae6831282a7d19fa8ec",
+    "schema_version": 2,
+    "status": "ended",
+    "release_id": "f1a4d573680a48f0b5a73c9d5dcbf11e",
+    "general_exam_id": "5701dc104a714c3093b5f4a4afea82e8",
+    "paper_ref": {
+      "paper_id": "fc740fdac6a94fc8ad5221c005340a9e"
+    },
+    "paper_snapshot": {
+      "id": "fc740fdac6a94fc8ad5221c005340a9e",
+      "title": "JSD-1999",
+      "metadata": {},
+      "questions": [
+        {
+          "title": "Arithmetic Summary",
+          "statement": "Read two signed 32-bit integers a and b. Print exactly one line in this format: sum=<a+b>;diff=<a-b>;product=<a*b>. Do not add spaces around separators.",
+          "language": "java",
+          "grading_mode": "stdio",
+          "target_class": "Main",
+          "target_package": "",
+          "target_file": "Main.java",
+          "starter_code": "import java.util.Scanner;\n\npublic class Main {\n    public static void main(String[] args) {\n        Scanner scanner = new Scanner(System.in);\n        int a = scanner.nextInt();\n        int b = scanner.nextInt();\n        // Print the required arithmetic summary.\n    }\n}\n",
+          "time_limit_seconds": 5.0,
+          "memory_limit_mb": 256,
+          "max_output_bytes": 65536,
+          "allow_pretest": true,
+          "max_pretest_runs": 20,
+          "category": "Arithmetic",
+          "tags": [
+            "java",
+            "stdio",
+            "formatting"
+          ],
+          "difficulty": "easy",
+          "practice_enabled": false,
+          "tests": [
+            {
+              "id": "j01-positive",
+              "stdin": "12 5\n",
+              "expected_stdout": "sum=17;diff=7;product=60\n",
+              "points": 25,
+              "is_visible": true
+            },
+            {
+              "id": "j01-negative",
+              "stdin": "-3 8\n",
+              "expected_stdout": "sum=5;diff=-11;product=-24\n",
+              "points": 25,
+              "is_visible": true
+            },
+            {
+              "id": "j01-zero",
+              "stdin": "0 19\n",
+              "expected_stdout": "sum=19;diff=-19;product=0\n",
+              "points": 25,
+              "is_visible": false
+            },
+            {
+              "id": "j01-small",
+              "stdin": "-4 -6\n",
+              "expected_stdout": "sum=-10;diff=2;product=24\n",
+              "points": 25,
+              "is_visible": true
+            }
+          ],
+          "total_points": 100,
+          "problem_kind": "java_stdio",
+          "id": "65cf650fab404ab385f3c236ad2506a5",
+          "status": "published",
+          "source": {
+            "created_by": "minh",
+            "created_at": "2026-11-18T12:08:35+00:00",
+            "updated_by": "minh",
+            "updated_at": "2026-11-18T12:08:35+00:00"
+          },
+          "usage_count": 0,
+          "version": 1,
+          "validation": {
+            "spec_hash": "d214bf1fbcb881530356965b2c2ab8ced9959fe4454d172eb85297118ca35c17",
+            "passed": true,
+            "validated_at": "2026-11-18T12:08:35+00:00",
+            "validated_by": "minh",
+            "sample_sha256": "2ced83b9a99af1e7271786721fe492a3c77259c3579756b23f10a15bd3875c53",
+            "verdict": "AC",
+            "score": 100,
+            "total_points": 100
+          },
+          "practice_revision": "842e83e182bc47acb0fe64899dd9308e",
+          "question_id": "65cf650fab404ab385f3c236ad2506a5",
+          "snapshot_version": 1,
+          "snapshot_at": "2026-11-18T12:14:14+00:00",
+          "order": 0
+        },
+        {
+          "title": "Comparable Ranked Label",
+          "statement": "Create class model.RankedLabel with private int rank and private String label, plus a public constructor RankedLabel(int rank, String label). Implement Comparable<RankedLabel>; compareTo orders by rank ascending, then by label lexicographically. Override compareTo with public int compareTo(RankedLabel other). The supported Reflection checks verify the interface contract, declared override signature, and comparison outcomes.",
+          "language": "java",
+          "grading_mode": "reflection",
+          "target_class": "model.RankedLabel",
+          "target_package": "model",
+          "target_file": "RankedLabel.java",
+          "starter_code": "package model;\n\npublic class RankedLabel {\n    // Implement Comparable<RankedLabel>, its ordering, fields, and constructor.\n}\n",
+          "time_limit_seconds": 5.0,
+          "memory_limit_mb": 256,
+          "max_output_bytes": 65536,
+          "allow_pretest": true,
+          "max_pretest_runs": 20,
+          "category": "Java Reflection",
+          "tags": [
+            "java",
+            "reflection",
+            "interfaces",
+            "overriding"
+          ],
+          "difficulty": "hard",
+          "practice_enabled": false,
+          "checks": [
+            {
+              "id": "r03-comparable-interface",
+              "kind": "implements",
+              "points": 20,
+              "is_visible": true,
+              "interface": "java.lang.Comparable"
+            },
+            {
+              "id": "r03-rank-field",
+              "kind": "field",
+              "points": 15,
+              "is_visible": true,
+              "name": "rank",
+              "type": "int",
+              "modifier": "private"
+            },
+            {
+              "id": "r03-compare-override",
+              "kind": "method",
+              "points": 20,
+              "is_visible": true,
+              "name": "compareTo",
+              "return_type": "int",
+              "parameter_types": [
+                "model.RankedLabel"
+              ],
+              "modifier": "public"
+            },
+            {
+              "id": "r03-ordering",
+              "kind": "comparable",
+              "points": 30,
+              "is_visible": true,
+              "instances": [
+                {
+                  "constructor_parameter_types": [
+                    "int",
+                    "String"
+                  ],
+                  "constructor_args": [
+                    2,
+                    "Beta"
+                  ]
+                },
+                {
+                  "constructor_parameter_types": [
+                    "int",
+                    "String"
+                  ],
+                  "constructor_args": [
+                    1,
+                    "Zulu"
+                  ]
+                },
+                {
+                  "constructor_parameter_types": [
+                    "int",
+                    "String"
+                  ],
+                  "constructor_args": [
+                    2,
+                    "Alpha"
+                  ]
+                }
+              ],
+              "comparisons": [
+                {
+                  "left": 1,
+                  "right": 0,
+                  "expected_sign": -1
+                },
+                {
+                  "left": 2,
+                  "right": 0,
+                  "expected_sign": -1
+                }
+              ],
+              "expected_order": [
+                1,
+                2,
+                0
+              ]
+            },
+            {
+              "id": "r03-tie-label",
+              "kind": "comparable",
+              "points": 15,
+              "is_visible": false,
+              "instances": [
+                {
+                  "constructor_parameter_types": [
+                    "int",
+                    "String"
+                  ],
+                  "constructor_args": [
+                    4,
+                    "A"
+                  ]
+                },
+                {
+                  "constructor_parameter_types": [
+                    "int",
+                    "String"
+                  ],
+                  "constructor_args": [
+                    4,
+                    "B"
+                  ]
+                }
+              ],
+              "comparisons": [
+                {
+                  "left": 0,
+                  "right": 1,
+                  "expected_sign": -1
+                }
+              ]
+            }
+          ],
+          "total_points": 100,
+          "problem_kind": "java_reflection",
+          "id": "10f7ee74c8d44381a3f5ddad08979f8b",
+          "status": "published",
+          "source": {
+            "created_by": "minh",
+            "created_at": "2026-11-18T12:10:23+00:00",
+            "updated_by": "minh",
+            "updated_at": "2026-11-18T12:10:23+00:00"
+          },
+          "usage_count": 0,
+          "version": 1,
+          "validation": {
+            "spec_hash": "cd2d5c84ee83c2d08d55abe503e2d3b4d313226a1583bdba5692c2e982ec5693",
+            "passed": true,
+            "validated_at": "2026-11-18T12:10:23+00:00",
+            "validated_by": "minh",
+            "sample_sha256": "5f27b4e708703aee072b4998968fd1f7f364cc78e8cc337f58b744bb113f0650",
+            "verdict": "AC",
+            "score": 100,
+            "total_points": 100
+          },
+          "practice_revision": "1418d6c1caa24720b740b08413719f1b",
+          "question_id": "10f7ee74c8d44381a3f5ddad08979f8b",
+          "snapshot_version": 1,
+          "snapshot_at": "2026-11-18T12:14:14+00:00",
+          "order": 1
+        }
+      ]
+    },
+    "created_by": "minh",
+    "created_at": "2026-11-22T14:53:59+00:00",
+    "updated_at": "2026-11-22T14:54:50+00:00",
+    "title": "JMV",
+    "show_final_score_immediately": true,
+    "allow_pretest": true,
+    "max_pretest_runs": 20,
+    "pretest_cooldown_seconds": 2.0,
+    "submission_policy": "configurable",
+    "max_submissions": 1,
+    "distributed_at": "2026-11-22T14:53:59+00:00",
+    "started_at": "2026-11-22T14:54:07+00:00",
+    "ended_at": "2026-11-22T14:54:50+00:00"
+  },
+  "3575e3cf62354431a1dac096cdf86701": {
+    "id": "3575e3cf62354431a1dac096cdf86701",
+    "schema_version": 2,
+    "status": "ended",
+    "release_id": "f1a4d573680a48f0b5a73c9d5dcbf11e",
+    "general_exam_id": "5701dc104a714c3093b5f4a4afea82e8",
+    "paper_ref": {
+      "paper_id": "8909bf5d07064de2b2fdd9f8b37218e2"
+    },
+    "paper_snapshot": {
+      "id": "8909bf5d07064de2b2fdd9f8b37218e2",
+      "title": "JSD-2000",
+      "metadata": {},
+      "questions": [
+        {
+          "title": "Arithmetic Summary",
+          "statement": "Read two signed 32-bit integers a and b. Print exactly one line in this format: sum=<a+b>;diff=<a-b>;product=<a*b>. Do not add spaces around separators.",
+          "language": "java",
+          "grading_mode": "stdio",
+          "target_class": "Main",
+          "target_package": "",
+          "target_file": "Main.java",
+          "starter_code": "import java.util.Scanner;\n\npublic class Main {\n    public static void main(String[] args) {\n        Scanner scanner = new Scanner(System.in);\n        int a = scanner.nextInt();\n        int b = scanner.nextInt();\n        // Print the required arithmetic summary.\n    }\n}\n",
+          "time_limit_seconds": 5.0,
+          "memory_limit_mb": 256,
+          "max_output_bytes": 65536,
+          "allow_pretest": true,
+          "max_pretest_runs": 20,
+          "category": "Arithmetic",
+          "tags": [
+            "java",
+            "stdio",
+            "formatting"
+          ],
+          "difficulty": "easy",
+          "practice_enabled": false,
+          "tests": [
+            {
+              "id": "j01-positive",
+              "stdin": "12 5\n",
+              "expected_stdout": "sum=17;diff=7;product=60\n",
+              "points": 25,
+              "is_visible": true
+            },
+            {
+              "id": "j01-negative",
+              "stdin": "-3 8\n",
+              "expected_stdout": "sum=5;diff=-11;product=-24\n",
+              "points": 25,
+              "is_visible": true
+            },
+            {
+              "id": "j01-zero",
+              "stdin": "0 19\n",
+              "expected_stdout": "sum=19;diff=-19;product=0\n",
+              "points": 25,
+              "is_visible": false
+            },
+            {
+              "id": "j01-small",
+              "stdin": "-4 -6\n",
+              "expected_stdout": "sum=-10;diff=2;product=24\n",
+              "points": 25,
+              "is_visible": true
+            }
+          ],
+          "total_points": 100,
+          "problem_kind": "java_stdio",
+          "id": "65cf650fab404ab385f3c236ad2506a5",
+          "status": "published",
+          "source": {
+            "created_by": "minh",
+            "created_at": "2026-11-18T12:08:35+00:00",
+            "updated_by": "minh",
+            "updated_at": "2026-11-18T12:08:35+00:00"
+          },
+          "usage_count": 0,
+          "version": 1,
+          "validation": {
+            "spec_hash": "d214bf1fbcb881530356965b2c2ab8ced9959fe4454d172eb85297118ca35c17",
+            "passed": true,
+            "validated_at": "2026-11-18T12:08:35+00:00",
+            "validated_by": "minh",
+            "sample_sha256": "2ced83b9a99af1e7271786721fe492a3c77259c3579756b23f10a15bd3875c53",
+            "verdict": "AC",
+            "score": 100,
+            "total_points": 100
+          },
+          "practice_revision": "842e83e182bc47acb0fe64899dd9308e",
+          "question_id": "65cf650fab404ab385f3c236ad2506a5",
+          "snapshot_version": 1,
+          "snapshot_at": "2026-11-18T12:13:10+00:00",
+          "order": 0
+        },
+        {
+          "title": "Comparable Ranked Label",
+          "statement": "Create class model.RankedLabel with private int rank and private String label, plus a public constructor RankedLabel(int rank, String label). Implement Comparable<RankedLabel>; compareTo orders by rank ascending, then by label lexicographically. Override compareTo with public int compareTo(RankedLabel other). The supported Reflection checks verify the interface contract, declared override signature, and comparison outcomes.",
+          "language": "java",
+          "grading_mode": "reflection",
+          "target_class": "model.RankedLabel",
+          "target_package": "model",
+          "target_file": "RankedLabel.java",
+          "starter_code": "package model;\n\npublic class RankedLabel {\n    // Implement Comparable<RankedLabel>, its ordering, fields, and constructor.\n}\n",
+          "time_limit_seconds": 5.0,
+          "memory_limit_mb": 256,
+          "max_output_bytes": 65536,
+          "allow_pretest": true,
+          "max_pretest_runs": 20,
+          "category": "Java Reflection",
+          "tags": [
+            "java",
+            "reflection",
+            "interfaces",
+            "overriding"
+          ],
+          "difficulty": "hard",
+          "practice_enabled": false,
+          "checks": [
+            {
+              "id": "r03-comparable-interface",
+              "kind": "implements",
+              "points": 20,
+              "is_visible": true,
+              "interface": "java.lang.Comparable"
+            },
+            {
+              "id": "r03-rank-field",
+              "kind": "field",
+              "points": 15,
+              "is_visible": true,
+              "name": "rank",
+              "type": "int",
+              "modifier": "private"
+            },
+            {
+              "id": "r03-compare-override",
+              "kind": "method",
+              "points": 20,
+              "is_visible": true,
+              "name": "compareTo",
+              "return_type": "int",
+              "parameter_types": [
+                "model.RankedLabel"
+              ],
+              "modifier": "public"
+            },
+            {
+              "id": "r03-ordering",
+              "kind": "comparable",
+              "points": 30,
+              "is_visible": true,
+              "instances": [
+                {
+                  "constructor_parameter_types": [
+                    "int",
+                    "String"
+                  ],
+                  "constructor_args": [
+                    2,
+                    "Beta"
+                  ]
+                },
+                {
+                  "constructor_parameter_types": [
+                    "int",
+                    "String"
+                  ],
+                  "constructor_args": [
+                    1,
+                    "Zulu"
+                  ]
+                },
+                {
+                  "constructor_parameter_types": [
+                    "int",
+                    "String"
+                  ],
+                  "constructor_args": [
+                    2,
+                    "Alpha"
+                  ]
+                }
+              ],
+              "comparisons": [
+                {
+                  "left": 1,
+                  "right": 0,
+                  "expected_sign": -1
+                },
+                {
+                  "left": 2,
+                  "right": 0,
+                  "expected_sign": -1
+                }
+              ],
+              "expected_order": [
+                1,
+                2,
+                0
+              ]
+            },
+            {
+              "id": "r03-tie-label",
+              "kind": "comparable",
+              "points": 15,
+              "is_visible": false,
+              "instances": [
+                {
+                  "constructor_parameter_types": [
+                    "int",
+                    "String"
+                  ],
+                  "constructor_args": [
+                    4,
+                    "A"
+                  ]
+                },
+                {
+                  "constructor_parameter_types": [
+                    "int",
+                    "String"
+                  ],
+                  "constructor_args": [
+                    4,
+                    "B"
+                  ]
+                }
+              ],
+              "comparisons": [
+                {
+                  "left": 0,
+                  "right": 1,
+                  "expected_sign": -1
+                }
+              ]
+            }
+          ],
+          "total_points": 100,
+          "problem_kind": "java_reflection",
+          "id": "10f7ee74c8d44381a3f5ddad08979f8b",
+          "status": "published",
+          "source": {
+            "created_by": "minh",
+            "created_at": "2026-11-18T12:10:23+00:00",
+            "updated_by": "minh",
+            "updated_at": "2026-11-18T12:10:23+00:00"
+          },
+          "usage_count": 0,
+          "version": 1,
+          "validation": {
+            "spec_hash": "cd2d5c84ee83c2d08d55abe503e2d3b4d313226a1583bdba5692c2e982ec5693",
+            "passed": true,
+            "validated_at": "2026-11-18T12:10:23+00:00",
+            "validated_by": "minh",
+            "sample_sha256": "5f27b4e708703aee072b4998968fd1f7f364cc78e8cc337f58b744bb113f0650",
+            "verdict": "AC",
+            "score": 100,
+            "total_points": 100
+          },
+          "practice_revision": "1418d6c1caa24720b740b08413719f1b",
+          "question_id": "10f7ee74c8d44381a3f5ddad08979f8b",
+          "snapshot_version": 1,
+          "snapshot_at": "2026-11-18T12:13:10+00:00",
+          "order": 1
+        },
+        {
+          "title": "Integer Ledger",
+          "statement": "Read two signed integers a and b separated by whitespace. Print three lines: their sum, a minus b, and their product, in that order. Inputs fit the signed 32-bit range.",
+          "language": "python",
+          "grading_mode": "stdio",
+          "target_file": "solution.py",
+          "starter_code": "a, b = map(int, input().split())\n# Print sum, difference, and product on separate lines.\n",
+          "time_limit_seconds": 2.0,
+          "memory_limit_mb": 128,
+          "max_output_bytes": 65536,
+          "allow_pretest": true,
+          "max_pretest_runs": 20,
+          "category": "Arithmetic",
+          "tags": [
+            "python",
+            "integer",
+            "stdio"
+          ],
+          "difficulty": "easy",
+          "practice_enabled": false,
+          "tests": [
+            {
+              "id": "p01-small",
+              "stdin": "7 3\n",
+              "expected_stdout": "10\n4\n21\n",
+              "points": 25,
+              "is_visible": true
+            },
+            {
+              "id": "p01-negative",
+              "stdin": "-8 5\n",
+              "expected_stdout": "-3\n-13\n-40\n",
+              "points": 25,
+              "is_visible": true
+            },
+            {
+              "id": "p01-zero",
+              "stdin": "0 0\n",
+              "expected_stdout": "0\n0\n0\n",
+              "points": 25,
+              "is_visible": false
+            },
+            {
+              "id": "p01-large",
+              "stdin": "100000 200000\n",
+              "expected_stdout": "300000\n-100000\n20000000000\n",
+              "points": 25,
+              "is_visible": true
+            }
+          ],
+          "total_points": 100,
+          "problem_kind": "python_stdio",
+          "id": "5f2e352fa72c428986ab949ef80b5e13",
+          "status": "published",
+          "source": {
+            "created_by": "minh",
+            "created_at": "2026-11-18T12:09:34+00:00",
+            "updated_by": "minh",
+            "updated_at": "2026-11-18T12:09:34+00:00"
+          },
+          "usage_count": 0,
+          "version": 1,
+          "validation": {
+            "spec_hash": "737a38ce6404b713d59da4238252f43b15192c68ea73dbcea63c66c7d4852fb3",
+            "passed": true,
+            "validated_at": "2026-11-18T12:09:34+00:00",
+            "validated_by": "minh",
+            "sample_sha256": "d764066afec1b49123ee168b0296531ea01bdaa9ac3d47f03720ae53c18bc0cb",
+            "verdict": "AC",
+            "score": 100,
+            "total_points": 100
+          },
+          "practice_revision": "df779090849d49b29689d21a90c227e3",
+          "question_id": "5f2e352fa72c428986ab949ef80b5e13",
+          "snapshot_version": 1,
+          "snapshot_at": "2026-11-18T12:13:10+00:00",
+          "order": 2
+        }
+      ]
+    },
+    "created_by": "minh",
+    "created_at": "2026-11-22T14:53:59+00:00",
+    "updated_at": "2026-11-22T14:54:50+00:00",
+    "title": "JMV",
+    "show_final_score_immediately": true,
+    "allow_pretest": true,
+    "max_pretest_runs": 20,
+    "pretest_cooldown_seconds": 2.0,
+    "submission_policy": "configurable",
+    "max_submissions": 1,
+    "distributed_at": "2026-11-22T14:53:59+00:00",
+    "started_at": "2026-11-22T14:54:07+00:00",
+    "ended_at": "2026-11-22T14:54:50+00:00"
+  },
+  "c1c090f1692443cd95d61a076f5b4654": {
+    "id": "c1c090f1692443cd95d61a076f5b4654",
+    "schema_version": 2,
+    "status": "ended",
+    "release_id": "8560447de7ad4ad387d73e9525d55e6f",
+    "general_exam_id": "60a7387567984bf99ade997e7464b54f",
+    "paper_ref": {
+      "paper_id": "fc740fdac6a94fc8ad5221c005340a9e"
+    },
+    "paper_snapshot": {
+      "id": "fc740fdac6a94fc8ad5221c005340a9e",
+      "title": "JSD-1999",
+      "metadata": {},
+      "questions": [
+        {
+          "title": "Arithmetic Summary",
+          "statement": "Read two signed 32-bit integers a and b. Print exactly one line in this format: sum=<a+b>;diff=<a-b>;product=<a*b>. Do not add spaces around separators.",
+          "language": "java",
+          "grading_mode": "stdio",
+          "target_class": "Main",
+          "target_package": "",
+          "target_file": "Main.java",
+          "starter_code": "import java.util.Scanner;\n\npublic class Main {\n    public static void main(String[] args) {\n        Scanner scanner = new Scanner(System.in);\n        int a = scanner.nextInt();\n        int b = scanner.nextInt();\n        // Print the required arithmetic summary.\n    }\n}\n",
+          "time_limit_seconds": 5.0,
+          "memory_limit_mb": 256,
+          "max_output_bytes": 65536,
+          "allow_pretest": true,
+          "max_pretest_runs": 20,
+          "category": "Arithmetic",
+          "tags": [
+            "java",
+            "stdio",
+            "formatting"
+          ],
+          "difficulty": "easy",
+          "practice_enabled": false,
+          "tests": [
+            {
+              "id": "j01-positive",
+              "stdin": "12 5\n",
+              "expected_stdout": "sum=17;diff=7;product=60\n",
+              "points": 25,
+              "is_visible": true
+            },
+            {
+              "id": "j01-negative",
+              "stdin": "-3 8\n",
+              "expected_stdout": "sum=5;diff=-11;product=-24\n",
+              "points": 25,
+              "is_visible": true
+            },
+            {
+              "id": "j01-zero",
+              "stdin": "0 19\n",
+              "expected_stdout": "sum=19;diff=-19;product=0\n",
+              "points": 25,
+              "is_visible": false
+            },
+            {
+              "id": "j01-small",
+              "stdin": "-4 -6\n",
+              "expected_stdout": "sum=-10;diff=2;product=24\n",
+              "points": 25,
+              "is_visible": true
+            }
+          ],
+          "total_points": 100,
+          "problem_kind": "java_stdio",
+          "id": "65cf650fab404ab385f3c236ad2506a5",
+          "status": "published",
+          "source": {
+            "created_by": "minh",
+            "created_at": "2026-11-18T12:08:35+00:00",
+            "updated_by": "minh",
+            "updated_at": "2026-11-18T12:08:35+00:00"
+          },
+          "usage_count": 0,
+          "version": 1,
+          "validation": {
+            "spec_hash": "d214bf1fbcb881530356965b2c2ab8ced9959fe4454d172eb85297118ca35c17",
+            "passed": true,
+            "validated_at": "2026-11-18T12:08:35+00:00",
+            "validated_by": "minh",
+            "sample_sha256": "2ced83b9a99af1e7271786721fe492a3c77259c3579756b23f10a15bd3875c53",
+            "verdict": "AC",
+            "score": 100,
+            "total_points": 100
+          },
+          "practice_revision": "842e83e182bc47acb0fe64899dd9308e",
+          "question_id": "65cf650fab404ab385f3c236ad2506a5",
+          "snapshot_version": 1,
+          "snapshot_at": "2026-11-18T12:14:14+00:00",
+          "order": 0
+        },
+        {
+          "title": "Comparable Ranked Label",
+          "statement": "Create class model.RankedLabel with private int rank and private String label, plus a public constructor RankedLabel(int rank, String label). Implement Comparable<RankedLabel>; compareTo orders by rank ascending, then by label lexicographically. Override compareTo with public int compareTo(RankedLabel other). The supported Reflection checks verify the interface contract, declared override signature, and comparison outcomes.",
+          "language": "java",
+          "grading_mode": "reflection",
+          "target_class": "model.RankedLabel",
+          "target_package": "model",
+          "target_file": "RankedLabel.java",
+          "starter_code": "package model;\n\npublic class RankedLabel {\n    // Implement Comparable<RankedLabel>, its ordering, fields, and constructor.\n}\n",
+          "time_limit_seconds": 5.0,
+          "memory_limit_mb": 256,
+          "max_output_bytes": 65536,
+          "allow_pretest": true,
+          "max_pretest_runs": 20,
+          "category": "Java Reflection",
+          "tags": [
+            "java",
+            "reflection",
+            "interfaces",
+            "overriding"
+          ],
+          "difficulty": "hard",
+          "practice_enabled": false,
+          "checks": [
+            {
+              "id": "r03-comparable-interface",
+              "kind": "implements",
+              "points": 20,
+              "is_visible": true,
+              "interface": "java.lang.Comparable"
+            },
+            {
+              "id": "r03-rank-field",
+              "kind": "field",
+              "points": 15,
+              "is_visible": true,
+              "name": "rank",
+              "type": "int",
+              "modifier": "private"
+            },
+            {
+              "id": "r03-compare-override",
+              "kind": "method",
+              "points": 20,
+              "is_visible": true,
+              "name": "compareTo",
+              "return_type": "int",
+              "parameter_types": [
+                "model.RankedLabel"
+              ],
+              "modifier": "public"
+            },
+            {
+              "id": "r03-ordering",
+              "kind": "comparable",
+              "points": 30,
+              "is_visible": true,
+              "instances": [
+                {
+                  "constructor_parameter_types": [
+                    "int",
+                    "String"
+                  ],
+                  "constructor_args": [
+                    2,
+                    "Beta"
+                  ]
+                },
+                {
+                  "constructor_parameter_types": [
+                    "int",
+                    "String"
+                  ],
+                  "constructor_args": [
+                    1,
+                    "Zulu"
+                  ]
+                },
+                {
+                  "constructor_parameter_types": [
+                    "int",
+                    "String"
+                  ],
+                  "constructor_args": [
+                    2,
+                    "Alpha"
+                  ]
+                }
+              ],
+              "comparisons": [
+                {
+                  "left": 1,
+                  "right": 0,
+                  "expected_sign": -1
+                },
+                {
+                  "left": 2,
+                  "right": 0,
+                  "expected_sign": -1
+                }
+              ],
+              "expected_order": [
+                1,
+                2,
+                0
+              ]
+            },
+            {
+              "id": "r03-tie-label",
+              "kind": "comparable",
+              "points": 15,
+              "is_visible": false,
+              "instances": [
+                {
+                  "constructor_parameter_types": [
+                    "int",
+                    "String"
+                  ],
+                  "constructor_args": [
+                    4,
+                    "A"
+                  ]
+                },
+                {
+                  "constructor_parameter_types": [
+                    "int",
+                    "String"
+                  ],
+                  "constructor_args": [
+                    4,
+                    "B"
+                  ]
+                }
+              ],
+              "comparisons": [
+                {
+                  "left": 0,
+                  "right": 1,
+                  "expected_sign": -1
+                }
+              ]
+            }
+          ],
+          "total_points": 100,
+          "problem_kind": "java_reflection",
+          "id": "10f7ee74c8d44381a3f5ddad08979f8b",
+          "status": "published",
+          "source": {
+            "created_by": "minh",
+            "created_at": "2026-11-18T12:10:23+00:00",
+            "updated_by": "minh",
+            "updated_at": "2026-11-18T12:10:23+00:00"
+          },
+          "usage_count": 0,
+          "version": 1,
+          "validation": {
+            "spec_hash": "cd2d5c84ee83c2d08d55abe503e2d3b4d313226a1583bdba5692c2e982ec5693",
+            "passed": true,
+            "validated_at": "2026-11-18T12:10:23+00:00",
+            "validated_by": "minh",
+            "sample_sha256": "5f27b4e708703aee072b4998968fd1f7f364cc78e8cc337f58b744bb113f0650",
+            "verdict": "AC",
+            "score": 100,
+            "total_points": 100
+          },
+          "practice_revision": "1418d6c1caa24720b740b08413719f1b",
+          "question_id": "10f7ee74c8d44381a3f5ddad08979f8b",
+          "snapshot_version": 1,
+          "snapshot_at": "2026-11-18T12:14:14+00:00",
+          "order": 1
+        }
+      ]
+    },
+    "created_by": "minh",
+    "created_at": "2026-11-22T14:55:57+00:00",
+    "updated_at": "2026-11-22T14:59:36+00:00",
+    "title": "Diem Danh",
+    "show_final_score_immediately": true,
+    "allow_pretest": true,
+    "max_pretest_runs": 20,
+    "pretest_cooldown_seconds": 2.0,
+    "submission_policy": "configurable",
+    "max_submissions": 1,
+    "distributed_at": "2026-11-22T14:55:57+00:00",
+    "started_at": "2026-11-22T14:56:01+00:00",
+    "ended_at": "2026-11-22T14:59:36+00:00"
+  },
+  "77c180695436414c96c38e5afd8595c9": {
+    "id": "77c180695436414c96c38e5afd8595c9",
+    "schema_version": 2,
+    "status": "ended",
+    "release_id": "8560447de7ad4ad387d73e9525d55e6f",
+    "general_exam_id": "60a7387567984bf99ade997e7464b54f",
+    "paper_ref": {
+      "paper_id": "8909bf5d07064de2b2fdd9f8b37218e2"
+    },
+    "paper_snapshot": {
+      "id": "8909bf5d07064de2b2fdd9f8b37218e2",
+      "title": "JSD-2000",
+      "metadata": {},
+      "questions": [
+        {
+          "title": "Arithmetic Summary",
+          "statement": "Read two signed 32-bit integers a and b. Print exactly one line in this format: sum=<a+b>;diff=<a-b>;product=<a*b>. Do not add spaces around separators.",
+          "language": "java",
+          "grading_mode": "stdio",
+          "target_class": "Main",
+          "target_package": "",
+          "target_file": "Main.java",
+          "starter_code": "import java.util.Scanner;\n\npublic class Main {\n    public static void main(String[] args) {\n        Scanner scanner = new Scanner(System.in);\n        int a = scanner.nextInt();\n        int b = scanner.nextInt();\n        // Print the required arithmetic summary.\n    }\n}\n",
+          "time_limit_seconds": 5.0,
+          "memory_limit_mb": 256,
+          "max_output_bytes": 65536,
+          "allow_pretest": true,
+          "max_pretest_runs": 20,
+          "category": "Arithmetic",
+          "tags": [
+            "java",
+            "stdio",
+            "formatting"
+          ],
+          "difficulty": "easy",
+          "practice_enabled": false,
+          "tests": [
+            {
+              "id": "j01-positive",
+              "stdin": "12 5\n",
+              "expected_stdout": "sum=17;diff=7;product=60\n",
+              "points": 25,
+              "is_visible": true
+            },
+            {
+              "id": "j01-negative",
+              "stdin": "-3 8\n",
+              "expected_stdout": "sum=5;diff=-11;product=-24\n",
+              "points": 25,
+              "is_visible": true
+            },
+            {
+              "id": "j01-zero",
+              "stdin": "0 19\n",
+              "expected_stdout": "sum=19;diff=-19;product=0\n",
+              "points": 25,
+              "is_visible": false
+            },
+            {
+              "id": "j01-small",
+              "stdin": "-4 -6\n",
+              "expected_stdout": "sum=-10;diff=2;product=24\n",
+              "points": 25,
+              "is_visible": true
+            }
+          ],
+          "total_points": 100,
+          "problem_kind": "java_stdio",
+          "id": "65cf650fab404ab385f3c236ad2506a5",
+          "status": "published",
+          "source": {
+            "created_by": "minh",
+            "created_at": "2026-11-18T12:08:35+00:00",
+            "updated_by": "minh",
+            "updated_at": "2026-11-18T12:08:35+00:00"
+          },
+          "usage_count": 0,
+          "version": 1,
+          "validation": {
+            "spec_hash": "d214bf1fbcb881530356965b2c2ab8ced9959fe4454d172eb85297118ca35c17",
+            "passed": true,
+            "validated_at": "2026-11-18T12:08:35+00:00",
+            "validated_by": "minh",
+            "sample_sha256": "2ced83b9a99af1e7271786721fe492a3c77259c3579756b23f10a15bd3875c53",
+            "verdict": "AC",
+            "score": 100,
+            "total_points": 100
+          },
+          "practice_revision": "842e83e182bc47acb0fe64899dd9308e",
+          "question_id": "65cf650fab404ab385f3c236ad2506a5",
+          "snapshot_version": 1,
+          "snapshot_at": "2026-11-18T12:13:10+00:00",
+          "order": 0
+        },
+        {
+          "title": "Comparable Ranked Label",
+          "statement": "Create class model.RankedLabel with private int rank and private String label, plus a public constructor RankedLabel(int rank, String label). Implement Comparable<RankedLabel>; compareTo orders by rank ascending, then by label lexicographically. Override compareTo with public int compareTo(RankedLabel other). The supported Reflection checks verify the interface contract, declared override signature, and comparison outcomes.",
+          "language": "java",
+          "grading_mode": "reflection",
+          "target_class": "model.RankedLabel",
+          "target_package": "model",
+          "target_file": "RankedLabel.java",
+          "starter_code": "package model;\n\npublic class RankedLabel {\n    // Implement Comparable<RankedLabel>, its ordering, fields, and constructor.\n}\n",
+          "time_limit_seconds": 5.0,
+          "memory_limit_mb": 256,
+          "max_output_bytes": 65536,
+          "allow_pretest": true,
+          "max_pretest_runs": 20,
+          "category": "Java Reflection",
+          "tags": [
+            "java",
+            "reflection",
+            "interfaces",
+            "overriding"
+          ],
+          "difficulty": "hard",
+          "practice_enabled": false,
+          "checks": [
+            {
+              "id": "r03-comparable-interface",
+              "kind": "implements",
+              "points": 20,
+              "is_visible": true,
+              "interface": "java.lang.Comparable"
+            },
+            {
+              "id": "r03-rank-field",
+              "kind": "field",
+              "points": 15,
+              "is_visible": true,
+              "name": "rank",
+              "type": "int",
+              "modifier": "private"
+            },
+            {
+              "id": "r03-compare-override",
+              "kind": "method",
+              "points": 20,
+              "is_visible": true,
+              "name": "compareTo",
+              "return_type": "int",
+              "parameter_types": [
+                "model.RankedLabel"
+              ],
+              "modifier": "public"
+            },
+            {
+              "id": "r03-ordering",
+              "kind": "comparable",
+              "points": 30,
+              "is_visible": true,
+              "instances": [
+                {
+                  "constructor_parameter_types": [
+                    "int",
+                    "String"
+                  ],
+                  "constructor_args": [
+                    2,
+                    "Beta"
+                  ]
+                },
+                {
+                  "constructor_parameter_types": [
+                    "int",
+                    "String"
+                  ],
+                  "constructor_args": [
+                    1,
+                    "Zulu"
+                  ]
+                },
+                {
+                  "constructor_parameter_types": [
+                    "int",
+                    "String"
+                  ],
+                  "constructor_args": [
+                    2,
+                    "Alpha"
+                  ]
+                }
+              ],
+              "comparisons": [
+                {
+                  "left": 1,
+                  "right": 0,
+                  "expected_sign": -1
+                },
+                {
+                  "left": 2,
+                  "right": 0,
+                  "expected_sign": -1
+                }
+              ],
+              "expected_order": [
+                1,
+                2,
+                0
+              ]
+            },
+            {
+              "id": "r03-tie-label",
+              "kind": "comparable",
+              "points": 15,
+              "is_visible": false,
+              "instances": [
+                {
+                  "constructor_parameter_types": [
+                    "int",
+                    "String"
+                  ],
+                  "constructor_args": [
+                    4,
+                    "A"
+                  ]
+                },
+                {
+                  "constructor_parameter_types": [
+                    "int",
+                    "String"
+                  ],
+                  "constructor_args": [
+                    4,
+                    "B"
+                  ]
+                }
+              ],
+              "comparisons": [
+                {
+                  "left": 0,
+                  "right": 1,
+                  "expected_sign": -1
+                }
+              ]
+            }
+          ],
+          "total_points": 100,
+          "problem_kind": "java_reflection",
+          "id": "10f7ee74c8d44381a3f5ddad08979f8b",
+          "status": "published",
+          "source": {
+            "created_by": "minh",
+            "created_at": "2026-11-18T12:10:23+00:00",
+            "updated_by": "minh",
+            "updated_at": "2026-11-18T12:10:23+00:00"
+          },
+          "usage_count": 0,
+          "version": 1,
+          "validation": {
+            "spec_hash": "cd2d5c84ee83c2d08d55abe503e2d3b4d313226a1583bdba5692c2e982ec5693",
+            "passed": true,
+            "validated_at": "2026-11-18T12:10:23+00:00",
+            "validated_by": "minh",
+            "sample_sha256": "5f27b4e708703aee072b4998968fd1f7f364cc78e8cc337f58b744bb113f0650",
+            "verdict": "AC",
+            "score": 100,
+            "total_points": 100
+          },
+          "practice_revision": "1418d6c1caa24720b740b08413719f1b",
+          "question_id": "10f7ee74c8d44381a3f5ddad08979f8b",
+          "snapshot_version": 1,
+          "snapshot_at": "2026-11-18T12:13:10+00:00",
+          "order": 1
+        },
+        {
+          "title": "Integer Ledger",
+          "statement": "Read two signed integers a and b separated by whitespace. Print three lines: their sum, a minus b, and their product, in that order. Inputs fit the signed 32-bit range.",
+          "language": "python",
+          "grading_mode": "stdio",
+          "target_file": "solution.py",
+          "starter_code": "a, b = map(int, input().split())\n# Print sum, difference, and product on separate lines.\n",
+          "time_limit_seconds": 2.0,
+          "memory_limit_mb": 128,
+          "max_output_bytes": 65536,
+          "allow_pretest": true,
+          "max_pretest_runs": 20,
+          "category": "Arithmetic",
+          "tags": [
+            "python",
+            "integer",
+            "stdio"
+          ],
+          "difficulty": "easy",
+          "practice_enabled": false,
+          "tests": [
+            {
+              "id": "p01-small",
+              "stdin": "7 3\n",
+              "expected_stdout": "10\n4\n21\n",
+              "points": 25,
+              "is_visible": true
+            },
+            {
+              "id": "p01-negative",
+              "stdin": "-8 5\n",
+              "expected_stdout": "-3\n-13\n-40\n",
+              "points": 25,
+              "is_visible": true
+            },
+            {
+              "id": "p01-zero",
+              "stdin": "0 0\n",
+              "expected_stdout": "0\n0\n0\n",
+              "points": 25,
+              "is_visible": false
+            },
+            {
+              "id": "p01-large",
+              "stdin": "100000 200000\n",
+              "expected_stdout": "300000\n-100000\n20000000000\n",
+              "points": 25,
+              "is_visible": true
+            }
+          ],
+          "total_points": 100,
+          "problem_kind": "python_stdio",
+          "id": "5f2e352fa72c428986ab949ef80b5e13",
+          "status": "published",
+          "source": {
+            "created_by": "minh",
+            "created_at": "2026-11-18T12:09:34+00:00",
+            "updated_by": "minh",
+            "updated_at": "2026-11-18T12:09:34+00:00"
+          },
+          "usage_count": 0,
+          "version": 1,
+          "validation": {
+            "spec_hash": "737a38ce6404b713d59da4238252f43b15192c68ea73dbcea63c66c7d4852fb3",
+            "passed": true,
+            "validated_at": "2026-11-18T12:09:34+00:00",
+            "validated_by": "minh",
+            "sample_sha256": "d764066afec1b49123ee168b0296531ea01bdaa9ac3d47f03720ae53c18bc0cb",
+            "verdict": "AC",
+            "score": 100,
+            "total_points": 100
+          },
+          "practice_revision": "df779090849d49b29689d21a90c227e3",
+          "question_id": "5f2e352fa72c428986ab949ef80b5e13",
+          "snapshot_version": 1,
+          "snapshot_at": "2026-11-18T12:13:10+00:00",
+          "order": 2
+        }
+      ]
+    },
+    "created_by": "minh",
+    "created_at": "2026-11-22T14:55:57+00:00",
+    "updated_at": "2026-11-22T14:59:36+00:00",
+    "title": "Diem Danh",
+    "show_final_score_immediately": true,
+    "allow_pretest": true,
+    "max_pretest_runs": 20,
+    "pretest_cooldown_seconds": 2.0,
+    "submission_policy": "configurable",
+    "max_submissions": 1,
+    "distributed_at": "2026-11-22T14:55:57+00:00",
+    "started_at": "2026-11-22T14:56:01+00:00",
+    "ended_at": "2026-11-22T14:59:36+00:00"
+  },
+  "537994a09af643e5969bcfd49a9dd114": {
+    "id": "537994a09af643e5969bcfd49a9dd114",
+    "schema_version": 2,
+    "status": "ended",
+    "release_id": "7f6e6b97420f4f5b81b067e8f4c443cc",
+    "general_exam_id": "6000abb4d6ba449398f5ea20bdb0127a",
+    "paper_ref": {
+      "paper_id": "fc740fdac6a94fc8ad5221c005340a9e"
+    },
+    "paper_snapshot": {
+      "id": "fc740fdac6a94fc8ad5221c005340a9e",
+      "title": "JSD-1999",
+      "metadata": {},
+      "questions": [
+        {
+          "title": "Arithmetic Summary",
+          "statement": "Read two signed 32-bit integers a and b. Print exactly one line in this format: sum=<a+b>;diff=<a-b>;product=<a*b>. Do not add spaces around separators.",
+          "language": "java",
+          "grading_mode": "stdio",
+          "target_class": "Main",
+          "target_package": "",
+          "target_file": "Main.java",
+          "starter_code": "import java.util.Scanner;\n\npublic class Main {\n    public static void main(String[] args) {\n        Scanner scanner = new Scanner(System.in);\n        int a = scanner.nextInt();\n        int b = scanner.nextInt();\n        // Print the required arithmetic summary.\n    }\n}\n",
+          "time_limit_seconds": 5.0,
+          "memory_limit_mb": 256,
+          "max_output_bytes": 65536,
+          "allow_pretest": true,
+          "max_pretest_runs": 20,
+          "category": "Arithmetic",
+          "tags": [
+            "java",
+            "stdio",
+            "formatting"
+          ],
+          "difficulty": "easy",
+          "practice_enabled": false,
+          "tests": [
+            {
+              "id": "j01-positive",
+              "stdin": "12 5\n",
+              "expected_stdout": "sum=17;diff=7;product=60\n",
+              "points": 25,
+              "is_visible": true
+            },
+            {
+              "id": "j01-negative",
+              "stdin": "-3 8\n",
+              "expected_stdout": "sum=5;diff=-11;product=-24\n",
+              "points": 25,
+              "is_visible": true
+            },
+            {
+              "id": "j01-zero",
+              "stdin": "0 19\n",
+              "expected_stdout": "sum=19;diff=-19;product=0\n",
+              "points": 25,
+              "is_visible": false
+            },
+            {
+              "id": "j01-small",
+              "stdin": "-4 -6\n",
+              "expected_stdout": "sum=-10;diff=2;product=24\n",
+              "points": 25,
+              "is_visible": true
+            }
+          ],
+          "total_points": 100,
+          "problem_kind": "java_stdio",
+          "id": "65cf650fab404ab385f3c236ad2506a5",
+          "status": "published",
+          "source": {
+            "created_by": "minh",
+            "created_at": "2026-11-18T12:08:35+00:00",
+            "updated_by": "minh",
+            "updated_at": "2026-11-18T12:08:35+00:00"
+          },
+          "usage_count": 0,
+          "version": 1,
+          "validation": {
+            "spec_hash": "d214bf1fbcb881530356965b2c2ab8ced9959fe4454d172eb85297118ca35c17",
+            "passed": true,
+            "validated_at": "2026-11-18T12:08:35+00:00",
+            "validated_by": "minh",
+            "sample_sha256": "2ced83b9a99af1e7271786721fe492a3c77259c3579756b23f10a15bd3875c53",
+            "verdict": "AC",
+            "score": 100,
+            "total_points": 100
+          },
+          "practice_revision": "842e83e182bc47acb0fe64899dd9308e",
+          "question_id": "65cf650fab404ab385f3c236ad2506a5",
+          "snapshot_version": 1,
+          "snapshot_at": "2026-11-18T12:14:14+00:00",
+          "order": 0
+        },
+        {
+          "title": "Comparable Ranked Label",
+          "statement": "Create class model.RankedLabel with private int rank and private String label, plus a public constructor RankedLabel(int rank, String label). Implement Comparable<RankedLabel>; compareTo orders by rank ascending, then by label lexicographically. Override compareTo with public int compareTo(RankedLabel other). The supported Reflection checks verify the interface contract, declared override signature, and comparison outcomes.",
+          "language": "java",
+          "grading_mode": "reflection",
+          "target_class": "model.RankedLabel",
+          "target_package": "model",
+          "target_file": "RankedLabel.java",
+          "starter_code": "package model;\n\npublic class RankedLabel {\n    // Implement Comparable<RankedLabel>, its ordering, fields, and constructor.\n}\n",
+          "time_limit_seconds": 5.0,
+          "memory_limit_mb": 256,
+          "max_output_bytes": 65536,
+          "allow_pretest": true,
+          "max_pretest_runs": 20,
+          "category": "Java Reflection",
+          "tags": [
+            "java",
+            "reflection",
+            "interfaces",
+            "overriding"
+          ],
+          "difficulty": "hard",
+          "practice_enabled": false,
+          "checks": [
+            {
+              "id": "r03-comparable-interface",
+              "kind": "implements",
+              "points": 20,
+              "is_visible": true,
+              "interface": "java.lang.Comparable"
+            },
+            {
+              "id": "r03-rank-field",
+              "kind": "field",
+              "points": 15,
+              "is_visible": true,
+              "name": "rank",
+              "type": "int",
+              "modifier": "private"
+            },
+            {
+              "id": "r03-compare-override",
+              "kind": "method",
+              "points": 20,
+              "is_visible": true,
+              "name": "compareTo",
+              "return_type": "int",
+              "parameter_types": [
+                "model.RankedLabel"
+              ],
+              "modifier": "public"
+            },
+            {
+              "id": "r03-ordering",
+              "kind": "comparable",
+              "points": 30,
+              "is_visible": true,
+              "instances": [
+                {
+                  "constructor_parameter_types": [
+                    "int",
+                    "String"
+                  ],
+                  "constructor_args": [
+                    2,
+                    "Beta"
+                  ]
+                },
+                {
+                  "constructor_parameter_types": [
+                    "int",
+                    "String"
+                  ],
+                  "constructor_args": [
+                    1,
+                    "Zulu"
+                  ]
+                },
+                {
+                  "constructor_parameter_types": [
+                    "int",
+                    "String"
+                  ],
+                  "constructor_args": [
+                    2,
+                    "Alpha"
+                  ]
+                }
+              ],
+              "comparisons": [
+                {
+                  "left": 1,
+                  "right": 0,
+                  "expected_sign": -1
+                },
+                {
+                  "left": 2,
+                  "right": 0,
+                  "expected_sign": -1
+                }
+              ],
+              "expected_order": [
+                1,
+                2,
+                0
+              ]
+            },
+            {
+              "id": "r03-tie-label",
+              "kind": "comparable",
+              "points": 15,
+              "is_visible": false,
+              "instances": [
+                {
+                  "constructor_parameter_types": [
+                    "int",
+                    "String"
+                  ],
+                  "constructor_args": [
+                    4,
+                    "A"
+                  ]
+                },
+                {
+                  "constructor_parameter_types": [
+                    "int",
+                    "String"
+                  ],
+                  "constructor_args": [
+                    4,
+                    "B"
+                  ]
+                }
+              ],
+              "comparisons": [
+                {
+                  "left": 0,
+                  "right": 1,
+                  "expected_sign": -1
+                }
+              ]
+            }
+          ],
+          "total_points": 100,
+          "problem_kind": "java_reflection",
+          "id": "10f7ee74c8d44381a3f5ddad08979f8b",
+          "status": "published",
+          "source": {
+            "created_by": "minh",
+            "created_at": "2026-11-18T12:10:23+00:00",
+            "updated_by": "minh",
+            "updated_at": "2026-11-18T12:10:23+00:00"
+          },
+          "usage_count": 0,
+          "version": 1,
+          "validation": {
+            "spec_hash": "cd2d5c84ee83c2d08d55abe503e2d3b4d313226a1583bdba5692c2e982ec5693",
+            "passed": true,
+            "validated_at": "2026-11-18T12:10:23+00:00",
+            "validated_by": "minh",
+            "sample_sha256": "5f27b4e708703aee072b4998968fd1f7f364cc78e8cc337f58b744bb113f0650",
+            "verdict": "AC",
+            "score": 100,
+            "total_points": 100
+          },
+          "practice_revision": "1418d6c1caa24720b740b08413719f1b",
+          "question_id": "10f7ee74c8d44381a3f5ddad08979f8b",
+          "snapshot_version": 1,
+          "snapshot_at": "2026-11-18T12:14:14+00:00",
+          "order": 1
+        }
+      ]
+    },
+    "created_by": "minh",
+    "created_at": "2026-11-22T15:00:16+00:00",
+    "updated_at": "2026-11-22T15:02:18+00:00",
+    "title": "Diem daanh 2",
+    "show_final_score_immediately": true,
+    "allow_pretest": true,
+    "max_pretest_runs": 20,
+    "pretest_cooldown_seconds": 2.0,
+    "submission_policy": "configurable",
+    "max_submissions": 1,
+    "distributed_at": "2026-11-22T15:00:16+00:00",
+    "started_at": "2026-11-22T15:00:22+00:00",
+    "ended_at": "2026-11-22T15:02:18+00:00"
+  },
+  "0de1984a72cc4d91a214a18cce25c102": {
+    "id": "0de1984a72cc4d91a214a18cce25c102",
+    "schema_version": 2,
+    "status": "ended",
+    "release_id": "7f6e6b97420f4f5b81b067e8f4c443cc",
+    "general_exam_id": "6000abb4d6ba449398f5ea20bdb0127a",
+    "paper_ref": {
+      "paper_id": "8909bf5d07064de2b2fdd9f8b37218e2"
+    },
+    "paper_snapshot": {
+      "id": "8909bf5d07064de2b2fdd9f8b37218e2",
+      "title": "JSD-2000",
+      "metadata": {},
+      "questions": [
+        {
+          "title": "Arithmetic Summary",
+          "statement": "Read two signed 32-bit integers a and b. Print exactly one line in this format: sum=<a+b>;diff=<a-b>;product=<a*b>. Do not add spaces around separators.",
+          "language": "java",
+          "grading_mode": "stdio",
+          "target_class": "Main",
+          "target_package": "",
+          "target_file": "Main.java",
+          "starter_code": "import java.util.Scanner;\n\npublic class Main {\n    public static void main(String[] args) {\n        Scanner scanner = new Scanner(System.in);\n        int a = scanner.nextInt();\n        int b = scanner.nextInt();\n        // Print the required arithmetic summary.\n    }\n}\n",
+          "time_limit_seconds": 5.0,
+          "memory_limit_mb": 256,
+          "max_output_bytes": 65536,
+          "allow_pretest": true,
+          "max_pretest_runs": 20,
+          "category": "Arithmetic",
+          "tags": [
+            "java",
+            "stdio",
+            "formatting"
+          ],
+          "difficulty": "easy",
+          "practice_enabled": false,
+          "tests": [
+            {
+              "id": "j01-positive",
+              "stdin": "12 5\n",
+              "expected_stdout": "sum=17;diff=7;product=60\n",
+              "points": 25,
+              "is_visible": true
+            },
+            {
+              "id": "j01-negative",
+              "stdin": "-3 8\n",
+              "expected_stdout": "sum=5;diff=-11;product=-24\n",
+              "points": 25,
+              "is_visible": true
+            },
+            {
+              "id": "j01-zero",
+              "stdin": "0 19\n",
+              "expected_stdout": "sum=19;diff=-19;product=0\n",
+              "points": 25,
+              "is_visible": false
+            },
+            {
+              "id": "j01-small",
+              "stdin": "-4 -6\n",
+              "expected_stdout": "sum=-10;diff=2;product=24\n",
+              "points": 25,
+              "is_visible": true
+            }
+          ],
+          "total_points": 100,
+          "problem_kind": "java_stdio",
+          "id": "65cf650fab404ab385f3c236ad2506a5",
+          "status": "published",
+          "source": {
+            "created_by": "minh",
+            "created_at": "2026-11-18T12:08:35+00:00",
+            "updated_by": "minh",
+            "updated_at": "2026-11-18T12:08:35+00:00"
+          },
+          "usage_count": 0,
+          "version": 1,
+          "validation": {
+            "spec_hash": "d214bf1fbcb881530356965b2c2ab8ced9959fe4454d172eb85297118ca35c17",
+            "passed": true,
+            "validated_at": "2026-11-18T12:08:35+00:00",
+            "validated_by": "minh",
+            "sample_sha256": "2ced83b9a99af1e7271786721fe492a3c77259c3579756b23f10a15bd3875c53",
+            "verdict": "AC",
+            "score": 100,
+            "total_points": 100
+          },
+          "practice_revision": "842e83e182bc47acb0fe64899dd9308e",
+          "question_id": "65cf650fab404ab385f3c236ad2506a5",
+          "snapshot_version": 1,
+          "snapshot_at": "2026-11-18T12:13:10+00:00",
+          "order": 0
+        },
+        {
+          "title": "Comparable Ranked Label",
+          "statement": "Create class model.RankedLabel with private int rank and private String label, plus a public constructor RankedLabel(int rank, String label). Implement Comparable<RankedLabel>; compareTo orders by rank ascending, then by label lexicographically. Override compareTo with public int compareTo(RankedLabel other). The supported Reflection checks verify the interface contract, declared override signature, and comparison outcomes.",
+          "language": "java",
+          "grading_mode": "reflection",
+          "target_class": "model.RankedLabel",
+          "target_package": "model",
+          "target_file": "RankedLabel.java",
+          "starter_code": "package model;\n\npublic class RankedLabel {\n    // Implement Comparable<RankedLabel>, its ordering, fields, and constructor.\n}\n",
+          "time_limit_seconds": 5.0,
+          "memory_limit_mb": 256,
+          "max_output_bytes": 65536,
+          "allow_pretest": true,
+          "max_pretest_runs": 20,
+          "category": "Java Reflection",
+          "tags": [
+            "java",
+            "reflection",
+            "interfaces",
+            "overriding"
+          ],
+          "difficulty": "hard",
+          "practice_enabled": false,
+          "checks": [
+            {
+              "id": "r03-comparable-interface",
+              "kind": "implements",
+              "points": 20,
+              "is_visible": true,
+              "interface": "java.lang.Comparable"
+            },
+            {
+              "id": "r03-rank-field",
+              "kind": "field",
+              "points": 15,
+              "is_visible": true,
+              "name": "rank",
+              "type": "int",
+              "modifier": "private"
+            },
+            {
+              "id": "r03-compare-override",
+              "kind": "method",
+              "points": 20,
+              "is_visible": true,
+              "name": "compareTo",
+              "return_type": "int",
+              "parameter_types": [
+                "model.RankedLabel"
+              ],
+              "modifier": "public"
+            },
+            {
+              "id": "r03-ordering",
+              "kind": "comparable",
+              "points": 30,
+              "is_visible": true,
+              "instances": [
+                {
+                  "constructor_parameter_types": [
+                    "int",
+                    "String"
+                  ],
+                  "constructor_args": [
+                    2,
+                    "Beta"
+                  ]
+                },
+                {
+                  "constructor_parameter_types": [
+                    "int",
+                    "String"
+                  ],
+                  "constructor_args": [
+                    1,
+                    "Zulu"
+                  ]
+                },
+                {
+                  "constructor_parameter_types": [
+                    "int",
+                    "String"
+                  ],
+                  "constructor_args": [
+                    2,
+                    "Alpha"
+                  ]
+                }
+              ],
+              "comparisons": [
+                {
+                  "left": 1,
+                  "right": 0,
+                  "expected_sign": -1
+                },
+                {
+                  "left": 2,
+                  "right": 0,
+                  "expected_sign": -1
+                }
+              ],
+              "expected_order": [
+                1,
+                2,
+                0
+              ]
+            },
+            {
+              "id": "r03-tie-label",
+              "kind": "comparable",
+              "points": 15,
+              "is_visible": false,
+              "instances": [
+                {
+                  "constructor_parameter_types": [
+                    "int",
+                    "String"
+                  ],
+                  "constructor_args": [
+                    4,
+                    "A"
+                  ]
+                },
+                {
+                  "constructor_parameter_types": [
+                    "int",
+                    "String"
+                  ],
+                  "constructor_args": [
+                    4,
+                    "B"
+                  ]
+                }
+              ],
+              "comparisons": [
+                {
+                  "left": 0,
+                  "right": 1,
+                  "expected_sign": -1
+                }
+              ]
+            }
+          ],
+          "total_points": 100,
+          "problem_kind": "java_reflection",
+          "id": "10f7ee74c8d44381a3f5ddad08979f8b",
+          "status": "published",
+          "source": {
+            "created_by": "minh",
+            "created_at": "2026-11-18T12:10:23+00:00",
+            "updated_by": "minh",
+            "updated_at": "2026-11-18T12:10:23+00:00"
+          },
+          "usage_count": 0,
+          "version": 1,
+          "validation": {
+            "spec_hash": "cd2d5c84ee83c2d08d55abe503e2d3b4d313226a1583bdba5692c2e982ec5693",
+            "passed": true,
+            "validated_at": "2026-11-18T12:10:23+00:00",
+            "validated_by": "minh",
+            "sample_sha256": "5f27b4e708703aee072b4998968fd1f7f364cc78e8cc337f58b744bb113f0650",
+            "verdict": "AC",
+            "score": 100,
+            "total_points": 100
+          },
+          "practice_revision": "1418d6c1caa24720b740b08413719f1b",
+          "question_id": "10f7ee74c8d44381a3f5ddad08979f8b",
+          "snapshot_version": 1,
+          "snapshot_at": "2026-11-18T12:13:10+00:00",
+          "order": 1
+        },
+        {
+          "title": "Integer Ledger",
+          "statement": "Read two signed integers a and b separated by whitespace. Print three lines: their sum, a minus b, and their product, in that order. Inputs fit the signed 32-bit range.",
+          "language": "python",
+          "grading_mode": "stdio",
+          "target_file": "solution.py",
+          "starter_code": "a, b = map(int, input().split())\n# Print sum, difference, and product on separate lines.\n",
+          "time_limit_seconds": 2.0,
+          "memory_limit_mb": 128,
+          "max_output_bytes": 65536,
+          "allow_pretest": true,
+          "max_pretest_runs": 20,
+          "category": "Arithmetic",
+          "tags": [
+            "python",
+            "integer",
+            "stdio"
+          ],
+          "difficulty": "easy",
+          "practice_enabled": false,
+          "tests": [
+            {
+              "id": "p01-small",
+              "stdin": "7 3\n",
+              "expected_stdout": "10\n4\n21\n",
+              "points": 25,
+              "is_visible": true
+            },
+            {
+              "id": "p01-negative",
+              "stdin": "-8 5\n",
+              "expected_stdout": "-3\n-13\n-40\n",
+              "points": 25,
+              "is_visible": true
+            },
+            {
+              "id": "p01-zero",
+              "stdin": "0 0\n",
+              "expected_stdout": "0\n0\n0\n",
+              "points": 25,
+              "is_visible": false
+            },
+            {
+              "id": "p01-large",
+              "stdin": "100000 200000\n",
+              "expected_stdout": "300000\n-100000\n20000000000\n",
+              "points": 25,
+              "is_visible": true
+            }
+          ],
+          "total_points": 100,
+          "problem_kind": "python_stdio",
+          "id": "5f2e352fa72c428986ab949ef80b5e13",
+          "status": "published",
+          "source": {
+            "created_by": "minh",
+            "created_at": "2026-11-18T12:09:34+00:00",
+            "updated_by": "minh",
+            "updated_at": "2026-11-18T12:09:34+00:00"
+          },
+          "usage_count": 0,
+          "version": 1,
+          "validation": {
+            "spec_hash": "737a38ce6404b713d59da4238252f43b15192c68ea73dbcea63c66c7d4852fb3",
+            "passed": true,
+            "validated_at": "2026-11-18T12:09:34+00:00",
+            "validated_by": "minh",
+            "sample_sha256": "d764066afec1b49123ee168b0296531ea01bdaa9ac3d47f03720ae53c18bc0cb",
+            "verdict": "AC",
+            "score": 100,
+            "total_points": 100
+          },
+          "practice_revision": "df779090849d49b29689d21a90c227e3",
+          "question_id": "5f2e352fa72c428986ab949ef80b5e13",
+          "snapshot_version": 1,
+          "snapshot_at": "2026-11-18T12:13:10+00:00",
+          "order": 2
+        }
+      ]
+    },
+    "created_by": "minh",
+    "created_at": "2026-11-22T15:00:16+00:00",
+    "updated_at": "2026-11-22T15:02:18+00:00",
+    "title": "Diem daanh 2",
+    "show_final_score_immediately": true,
+    "allow_pretest": true,
+    "max_pretest_runs": 20,
+    "pretest_cooldown_seconds": 2.0,
+    "submission_policy": "configurable",
+    "max_submissions": 1,
+    "distributed_at": "2026-11-22T15:00:16+00:00",
+    "started_at": "2026-11-22T15:00:22+00:00",
+    "ended_at": "2026-11-22T15:02:18+00:00"
+  },
+  "2ad8ebede2a84259bcf84bf1b184e238": {
+    "id": "2ad8ebede2a84259bcf84bf1b184e238",
+    "schema_version": 2,
+    "status": "ended",
+    "release_id": "046a2891aaa6411c9dea0c77fed65e77",
+    "general_exam_id": "bbfdec76454145959e873f939f51776f",
+    "paper_ref": {
+      "paper_id": "fc740fdac6a94fc8ad5221c005340a9e"
+    },
+    "paper_snapshot": {
+      "id": "fc740fdac6a94fc8ad5221c005340a9e",
+      "title": "JSD-1999",
+      "metadata": {},
+      "questions": [
+        {
+          "title": "Arithmetic Summary",
+          "statement": "Read two signed 32-bit integers a and b. Print exactly one line in this format: sum=<a+b>;diff=<a-b>;product=<a*b>. Do not add spaces around separators.",
+          "language": "java",
+          "grading_mode": "stdio",
+          "target_class": "Main",
+          "target_package": "",
+          "target_file": "Main.java",
+          "starter_code": "import java.util.Scanner;\n\npublic class Main {\n    public static void main(String[] args) {\n        Scanner scanner = new Scanner(System.in);\n        int a = scanner.nextInt();\n        int b = scanner.nextInt();\n        // Print the required arithmetic summary.\n    }\n}\n",
+          "time_limit_seconds": 5.0,
+          "memory_limit_mb": 256,
+          "max_output_bytes": 65536,
+          "allow_pretest": true,
+          "max_pretest_runs": 20,
+          "category": "Arithmetic",
+          "tags": [
+            "java",
+            "stdio",
+            "formatting"
+          ],
+          "difficulty": "easy",
+          "practice_enabled": false,
+          "tests": [
+            {
+              "id": "j01-positive",
+              "stdin": "12 5\n",
+              "expected_stdout": "sum=17;diff=7;product=60\n",
+              "points": 25,
+              "is_visible": true
+            },
+            {
+              "id": "j01-negative",
+              "stdin": "-3 8\n",
+              "expected_stdout": "sum=5;diff=-11;product=-24\n",
+              "points": 25,
+              "is_visible": true
+            },
+            {
+              "id": "j01-zero",
+              "stdin": "0 19\n",
+              "expected_stdout": "sum=19;diff=-19;product=0\n",
+              "points": 25,
+              "is_visible": false
+            },
+            {
+              "id": "j01-small",
+              "stdin": "-4 -6\n",
+              "expected_stdout": "sum=-10;diff=2;product=24\n",
+              "points": 25,
+              "is_visible": true
+            }
+          ],
+          "total_points": 100,
+          "problem_kind": "java_stdio",
+          "id": "65cf650fab404ab385f3c236ad2506a5",
+          "status": "published",
+          "source": {
+            "created_by": "minh",
+            "created_at": "2026-11-18T12:08:35+00:00",
+            "updated_by": "minh",
+            "updated_at": "2026-11-18T12:08:35+00:00"
+          },
+          "usage_count": 0,
+          "version": 1,
+          "validation": {
+            "spec_hash": "d214bf1fbcb881530356965b2c2ab8ced9959fe4454d172eb85297118ca35c17",
+            "passed": true,
+            "validated_at": "2026-11-18T12:08:35+00:00",
+            "validated_by": "minh",
+            "sample_sha256": "2ced83b9a99af1e7271786721fe492a3c77259c3579756b23f10a15bd3875c53",
+            "verdict": "AC",
+            "score": 100,
+            "total_points": 100
+          },
+          "practice_revision": "842e83e182bc47acb0fe64899dd9308e",
+          "question_id": "65cf650fab404ab385f3c236ad2506a5",
+          "snapshot_version": 1,
+          "snapshot_at": "2026-11-18T12:14:14+00:00",
+          "order": 0
+        },
+        {
+          "title": "Comparable Ranked Label",
+          "statement": "Create class model.RankedLabel with private int rank and private String label, plus a public constructor RankedLabel(int rank, String label). Implement Comparable<RankedLabel>; compareTo orders by rank ascending, then by label lexicographically. Override compareTo with public int compareTo(RankedLabel other). The supported Reflection checks verify the interface contract, declared override signature, and comparison outcomes.",
+          "language": "java",
+          "grading_mode": "reflection",
+          "target_class": "model.RankedLabel",
+          "target_package": "model",
+          "target_file": "RankedLabel.java",
+          "starter_code": "package model;\n\npublic class RankedLabel {\n    // Implement Comparable<RankedLabel>, its ordering, fields, and constructor.\n}\n",
+          "time_limit_seconds": 5.0,
+          "memory_limit_mb": 256,
+          "max_output_bytes": 65536,
+          "allow_pretest": true,
+          "max_pretest_runs": 20,
+          "category": "Java Reflection",
+          "tags": [
+            "java",
+            "reflection",
+            "interfaces",
+            "overriding"
+          ],
+          "difficulty": "hard",
+          "practice_enabled": false,
+          "checks": [
+            {
+              "id": "r03-comparable-interface",
+              "kind": "implements",
+              "points": 20,
+              "is_visible": true,
+              "interface": "java.lang.Comparable"
+            },
+            {
+              "id": "r03-rank-field",
+              "kind": "field",
+              "points": 15,
+              "is_visible": true,
+              "name": "rank",
+              "type": "int",
+              "modifier": "private"
+            },
+            {
+              "id": "r03-compare-override",
+              "kind": "method",
+              "points": 20,
+              "is_visible": true,
+              "name": "compareTo",
+              "return_type": "int",
+              "parameter_types": [
+                "model.RankedLabel"
+              ],
+              "modifier": "public"
+            },
+            {
+              "id": "r03-ordering",
+              "kind": "comparable",
+              "points": 30,
+              "is_visible": true,
+              "instances": [
+                {
+                  "constructor_parameter_types": [
+                    "int",
+                    "String"
+                  ],
+                  "constructor_args": [
+                    2,
+                    "Beta"
+                  ]
+                },
+                {
+                  "constructor_parameter_types": [
+                    "int",
+                    "String"
+                  ],
+                  "constructor_args": [
+                    1,
+                    "Zulu"
+                  ]
+                },
+                {
+                  "constructor_parameter_types": [
+                    "int",
+                    "String"
+                  ],
+                  "constructor_args": [
+                    2,
+                    "Alpha"
+                  ]
+                }
+              ],
+              "comparisons": [
+                {
+                  "left": 1,
+                  "right": 0,
+                  "expected_sign": -1
+                },
+                {
+                  "left": 2,
+                  "right": 0,
+                  "expected_sign": -1
+                }
+              ],
+              "expected_order": [
+                1,
+                2,
+                0
+              ]
+            },
+            {
+              "id": "r03-tie-label",
+              "kind": "comparable",
+              "points": 15,
+              "is_visible": false,
+              "instances": [
+                {
+                  "constructor_parameter_types": [
+                    "int",
+                    "String"
+                  ],
+                  "constructor_args": [
+                    4,
+                    "A"
+                  ]
+                },
+                {
+                  "constructor_parameter_types": [
+                    "int",
+                    "String"
+                  ],
+                  "constructor_args": [
+                    4,
+                    "B"
+                  ]
+                }
+              ],
+              "comparisons": [
+                {
+                  "left": 0,
+                  "right": 1,
+                  "expected_sign": -1
+                }
+              ]
+            }
+          ],
+          "total_points": 100,
+          "problem_kind": "java_reflection",
+          "id": "10f7ee74c8d44381a3f5ddad08979f8b",
+          "status": "published",
+          "source": {
+            "created_by": "minh",
+            "created_at": "2026-11-18T12:10:23+00:00",
+            "updated_by": "minh",
+            "updated_at": "2026-11-18T12:10:23+00:00"
+          },
+          "usage_count": 0,
+          "version": 1,
+          "validation": {
+            "spec_hash": "cd2d5c84ee83c2d08d55abe503e2d3b4d313226a1583bdba5692c2e982ec5693",
+            "passed": true,
+            "validated_at": "2026-11-18T12:10:23+00:00",
+            "validated_by": "minh",
+            "sample_sha256": "5f27b4e708703aee072b4998968fd1f7f364cc78e8cc337f58b744bb113f0650",
+            "verdict": "AC",
+            "score": 100,
+            "total_points": 100
+          },
+          "practice_revision": "1418d6c1caa24720b740b08413719f1b",
+          "question_id": "10f7ee74c8d44381a3f5ddad08979f8b",
+          "snapshot_version": 1,
+          "snapshot_at": "2026-11-18T12:14:14+00:00",
+          "order": 1
+        }
+      ]
+    },
+    "created_by": "minh",
+    "created_at": "2026-11-22T15:02:42+00:00",
+    "updated_at": "2026-11-22T15:03:37+00:00",
+    "title": "Diem daanh 3",
+    "show_final_score_immediately": true,
+    "allow_pretest": true,
+    "max_pretest_runs": 20,
+    "pretest_cooldown_seconds": 2.0,
+    "submission_policy": "configurable",
+    "max_submissions": 1,
+    "distributed_at": "2026-11-22T15:02:42+00:00",
+    "started_at": "2026-11-22T15:02:48+00:00",
+    "ended_at": "2026-11-22T15:03:37+00:00"
+  },
+  "20a2a8a4fa4e415bba80e1e59bbce8ea": {
+    "id": "20a2a8a4fa4e415bba80e1e59bbce8ea",
+    "schema_version": 2,
+    "status": "ended",
+    "release_id": "046a2891aaa6411c9dea0c77fed65e77",
+    "general_exam_id": "bbfdec76454145959e873f939f51776f",
+    "paper_ref": {
+      "paper_id": "8909bf5d07064de2b2fdd9f8b37218e2"
+    },
+    "paper_snapshot": {
+      "id": "8909bf5d07064de2b2fdd9f8b37218e2",
+      "title": "JSD-2000",
+      "metadata": {},
+      "questions": [
+        {
+          "title": "Arithmetic Summary",
+          "statement": "Read two signed 32-bit integers a and b. Print exactly one line in this format: sum=<a+b>;diff=<a-b>;product=<a*b>. Do not add spaces around separators.",
+          "language": "java",
+          "grading_mode": "stdio",
+          "target_class": "Main",
+          "target_package": "",
+          "target_file": "Main.java",
+          "starter_code": "import java.util.Scanner;\n\npublic class Main {\n    public static void main(String[] args) {\n        Scanner scanner = new Scanner(System.in);\n        int a = scanner.nextInt();\n        int b = scanner.nextInt();\n        // Print the required arithmetic summary.\n    }\n}\n",
+          "time_limit_seconds": 5.0,
+          "memory_limit_mb": 256,
+          "max_output_bytes": 65536,
+          "allow_pretest": true,
+          "max_pretest_runs": 20,
+          "category": "Arithmetic",
+          "tags": [
+            "java",
+            "stdio",
+            "formatting"
+          ],
+          "difficulty": "easy",
+          "practice_enabled": false,
+          "tests": [
+            {
+              "id": "j01-positive",
+              "stdin": "12 5\n",
+              "expected_stdout": "sum=17;diff=7;product=60\n",
+              "points": 25,
+              "is_visible": true
+            },
+            {
+              "id": "j01-negative",
+              "stdin": "-3 8\n",
+              "expected_stdout": "sum=5;diff=-11;product=-24\n",
+              "points": 25,
+              "is_visible": true
+            },
+            {
+              "id": "j01-zero",
+              "stdin": "0 19\n",
+              "expected_stdout": "sum=19;diff=-19;product=0\n",
+              "points": 25,
+              "is_visible": false
+            },
+            {
+              "id": "j01-small",
+              "stdin": "-4 -6\n",
+              "expected_stdout": "sum=-10;diff=2;product=24\n",
+              "points": 25,
+              "is_visible": true
+            }
+          ],
+          "total_points": 100,
+          "problem_kind": "java_stdio",
+          "id": "65cf650fab404ab385f3c236ad2506a5",
+          "status": "published",
+          "source": {
+            "created_by": "minh",
+            "created_at": "2026-11-18T12:08:35+00:00",
+            "updated_by": "minh",
+            "updated_at": "2026-11-18T12:08:35+00:00"
+          },
+          "usage_count": 0,
+          "version": 1,
+          "validation": {
+            "spec_hash": "d214bf1fbcb881530356965b2c2ab8ced9959fe4454d172eb85297118ca35c17",
+            "passed": true,
+            "validated_at": "2026-11-18T12:08:35+00:00",
+            "validated_by": "minh",
+            "sample_sha256": "2ced83b9a99af1e7271786721fe492a3c77259c3579756b23f10a15bd3875c53",
+            "verdict": "AC",
+            "score": 100,
+            "total_points": 100
+          },
+          "practice_revision": "842e83e182bc47acb0fe64899dd9308e",
+          "question_id": "65cf650fab404ab385f3c236ad2506a5",
+          "snapshot_version": 1,
+          "snapshot_at": "2026-11-18T12:13:10+00:00",
+          "order": 0
+        },
+        {
+          "title": "Comparable Ranked Label",
+          "statement": "Create class model.RankedLabel with private int rank and private String label, plus a public constructor RankedLabel(int rank, String label). Implement Comparable<RankedLabel>; compareTo orders by rank ascending, then by label lexicographically. Override compareTo with public int compareTo(RankedLabel other). The supported Reflection checks verify the interface contract, declared override signature, and comparison outcomes.",
+          "language": "java",
+          "grading_mode": "reflection",
+          "target_class": "model.RankedLabel",
+          "target_package": "model",
+          "target_file": "RankedLabel.java",
+          "starter_code": "package model;\n\npublic class RankedLabel {\n    // Implement Comparable<RankedLabel>, its ordering, fields, and constructor.\n}\n",
+          "time_limit_seconds": 5.0,
+          "memory_limit_mb": 256,
+          "max_output_bytes": 65536,
+          "allow_pretest": true,
+          "max_pretest_runs": 20,
+          "category": "Java Reflection",
+          "tags": [
+            "java",
+            "reflection",
+            "interfaces",
+            "overriding"
+          ],
+          "difficulty": "hard",
+          "practice_enabled": false,
+          "checks": [
+            {
+              "id": "r03-comparable-interface",
+              "kind": "implements",
+              "points": 20,
+              "is_visible": true,
+              "interface": "java.lang.Comparable"
+            },
+            {
+              "id": "r03-rank-field",
+              "kind": "field",
+              "points": 15,
+              "is_visible": true,
+              "name": "rank",
+              "type": "int",
+              "modifier": "private"
+            },
+            {
+              "id": "r03-compare-override",
+              "kind": "method",
+              "points": 20,
+              "is_visible": true,
+              "name": "compareTo",
+              "return_type": "int",
+              "parameter_types": [
+                "model.RankedLabel"
+              ],
+              "modifier": "public"
+            },
+            {
+              "id": "r03-ordering",
+              "kind": "comparable",
+              "points": 30,
+              "is_visible": true,
+              "instances": [
+                {
+                  "constructor_parameter_types": [
+                    "int",
+                    "String"
+                  ],
+                  "constructor_args": [
+                    2,
+                    "Beta"
+                  ]
+                },
+                {
+                  "constructor_parameter_types": [
+                    "int",
+                    "String"
+                  ],
+                  "constructor_args": [
+                    1,
+                    "Zulu"
+                  ]
+                },
+                {
+                  "constructor_parameter_types": [
+                    "int",
+                    "String"
+                  ],
+                  "constructor_args": [
+                    2,
+                    "Alpha"
+                  ]
+                }
+              ],
+              "comparisons": [
+                {
+                  "left": 1,
+                  "right": 0,
+                  "expected_sign": -1
+                },
+                {
+                  "left": 2,
+                  "right": 0,
+                  "expected_sign": -1
+                }
+              ],
+              "expected_order": [
+                1,
+                2,
+                0
+              ]
+            },
+            {
+              "id": "r03-tie-label",
+              "kind": "comparable",
+              "points": 15,
+              "is_visible": false,
+              "instances": [
+                {
+                  "constructor_parameter_types": [
+                    "int",
+                    "String"
+                  ],
+                  "constructor_args": [
+                    4,
+                    "A"
+                  ]
+                },
+                {
+                  "constructor_parameter_types": [
+                    "int",
+                    "String"
+                  ],
+                  "constructor_args": [
+                    4,
+                    "B"
+                  ]
+                }
+              ],
+              "comparisons": [
+                {
+                  "left": 0,
+                  "right": 1,
+                  "expected_sign": -1
+                }
+              ]
+            }
+          ],
+          "total_points": 100,
+          "problem_kind": "java_reflection",
+          "id": "10f7ee74c8d44381a3f5ddad08979f8b",
+          "status": "published",
+          "source": {
+            "created_by": "minh",
+            "created_at": "2026-11-18T12:10:23+00:00",
+            "updated_by": "minh",
+            "updated_at": "2026-11-18T12:10:23+00:00"
+          },
+          "usage_count": 0,
+          "version": 1,
+          "validation": {
+            "spec_hash": "cd2d5c84ee83c2d08d55abe503e2d3b4d313226a1583bdba5692c2e982ec5693",
+            "passed": true,
+            "validated_at": "2026-11-18T12:10:23+00:00",
+            "validated_by": "minh",
+            "sample_sha256": "5f27b4e708703aee072b4998968fd1f7f364cc78e8cc337f58b744bb113f0650",
+            "verdict": "AC",
+            "score": 100,
+            "total_points": 100
+          },
+          "practice_revision": "1418d6c1caa24720b740b08413719f1b",
+          "question_id": "10f7ee74c8d44381a3f5ddad08979f8b",
+          "snapshot_version": 1,
+          "snapshot_at": "2026-11-18T12:13:10+00:00",
+          "order": 1
+        },
+        {
+          "title": "Integer Ledger",
+          "statement": "Read two signed integers a and b separated by whitespace. Print three lines: their sum, a minus b, and their product, in that order. Inputs fit the signed 32-bit range.",
+          "language": "python",
+          "grading_mode": "stdio",
+          "target_file": "solution.py",
+          "starter_code": "a, b = map(int, input().split())\n# Print sum, difference, and product on separate lines.\n",
+          "time_limit_seconds": 2.0,
+          "memory_limit_mb": 128,
+          "max_output_bytes": 65536,
+          "allow_pretest": true,
+          "max_pretest_runs": 20,
+          "category": "Arithmetic",
+          "tags": [
+            "python",
+            "integer",
+            "stdio"
+          ],
+          "difficulty": "easy",
+          "practice_enabled": false,
+          "tests": [
+            {
+              "id": "p01-small",
+              "stdin": "7 3\n",
+              "expected_stdout": "10\n4\n21\n",
+              "points": 25,
+              "is_visible": true
+            },
+            {
+              "id": "p01-negative",
+              "stdin": "-8 5\n",
+              "expected_stdout": "-3\n-13\n-40\n",
+              "points": 25,
+              "is_visible": true
+            },
+            {
+              "id": "p01-zero",
+              "stdin": "0 0\n",
+              "expected_stdout": "0\n0\n0\n",
+              "points": 25,
+              "is_visible": false
+            },
+            {
+              "id": "p01-large",
+              "stdin": "100000 200000\n",
+              "expected_stdout": "300000\n-100000\n20000000000\n",
+              "points": 25,
+              "is_visible": true
+            }
+          ],
+          "total_points": 100,
+          "problem_kind": "python_stdio",
+          "id": "5f2e352fa72c428986ab949ef80b5e13",
+          "status": "published",
+          "source": {
+            "created_by": "minh",
+            "created_at": "2026-11-18T12:09:34+00:00",
+            "updated_by": "minh",
+            "updated_at": "2026-11-18T12:09:34+00:00"
+          },
+          "usage_count": 0,
+          "version": 1,
+          "validation": {
+            "spec_hash": "737a38ce6404b713d59da4238252f43b15192c68ea73dbcea63c66c7d4852fb3",
+            "passed": true,
+            "validated_at": "2026-11-18T12:09:34+00:00",
+            "validated_by": "minh",
+            "sample_sha256": "d764066afec1b49123ee168b0296531ea01bdaa9ac3d47f03720ae53c18bc0cb",
+            "verdict": "AC",
+            "score": 100,
+            "total_points": 100
+          },
+          "practice_revision": "df779090849d49b29689d21a90c227e3",
+          "question_id": "5f2e352fa72c428986ab949ef80b5e13",
+          "snapshot_version": 1,
+          "snapshot_at": "2026-11-18T12:13:10+00:00",
+          "order": 2
+        }
+      ]
+    },
+    "created_by": "minh",
+    "created_at": "2026-11-22T15:02:42+00:00",
+    "updated_at": "2026-11-22T15:03:37+00:00",
+    "title": "Diem daanh 3",
+    "show_final_score_immediately": true,
+    "allow_pretest": true,
+    "max_pretest_runs": 20,
+    "pretest_cooldown_seconds": 2.0,
+    "submission_policy": "configurable",
+    "max_submissions": 1,
+    "distributed_at": "2026-11-22T15:02:42+00:00",
+    "started_at": "2026-11-22T15:02:48+00:00",
+    "ended_at": "2026-11-22T15:03:37+00:00"
   }
 }

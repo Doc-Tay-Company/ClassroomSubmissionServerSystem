@@ -20,7 +20,35 @@
   const monitorHistory = new Map();
   let openHistoryKey = "";
   let openHistoryRow = null;
+  let monitorExamRecords = null;
+  let monitorExamRecordsPromise = null;
+  let monitorExamRecordsFetchedAt = 0;
   const attemptKey = (row) => row.monitoring_attempt ? JSON.stringify([row.monitoring_attempt.student_id, row.monitoring_attempt.release_id]) : "";
+  async function updateMonitorExamLink() {
+    const link = $("monitor-return-exam");
+    if (!link) return;
+    const releaseIds = new Set(monitorRows.map((row) => row.monitoring_attempt?.release_id).filter(Boolean));
+    if (!releaseIds.size) { link.classList.add("hidden"); link.removeAttribute("href"); return; }
+    try {
+      if (!monitorExamRecords || Date.now() - monitorExamRecordsFetchedAt > 60000) {
+        if (!monitorExamRecordsPromise) {
+          monitorExamRecordsPromise = window.cssRequest("/api/admin/exam-records")
+            .then((response) => { monitorExamRecords = Array.isArray(response.exams) ? response.exams : []; monitorExamRecordsFetchedAt = Date.now(); return monitorExamRecords; })
+            .finally(() => { monitorExamRecordsPromise = null; });
+        }
+        await monitorExamRecordsPromise;
+      }
+      const matches = (monitorExamRecords || []).filter((exam) => releaseIds.has(exam.release?.release_id));
+      const started = matches.filter((exam) => exam.status === "started");
+      const selected = started.length === 1 ? started[0] : (!started.length && matches.length === 1 ? matches[0] : null);
+      if (!selected?.id) { link.classList.add("hidden"); link.removeAttribute("href"); return; }
+      link.href = `/admin?section=exam&id=${encodeURIComponent(selected.id)}`;
+      link.classList.remove("hidden");
+    } catch (_) {
+      link.classList.add("hidden");
+      link.removeAttribute("href");
+    }
+  }
   async function syncMonitorHistory(rows) {
     await Promise.all((rows || []).map(async (row) => {
       const key = attemptKey(row);
@@ -59,6 +87,7 @@
       const data = await window.cssRequest("/api/admin/monitor");
       monitorRows = data.students || [];
       monitorServerAt = Date.parse(data.occurred_at) || Date.now();
+      await updateMonitorExamLink();
       await syncMonitorHistory(monitorRows);
       if ($("stat-total")) $("stat-total").textContent = monitorRows.length;
       if ($("stat-online")) $("stat-online").textContent = data.online_count ?? 0;
@@ -87,7 +116,9 @@
       const historyPanel = row.latest_event_seq && attemptKey(row)
         ? `<details class="monitor-event-history" data-monitor-history="${escape(attemptKey(row))}"><summary>Xem chi tiết</summary></details>`
         : "";
-      const remaining = row.remaining_seconds == null ? "—" : `${Math.floor(row.remaining_seconds / 60)}:${String(row.remaining_seconds % 60).padStart(2, "0")}`;
+      const remaining = row.attempt_state === "active"
+        ? `${Math.floor(row.remaining_seconds / 60)}:${String(row.remaining_seconds % 60).padStart(2, "0")}`
+        : ({ not_started: "Ch\u01b0a b\u1eaft \u0111\u1ea7u", no_show: "Kh\u00f4ng d\u1ef1 thi", awaiting_completion: "00:00", completed: "\u0110\u00e3 ho\u00e0n th\u00e0nh", unassigned: "\u2014" }[row.attempt_state] || "\u2014");
       return `<tr class="${alerts ? "row-warning" : ""}"><td><div class="cell-main">${escape(row.student_id)}</div><div class="cell-sub">${escape(row.full_name)}</div></td><td class="code-text">${escape(row.ip || "—")}</td><td>${row.logged_in ? '<span class="status-pill status-green">Đang đăng nhập</span>' : '<span class="status-pill status-gray">Ngoại tuyến / chưa đăng nhập</span>'}<div class="cell-sub">${escape(row.last_seen || "")}</div></td><td>${escape(row.exam_file || "—")}</td><td>${remaining}</td><td>${row.submission_count || 0} lần</td><td><div class="user-agent">${escape(row.user_agent || "—")}</div></td><td>${alerts || '<span class="muted">Bình thường</span>'}<div>${historyPanel}</div></td><td><button class="btn btn-secondary btn-small" data-force="${escape(row.student_id)}">Ép nộp</button> <button class="btn btn-secondary btn-small" data-adjust="${escape(row.student_id)}">Điều chỉnh giờ</button></td></tr>`;
     }).join("") || '<tr><td colspan="9" class="empty-cell">Không có dữ liệu.</td></tr>';
     renderHistoryDialog();
@@ -158,9 +189,9 @@
     const body = $("submissions-body");
     if (!body) return;
     const query = ($("submission-search")?.value || "").toLowerCase();
-    const rows = submissions.filter((row) => [row.student_id, row.full_name, row.filename, row.ip].join(" ").toLowerCase().includes(query));
+    const rows = submissions.filter((row) => [row.student_id, row.full_name, row.exam_name, row.exam_file, row.filename, row.ip].join(" ").toLowerCase().includes(query));
     if ($("submission-count")) $("submission-count").textContent = `${rows.length} bản ghi`;
-    body.innerHTML = rows.map((row) => `<tr><td><div class="cell-main">${escape(row.student_id)}</div><div class="cell-sub">${escape(row.full_name)}</div></td><td>${row.attempt}</td><td>${row.payload_retained === false ? "Payload đã xóa" : `<a href="/admin/submissions/${encodeURIComponent(row.student_id)}/${encodeURIComponent(row.filename)}">${escape(row.filename)}</a>`}</td><td>${escape(row.submitted_at || "")}</td><td>${row.payload_retained === false ? "Đã xóa payload" : "Đang lưu"}</td></tr>`).join("") || '<tr><td colspan="5" class="empty-cell">Chưa có bài nộp.</td></tr>';
+    body.innerHTML = rows.map((row) => `<tr><td><div class="cell-main">${escape(row.student_id)}</div><div class="cell-sub">${escape(row.full_name)}</div></td><td>${escape(row.exam_name || "Không xác định")}</td><td>${escape(row.exam_file || "Không xác định")}</td><td>${row.attempt ?? "—"}</td><td>${row.payload_retained === false ? "Payload đã xóa" : `<a href="/admin/submissions/${encodeURIComponent(row.student_id)}/${encodeURIComponent(row.filename)}">${escape(row.filename)}</a>`}</td><td>${escape(row.submitted_at || "")}</td><td>${row.payload_retained === false ? "Đã xóa payload" : "Đang lưu"}</td></tr>`).join("") || '<tr><td colspan="7" class="empty-cell">Chưa có bài nộp.</td></tr>';
   }
 
   async function loadAdmins() {
