@@ -6,6 +6,7 @@
     const precheck = byId("exam-tab-warning");
     const gate = byId("exam-fullscreen-gate");
     const workspace = byId("student-panel");
+    const zipExam = workspace?.dataset?.zipExam === "true";
     const target = document.documentElement;
     let active = false;
     let release = null;
@@ -46,7 +47,7 @@
       if (starting) return;
       starting = true;
       start.disabled = true;
-      if (getTabCount() > 1) precheck.showModal();
+      if (getTabCount() > 1 && !zipExam) precheck.showModal();
       else void submitStart(false);
     });
     const cancelPrecheck = () => {
@@ -114,7 +115,7 @@
     });
     return {
       setStatus(status) {
-        const next = status.active_exam_attempt === true;
+        const next = status.active_exam_attempt === true && !status.exam_file;
         if (next && (!active || release !== status.release_id)) wasFullscreen = fullscreen(); // restore baseline, never an exit event
         active = next;
         release = next ? status.release_id : null;

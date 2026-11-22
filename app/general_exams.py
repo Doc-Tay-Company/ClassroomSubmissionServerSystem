@@ -12,6 +12,7 @@ from __future__ import annotations
 import copy
 import random
 import uuid
+from datetime import datetime, timedelta, timezone
 from collections.abc import Mapping
 
 from .code_exams import (
@@ -576,6 +577,14 @@ def _remaining(exam: dict, assignments: dict) -> int | None:
     release = exam.get("release")
     if exam["status"] != "started" or not release:
         return None
+    if release.get("official_deadline"):
+        try:
+            deadline = datetime.fromisoformat(release["official_deadline"])
+            if deadline.tzinfo is None:
+                deadline = deadline.replace(tzinfo=timezone.utc)
+            return max(0, int((deadline.astimezone(timezone.utc) - datetime.now(timezone.utc)).total_seconds()))
+        except (TypeError, ValueError):
+            return None
     values = [
         remaining_seconds(item)
         for item in assignments.values()
@@ -595,6 +604,7 @@ def _public(exam: dict, assignments: dict | None = None) -> dict:
         visible_release_keys = (
             "release_id", "released_at", "applied", "assigned_count",
             "distribution_mode", "paper_pool", "paper_distribution_summary",
+            "official_started_at", "official_deadline", "duration_minutes",
         )
         result["release"] = {key: release[key] for key in visible_release_keys if key in release}
     result["remaining_seconds"] = _remaining(exam, assignments if assignments is not None else read_json("assignments.json"))
@@ -644,7 +654,14 @@ def get_exam_results(exam_id: str, *, student_id: str | None = None, question_id
     ]
     rows.sort(key=lambda record: (record.get("submitted_at", ""), record["student_id"], record.get("attempt", 0)))
     code_item = _item(exam, "code")
+    release = exam.get("release") or {}
+    roster_assignments = release.get("assignments") if isinstance(release.get("assignments"), Mapping) else {}
+    paper_assignments = release.get("paper_assignments") if isinstance(release.get("paper_assignments"), Mapping) else {}
+    roster = set(roster_assignments) | set(paper_assignments)
+    if student_id is not None:
+        roster = {owner for owner in roster if owner == student_id}
     snapshot_ids = _code_exam_ids(code_item) | {record.get("exam_id") for record in rows if record.get("exam_id")}
+    snapshot_ids |= {item.get("code_exam_id") for item in paper_assignments.values() if item.get("code_exam_id")}
     stored_snapshots = read_json("code_exams.json")
     question_sets = {}
     questions = {}
@@ -675,23 +692,63 @@ def get_exam_results(exam_id: str, *, student_id: str | None = None, question_id
     for record in rows:
         grouped.setdefault(record["student_id"], []).append({**record, "exam_id": exam_id})
     matrix = []
-    assignments = (exam.get("release") or {}).get("paper_assignments", {})
-    for owner, records in grouped.items():
-        if student_id is not None and owner != student_id:
-            continue
-        assigned_id = (assignments.get(owner) or {}).get("code_exam_id")
-        owner_ids = {record["exam_id"] for record in rows if record["student_id"] == owner and record.get("exam_id")}
+    student_records = read_json("students.json")
+    started_markers = release.get("student_started_at")
+    markers_available = isinstance(started_markers, Mapping)
+    result_owners = set(grouped) if student_id is None else ({student_id} if student_id in grouped else set())
+    owner_ids = sorted(roster | result_owners)
+    official_deadline = release.get("official_deadline")
+    can_still_start = exam.get("status") == "distributed"
+    if exam.get("status") == "started":
+        can_still_start = False
+    if exam.get("status") == "started" and official_deadline:
+        try:
+            deadline = datetime.fromisoformat(official_deadline)
+            if deadline.tzinfo is None:
+                deadline = deadline.replace(tzinfo=timezone.utc)
+            can_still_start = datetime.now(timezone.utc) < deadline.astimezone(timezone.utc)
+        except (TypeError, ValueError):
+            can_still_start = False
+    for owner in owner_ids:
+        records = grouped.get(owner, [])
+        assigned_id = (paper_assignments.get(owner) or {}).get("code_exam_id")
+        snapshot_owner_ids = {record["exam_id"] for record in rows if record["student_id"] == owner and record.get("exam_id")}
         if assigned_id:
-            owner_ids.add(assigned_id)
+            snapshot_owner_ids.add(assigned_id)
+        elif code_item and code_item.get("code_exam_id"):
+            snapshot_owner_ids.add(code_item["code_exam_id"])
         expected = {}
-        for snapshot_id in sorted(owner_ids):
+        for snapshot_id in sorted(snapshot_owner_ids):
             for question in question_sets.get(snapshot_id, []):
                 expected.setdefault(question["question_id"], question)
         for record in records:
             expected.setdefault(record["question_id"], questions[record["question_id"]])
         context = {"id": exam_id, "release_id": release_id, "questions": list(expected.values())}
-        entry = build_results_matrix(context, {owner: records}, None)[0]
-        complete_metadata = bool(owner_ids) and all(snapshot_id in question_sets for snapshot_id in owner_ids)
+        if records:
+            entry = build_results_matrix(context, {owner: records}, None)[0]
+        else:
+            cells = []
+            assigned_questions = set(expected)
+            for question in questions.values():
+                cells.append({
+                    "question_id": question["question_id"], "attempts": 0,
+                    "status": "none" if question["question_id"] in assigned_questions else "not_assigned",
+                    "verdict": None, "score": None, "total_points": question["total_points"],
+                    "submission_id": None, "regraded": False,
+                })
+            entry = {"student_id": owner, "full_name": student_records.get(owner, {}).get("full_name", ""),
+                     "cells": cells, "total_score": None, "total_points": None}
+        started_at = started_markers.get(owner) if markers_available else None
+        if records:
+            entry["participation_status"] = "submitted"
+        elif started_at:
+            entry["participation_status"] = "started_no_submission"
+            entry["total_score"] = None
+        elif markers_available:
+            entry["participation_status"] = "not_started" if can_still_start else "no_show"
+        else:
+            entry["participation_status"] = "unknown"
+        complete_metadata = bool(snapshot_owner_ids) and all(snapshot_id in question_sets for snapshot_id in snapshot_owner_ids)
         if not complete_metadata:
             entry["total_score"] = entry["total_points"] = None
         cells = {cell["question_id"]: cell for cell in entry["cells"]}
@@ -1086,6 +1143,7 @@ def _build_release(exam: dict, actor: str, ip: str) -> dict:
         "applied": False,
         "assigned_count": len(assignments),
         "assignments": assignments,
+        "student_started_at": {},
         "distribution_summary": summary,
     }
     if validated_papers:
@@ -1214,7 +1272,7 @@ def revoke_exam(exam_id: str, actor: str, ip: str) -> dict:
     return _public(exam)
 
 
-def _apply_release(exam: dict, settings: dict) -> None:
+def _apply_release(exam: dict, settings: dict, official_started_at: str | None = None) -> None:
     release = exam["release"]
     config = exam["config"]
     release_id = release["release_id"]
@@ -1263,7 +1321,7 @@ def _apply_release(exam: dict, settings: dict) -> None:
         persisted[sid] = item
     if not persisted:
         raise ExamError("Không còn sinh viên hợp lệ để bắt đầu kỳ thi.", 409)
-    started_at = (
+    started_at = official_started_at or (
         settings.get("exam_started_at")
         if settings.get("exam_release_id") == release_id and settings.get("exam_started_at")
         else utc_now()
@@ -1305,6 +1363,16 @@ def start_exam(exam_id: str, actor: str, ip: str) -> dict:
         if settings.get("exam_state") == "started" or settings.get("exam_released"):
             raise ExamError("Đang có một kỳ thi diễn ra. Hãy kết thúc kỳ thi đó trước khi bắt đầu kỳ thi khác.", 409)
         release = exam["release"]
+        official_started_at = utc_now()
+        duration_minutes = int(exam["config"]["duration_minutes"])
+        started_dt = datetime.fromisoformat(official_started_at).astimezone(timezone.utc)
+        official_deadline = (started_dt + timedelta(minutes=duration_minutes)).isoformat(timespec="seconds")
+        release.update({
+            "official_started_at": official_started_at,
+            "official_deadline": official_deadline,
+            "duration_minutes": duration_minutes,
+        })
+        release.setdefault("student_started_at", {})
         if (
             release.get("applied")
             and settings.get("exam_state") == "distributed"
@@ -1314,21 +1382,55 @@ def start_exam(exam_id: str, actor: str, ip: str) -> dict:
             # A published, not-started release may already have preparatory assignments.
             # Re-apply the persisted release map at explicit Start so synced Paper choices
             # and any other current Exam configuration become authoritative together.
-            _apply_release(exam, settings)
+            _apply_release(exam, settings, official_started_at)
         elif release.get("applied"):
             try:
-                start_exam_session()
+                start_exam_session(started_at=official_started_at, duration_minutes=duration_minutes)
             except ValueError as exc:
                 raise ExamError(str(exc), 409) from exc
         else:
             if settings.get("exam_state") == "distributed" and settings.get("exam_release_id") not in {None, release.get("release_id")}:
                 raise ExamError("Đang có đề phát theo luồng cũ chưa bắt đầu. Hãy thu hồi hoặc bắt đầu kỳ thi đó trước.", 409)
-            _apply_release(exam, settings)
-        exam.update({"status": "started", "started_at": utc_now()})
+            _apply_release(exam, settings, official_started_at)
+        exam.update({"status": "started", "started_at": official_started_at})
         _touch(exam)
         write_json("exams.json", exams)
     audit("exam.started_by_admin", actor, ip, {"exam_id": exam_id, "release_id": release["release_id"]})
     return _public(exam)
+
+
+def release_timing(release_id: str) -> dict | None:
+    """Return the authoritative timing contract for the currently started release."""
+    for exam in _load().values():
+        release = exam.get("release") or {}
+        if release.get("release_id") == release_id and exam.get("status") == "started":
+            if release.get("official_started_at") and release.get("official_deadline"):
+                return {"release_id": release_id, "official_started_at": release["official_started_at"],
+                        "official_deadline": release["official_deadline"]}
+            return None
+    return None
+
+
+def record_student_start(release_id: str, student_id: str, started_at: str) -> None:
+    """Persist release-scoped participation evidence without changing frozen allocation."""
+    with transaction():
+        exams = _load()
+        exam = next((item for item in exams.values()
+                     if (item.get("release") or {}).get("release_id") == release_id), None)
+        if not exam:
+            raise ExamError("Exam release was not found for Student Start.", 409)
+        release = exam["release"]
+        roster = release.get("assignments") or {}
+        paper_roster = release.get("paper_assignments") or {}
+        assignment = read_json("assignments.json").get(student_id) or {}
+        is_currently_assigned = assignment.get("release_id") == release_id
+        if student_id not in roster and student_id not in paper_roster and not is_currently_assigned:
+            raise ExamError("Student is not assigned to this release.", 409)
+        markers = release.setdefault("student_started_at", {})
+        if not isinstance(markers, dict):
+            raise ExamError("Invalid student participation data in this release.", 409)
+        markers.setdefault(student_id, started_at)
+        write_json("exams.json", exams)
 
 
 def end_exam(exam_id: str, actor: str, ip: str) -> dict:

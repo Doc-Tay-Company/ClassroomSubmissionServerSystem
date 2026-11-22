@@ -169,7 +169,7 @@ def persist_distribution(mode: str, config: dict, assignments: dict, code_exam_i
     audit("exam.distributed", "admin", None, {"release_id": release_id, "mode": mode, "student_count": len(persisted), "exam_count": len(set(assignments.values()))})
     return {"release_id": release_id, "assigned_count": len(assignments), "distribution": assignments}
 
-def start_exam(student_id: str, supplied_password: str | None = None, ip: str | None = None, *, confirmed_multiple_tabs: bool = False) -> dict:
+def start_exam(student_id: str, supplied_password: str | None = None, ip: str | None = None, *, confirmed_multiple_tabs: bool = False, official_deadline: str | None = None) -> dict:
     settings = read_json("settings.json")
     if settings.get("exam_state") != "started":
         raise ValueError("Giảng viên chưa bắt đầu kỳ thi.")
@@ -181,19 +181,32 @@ def start_exam(student_id: str, supplied_password: str | None = None, ip: str | 
     if not item or item.get("release_id") != settings.get("exam_release_id"):
         raise ValueError("Bạn chưa được giao đề trong kỳ thi này.")
     if item.get("started_at"):
-        if confirmed_multiple_tabs and is_active_exam_attempt(student_id, settings, item):
+        if confirmed_multiple_tabs and not item.get("exam_file") and is_active_exam_attempt(student_id, settings, item):
             item["monitoring_precheck_pending"] = True
             write_json("assignments.json", assignments)
         return item
 
-
     now = datetime.now(timezone.utc)
-    duration = max(1, min(int(settings.get("exam_duration_minutes", 90)), 24 * 60))
+    if official_deadline:
+        try:
+            deadline = datetime.fromisoformat(official_deadline)
+            if deadline.tzinfo is None:
+                deadline = deadline.replace(tzinfo=timezone.utc)
+            deadline = deadline.astimezone(timezone.utc)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("Official exam deadline is invalid.") from exc
+        if now >= deadline:
+            raise ValueError("Kỳ thi đã hết thời gian bắt đầu.")
+    else:
+        # Compatibility for non-General-Exam callers; supported official timing
+        # always supplies the frozen Release deadline.
+        duration = max(1, min(int(settings.get("exam_duration_minutes", 90)), 24 * 60))
+        deadline = now + timedelta(minutes=duration)
     item["started_at"] = now.isoformat(timespec="seconds")
-    item["ends_at"] = (now + timedelta(minutes=duration)).isoformat(timespec="seconds")
+    item["ends_at"] = deadline.isoformat(timespec="seconds")
     item["status"] = "in_progress"
     item["ip_at_start"] = ip or item.get("ip_at_assignment")
-    if confirmed_multiple_tabs and is_active_exam_attempt(student_id, settings, item):
+    if confirmed_multiple_tabs and not item.get("exam_file") and is_active_exam_attempt(student_id, settings, item):
         item["monitoring_precheck_pending"] = True
     assignments[student_id] = item
     write_json("assignments.json", assignments)
@@ -201,12 +214,16 @@ def start_exam(student_id: str, supplied_password: str | None = None, ip: str | 
     return item
 
 
-def start_exam_session() -> dict:
+def start_exam_session(*, started_at: str | None = None, duration_minutes: int | None = None) -> dict:
     settings = read_json("settings.json")
     if settings.get("exam_state") != "distributed":
         raise ValueError("Cần phân phối đề trước khi bắt đầu kỳ thi.")
     release_id = settings.get("exam_release_id")
-    settings.update({"exam_state": "started", "exam_released": True, "exam_started_at": utc_now()})
+    settings.update({
+        "exam_state": "started", "exam_released": True,
+        "exam_started_at": started_at or utc_now(),
+        **({"exam_duration_minutes": duration_minutes} if duration_minutes is not None else {}),
+    })
     write_json("settings.json", settings)
     transition_code_exam(release_id, "started")
     audit("exam.started_by_admin", "admin", None, {"release_id": settings.get("exam_release_id")})

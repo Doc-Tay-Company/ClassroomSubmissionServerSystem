@@ -70,14 +70,16 @@
     updateTabs(); // Keep the existing page registry usable for the pre-Start check; no telemetry is sent here.
     try {
       const status = await window.cssRequest("/api/student/status");
+      window.refreshExamDeadlineClock(status.ends_at);
       const activeAttempt = status.active_exam_attempt === true;
-      examTelemetry.setActive(activeAttempt, activeAttempt ? status.release_id : null);
+      const behaviorMonitoring = activeAttempt && !status.exam_file;
+      examTelemetry.setActive(behaviorMonitoring, behaviorMonitoring ? status.release_id : null);
       examEntry.setStatus(status);
       if (status.completion?.finalized && document.getElementById("student-panel")?.dataset.homeView !== "true") {
         await window.completeOfficialExam();
         return;
       }
-      if (activeAttempt) {
+      if (behaviorMonitoring) {
         await examTelemetry.sendSnapshot();
       }
       const box = document.getElementById("student-notifications");
@@ -161,6 +163,7 @@
     setInterval(async () => {
       try {
         const status = await window.cssRequest("/api/student/status");
+        window.refreshExamDeadlineClock(status.ends_at);
         if (status.remaining_seconds !== null) {
           remaining = status.remaining_seconds;
           draw();
@@ -183,9 +186,19 @@
         const result = await window.cssRequest("/api/student/submit", { method: "POST", body: data });
         const box = document.getElementById("submission-result");
         box.classList.remove("hidden");
-        box.textContent = `Đã nhận bài: ${result.submission.filename} (${result.submission.size_bytes} bytes).`;
-        window.cssToast("Nộp bài thành công.", "success");
-        await window.completeOfficialExam();
+        const zipState = result.zip_submission;
+        if (zipState?.eligible) {
+          const remaining = Math.max(0, Number(zipState.limit) - Number(zipState.count));
+          box.textContent = `Đã nhận bài ${zipState.count}/${zipState.limit}. Bạn còn ${remaining} lượt nộp trước thời hạn.`;
+          const allowance = document.getElementById("zip-submission-allowance");
+          if (allowance) allowance.textContent = `Đã nộp ${zipState.count}/${zipState.limit} lượt; còn ${remaining} lượt.`;
+          window.cssToast("Đã nhận bài. Bạn vẫn có thể tiếp tục làm bài.", "success");
+          form.reset();
+        } else {
+          box.textContent = `Đã nhận bài: ${result.submission.filename} (${result.submission.size_bytes} bytes).`;
+          window.cssToast("Nộp bài thành công.", "success");
+          await window.completeOfficialExam();
+        }
       } catch (error) {
         window.cssToast(error.message, "error");
       } finally {

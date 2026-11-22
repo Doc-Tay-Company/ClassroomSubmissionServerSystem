@@ -13,6 +13,7 @@ from typing import Any, Mapping
 
 from .config import BASE_DIR
 from .exams import is_active_exam_attempt
+from .submissions import zip_submission_eligibility
 from .storage import read_json, transaction, update_json, utc_now
 
 _PRACTICE_WORKSPACE_PARENT = BASE_DIR / ".practice-run-workspaces"
@@ -27,9 +28,18 @@ class PracticeError(ValueError):
         self.code = code
 
 
+def is_practice_locked(student_id: str, assignment: dict | None = None, settings: dict | None = None) -> bool:
+    """Return whether this Student may still perform official Exam work."""
+    settings = read_json("settings.json") if settings is None else settings
+    assignment = read_json("assignments.json").get(student_id) if assignment is None else assignment
+    if isinstance(assignment, dict) and assignment.get("exam_file"):
+        return zip_submission_eligibility(student_id, assignment, settings).get("eligible", False)
+    return is_active_exam_attempt(student_id, settings, assignment)
+
+
 def require_practice_access(student_id: str) -> None:
     """Caller holds transaction() through admission/mutation, never through execution."""
-    if is_active_exam_attempt(student_id):
+    if is_practice_locked(student_id):
         raise PracticeError("Bạn đang tham gia một kỳ thi chính thức. Practice tạm thời bị khóa.", 403, "PRACTICE_LOCKED")
 
 

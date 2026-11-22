@@ -5,7 +5,7 @@
 <header class="topbar ui-header"><div class="brand"><i class="fa fa-laptop"></i> Classroom Submission Server</div><div id="student-header-actions" style="display:flex;gap:0.5rem;align-items:center;"><a href="/practice" class="btn btn-ghost ui-action"><i class="fa fa-code"></i> Thư viện Luyện tập</a><form action="/logout" method="post"><button class="btn btn-ghost ui-action" type="submit"><i class="fa fa-sign-out"></i> Đăng xuất</button></form></div></header>
 <main class="page-wrap narrow ui-page mx-auto max-w-4xl px-6 py-8">
   <section class="welcome-panel"><div><p class="eyebrow">KHU VỰC SINH VIÊN</p><h1>Xin chào, {{ student.full_name }}</h1><p class="muted">MSSV: <strong>{{ session.user_id }}</strong></p></div><span class="status-pill status-blue">Đã đăng nhập</span></section>
-  <section class="panel bg-white rounded-2xl border p-6 mb-5" id="student-panel" {% if assignment and assignment.started_at and assignment.status == 'in_progress' and settings.exam_state == 'started' %}inert{% endif %} data-exam-state="{{ settings.exam_state or 'idle' }}" data-published="{% for item in published_exams %}{{ item.id }}{% if not loop.last %},{% endif %}{% endfor %}" data-home-view="{{ 'true' if home_view else 'false' }}" data-assigned="{{ '1' if assignment else '0' }}" data-assignment-release="{{ assignment.release_id if assignment and assignment.release_id else '' }}" data-assignment-status="{{ assignment.status if assignment else '' }}" data-assignment-started-at="{{ assignment.started_at if assignment and assignment.started_at else '' }}">
+  <section class="panel bg-white rounded-2xl border p-6 mb-5" id="student-panel" {% if assignment and assignment.code_exam_id and assignment.started_at and assignment.status == 'in_progress' and settings.exam_state == 'started' %}inert{% endif %} data-exam-state="{{ settings.exam_state or 'idle' }}" data-published="{% for item in published_exams %}{{ item.id }}{% if not loop.last %},{% endif %}{% endfor %}" data-home-view="{{ 'true' if home_view else 'false' }}" data-assigned="{{ '1' if assignment else '0' }}" data-assignment-release="{{ assignment.release_id if assignment and assignment.release_id else '' }}" data-zip-exam="{{ 'true' if assignment and assignment.exam_file else 'false' }}" data-assignment-status="{{ assignment.status if assignment else '' }}" data-assignment-started-at="{{ assignment.started_at if assignment and assignment.started_at else '' }}">
     <div id="student-notifications" class="hidden"></div><div class="panel-heading"><div><h2><i class="fa fa-file-text-o"></i> {{ 'Màn hình chính' if home_view else 'Bài thi của bạn' }}</h2><p class="muted">{{ 'Trạng thái bài thi và các thao tác sau khi hoàn thành.' if home_view else 'Đề thi chỉ được mở sau khi bạn nhấn bắt đầu làm bài.' }}</p></div></div>
     {% if home_view %}
       {% if completion is defined and completion.finalized %}
@@ -16,7 +16,10 @@
         </div>
       {% endif %}
       <div class="empty-state"><i class="fa fa-home"></i><h3>Bài thi của bạn</h3>
-      {% if assignment and assignment.status == 'submitted' %}
+      {% if assignment and assignment.exam_file and zip_submission and zip_submission.eligible %}
+        <p>Đã nhận {{ zip_submission.count }}/{{ zip_submission.limit }} bài ZIP. Bạn còn {{ zip_submission.limit - zip_submission.count }} lượt nộp và có thể tiếp tục trước thời hạn.</p>
+        <a class="btn btn-primary ui-action" href="/"><i class="fa fa-pencil"></i> Tiếp tục làm bài</a>
+      {% elif assignment and assignment.status == 'submitted' %}
         <p>Bạn đã hoàn thành và nộp bài thi{% if current_exam %} <strong>{{ current_exam.title }}</strong>{% endif %}{% if assignment.submitted_at %} lúc {{ assignment.submitted_at }}{% endif %}.</p>
         <a class="btn btn-primary ui-action" href="/"><i class="fa fa-eye"></i> Xem lại bài thi</a>
       {% elif assignment and assignment.status in ('ended', 'expired') %}
@@ -54,11 +57,12 @@
       <button id="start-exam" class="btn btn-primary ui-action"><i class="fa fa-play"></i> Bắt đầu làm bài</button>
       <p class="fine-print">Thời gian bắt đầu được ghi nhận trên server. Không thể kéo dài giờ thi bằng cách thay đổi đồng hồ máy tính.</p>
     {% else %}
-      <div class="exam-status-grid"><div><span class="muted">Trạng thái</span><strong>{{ {'in_progress':'Đã bắt đầu','submitted':'Đã nộp','ended':'Đã kết thúc','expired':'Hết giờ'}.get(assignment.status, assignment.status) }}</strong></div><div><span class="muted">Đề được giao</span><strong>{{ assignment.exam_file or ('Đề thi code' if assignment.code_exam_id else '—') }}</strong></div><div><span class="muted">Bắt đầu</span><strong data-local-clock="{{ assignment.started_at }}"></strong></div><div><span class="muted">Kết thúc</span><strong data-local-clock="{{ assignment.ends_at }}"></strong></div><div><span class="muted">Thời gian còn lại</span><strong id="countdown" data-remaining="{{ remaining or 0 }}">--:--</strong></div></div>
+      <div class="exam-status-grid"><div><span class="muted">Trạng thái</span><strong>{{ {'in_progress':'Đã bắt đầu','submitted':'Đã nộp','ended':'Đã kết thúc','expired':'Hết giờ'}.get(assignment.status, assignment.status) }}</strong></div><div><span class="muted">Đề được giao</span><strong>{{ assignment.exam_file or ('Đề thi code' if assignment.code_exam_id else '—') }}</strong></div><div><span class="muted">Bắt đầu</span><strong data-local-clock="{{ assignment.started_at }}"></strong></div><div><span class="muted">Kết thúc</span><strong data-local-clock="{{ assignment.ends_at }}" data-effective-deadline></strong></div><div><span class="muted">Thời gian còn lại</span><strong id="countdown" data-remaining="{{ remaining or 0 }}">--:--</strong></div></div>
       {% if assignment.exam_file %}
         <a class="btn btn-primary ui-action" href="/api/student/exam" target="_blank" rel="noopener"><i class="fa fa-file-pdf-o"></i> Mở đề thi</a>
         <hr class="rule">
         <h3>Nộp bài</h3><p class="muted">Được phép: {{ settings.accepted_submission_extensions|join(', ') }}. Tối đa 50 MiB. {% if settings.submission_policy == 'once' %}Bạn chỉ được nộp một lần.{% else %}Bạn được nộp tối đa {{ settings.max_submissions }} lần.{% endif %} Tên file lưu trên server sẽ bắt đầu bằng MSSV <strong>{{ session.user_id }}</strong>.</p>
+        {% if zip_submission %}<p class="muted" id="zip-submission-allowance">Đã nộp {{ zip_submission.count }}/{{ zip_submission.limit }} lượt; còn {{ zip_submission.limit - zip_submission.count }} lượt.</p>{% endif %}
         <form id="submission-form" class="stack-form ui-form"><label for="submission-file">File bài làm</label><input id="submission-file" name="file" type="file" accept="{{ settings.accepted_submission_extensions|join(',') }}" required><button class="btn btn-primary ui-action" type="submit"><i class="fa fa-cloud-upload"></i> Nộp bài</button></form>
         <div id="submission-result" class="notice hidden"></div>
       {% endif %}

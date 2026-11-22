@@ -112,6 +112,7 @@ class CoreTests(unittest.TestCase):
                 }
             },
             "students.json": {"21010001": {"full_name": "Test Student"}},
+            "exams.json": {},
             "settings.json": {"exam_state": "started", "exam_released": True, "exam_release_id": "release-1"},
             "assignments.json": {"21010001": {"release_id": "release-1", "started_at": (datetime.now(timezone.utc) - timedelta(minutes=1)).isoformat(), "ends_at": (datetime.now(timezone.utc) + timedelta(minutes=30)).isoformat(), "status": "in_progress"}},
             "submissions.json": {},
@@ -171,6 +172,7 @@ class CoreTests(unittest.TestCase):
             response = handler.do_GET()
 
         self.assertTrue(response["active_exam_attempt"])
+        self.assertTrue(response["practice_locked"])
         self.assertTrue(response["assigned"])
         self.assertTrue(response["started"])
         self.assertEqual(response["release_id"], "release-1")
@@ -236,6 +238,7 @@ class CoreTests(unittest.TestCase):
         token_key = "hashed-session"
         state = {
             "students.json": {"student-1": {"full_name": "Test Student"}},
+            "exams.json": {},
             "sessions.json": {token_key: {"user_id": "student-1", "role": "student", "last_seen": main.utc_now(), "telemetry": {"visibility": "hidden", "focused": False, "tab_count": 2, "release_id": "old-release"}}},
             "assignments.json": {"student-1": {"release_id": "old-release", "status": "ended", "started_at": main.utc_now(), "ends_at": main.utc_now()}},
             "submissions.json": {},

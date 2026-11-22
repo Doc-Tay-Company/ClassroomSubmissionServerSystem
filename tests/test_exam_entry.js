@@ -2,11 +2,12 @@ const assert = require('assert');
 const fs = require('fs');
 const vm = require('vm');
 const tick = () => new Promise((resolve) => setImmediate(resolve));
-function setup(tabs = 1) {
+function setup(tabs = 1, zipExam = false) {
   const nodes = {};
   for (const id of ['start-exam', 'student-panel', 'exam-tab-warning', 'exam-tab-cancel', 'exam-tab-continue', 'exam-fullscreen-gate', 'exam-fullscreen-message', 'exam-fullscreen-choices', 'exam-fullscreen-return', 'exam-fullscreen-agree', 'exam-fullscreen-refuse']) {
     nodes[id] = { open: false, hidden: false, handlers: {}, addEventListener(t, fn) { this.handlers[t] = fn; }, showModal() { this.open = true; }, close() { this.open = false; this.handlers.close?.(); }, click() { return this.handlers.click?.(); } };
   }
+  nodes['student-panel'].dataset = { zipExam: zipExam ? 'true' : 'false' };
   const listeners = {};
   const headerClasses = new Set();
   nodes['student-header-actions'] = { classList: { toggle(name, enabled) { if (enabled) headerClasses.add(name); else headerClasses.delete(name); }, contains(name) { return headerClasses.has(name); } } };
@@ -31,6 +32,12 @@ const active = { active_exam_attempt: true, release_id: 'release-A', ends_at: '2
   const failed = setup(2); failed.failStart(); failed.nodes['start-exam'].click(); failed.nodes['exam-tab-continue'].click(); await tick();
   assert.equal(failed.reloads(), 0); assert.equal(failed.events.length, 0); assert.equal(failed.nodes['start-exam'].disabled, false);
 
+  const zipStart = setup(2, true);
+  zipStart.nodes['start-exam'].click(); await tick();
+  assert(!zipStart.nodes['exam-tab-warning'].open, 'ZIP exams skip behavioral multi-tab precheck');
+  assert.deepStrictEqual(zipStart.starts, [false]);
+  assert.equal(zipStart.events.length, 0);
+
   const s = setup(), gate = s.nodes['exam-fullscreen-gate'], workspace = s.nodes['student-panel'];
   s.controller.setStatus({ active_exam_attempt: false }); assert(!gate.open);
   s.controller.setStatus(active); assert(gate.open && workspace.inert); assert.equal(s.events.length, 0);
@@ -54,6 +61,8 @@ const active = { active_exam_attempt: true, release_id: 'release-A', ends_at: '2
   s.controller.setStatus({ active_exam_attempt: false }); assert(!gate.open && !workspace.inert);
   assert(!s.nodes['student-header-actions'].classList.contains('hidden'));
   const restored = setup(); restored.controller.setStatus(active); assert(restored.nodes['exam-fullscreen-gate'].open); assert.equal(restored.events.length, 0, 'F5/reauth baseline does not create a lost event');
+  const zip = setup(); zip.controller.setStatus({ ...active, exam_file: 'exam.zip' });
+  assert(!zip.nodes['exam-fullscreen-gate'].open && !zip.nodes['student-panel'].inert, 'ZIP attempts do not activate the Fullscreen Gate');
   restored.document.documentElement.requestFullscreen = async () => { restored.document.fullscreenElement = restored.document.documentElement; restored.listeners.fullscreenchange(); };
   await restored.nodes['exam-fullscreen-agree'].click(); restored.listeners.pagehide(); restored.document.fullscreenElement = null; restored.listeners.fullscreenchange(); restored.flushTransitions(); assert.equal(restored.events.length, 0, 'unload is not a fullscreen loss');
   console.log('PASS Exam entry: precheck/cancel/continue/retry, gate/refuse/failure/exit, reload/end');

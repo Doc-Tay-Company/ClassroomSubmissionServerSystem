@@ -109,9 +109,19 @@
                 <div class="panel-heading">
                     <div><h2><i class="fa fa-desktop"></i> Máy và trạng thái sinh viên</h2>
                         <p class="muted">IP là địa chỉ kết nối mà server quan sát được; User-Agent chỉ mô tả trình
-                            duyệt, không xác định chắc chắn tên máy.</p></div>
-                    <button class="btn btn-secondary" id="refresh-monitor"><i class="fa fa-refresh"></i> Làm mới
-                    </button>
+                            duyệt, không xác định chắc chắn tên máy.</p>
+                    </div>
+                    
+                    <div class="flex items-center justify-end gap-3" style="gap: 12px;">
+                        <a class="btn btn-secondary hidden"
+                        id="monitor-return-exam" href="#">
+                            <i class="fa fa-arrow-left"></i> Quay lại kỳ thi
+                        </a>
+
+                        <button class="btn btn-secondary" id="refresh-monitor">
+                            <i class="fa fa-refresh"></i> Làm mới
+                        </button>
+                    </div>
                 </div>
                 <div class="table-toolbar"><input id="monitor-search" placeholder="Tìm MSSV, họ tên hoặc IP..."><span
                         class="muted" id="monitor-updated">Chưa cập nhật</span></div>
@@ -259,6 +269,8 @@
                         <thead>
                         <tr>
                             <th>MSSV / Họ tên</th>
+                            <th>Kỳ thi</th>
+                            <th>Đề thi</th>
                             <th>Lần nộp</th>
                             <th>File</th>
                             <th>Thời điểm</th>
@@ -267,7 +279,7 @@
                         </thead>
                         <tbody id="submissions-body">
                         <tr>
-                            <td colspan="5" class="empty-cell">Đang tải…</td>
+                            <td colspan="7" class="empty-cell">Đang tải…</td>
                         </tr>
                         </tbody>
                     </table>

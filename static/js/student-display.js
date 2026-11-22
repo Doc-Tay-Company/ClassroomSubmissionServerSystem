@@ -6,4 +6,8 @@
       timeZone: "Asia/Ho_Chi_Minh", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23",
     }).format(date);
   };
+  global.refreshExamDeadlineClock = (value) => {
+    const element = document.querySelector("[data-effective-deadline]");
+    if (element) element.textContent = global.formatExamClock(value);
+  };
 })(window);

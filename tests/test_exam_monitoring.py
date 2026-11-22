@@ -8,7 +8,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from app import exam_monitoring, main, storage
+from app import exam_monitoring, main, practice, storage, submissions
 
 
 class ExamMonitoringTests(unittest.TestCase):
@@ -145,6 +145,152 @@ class ExamMonitoringTests(unittest.TestCase):
         self.assertEqual(row["event_counters"]["window_blur"], 1)
         self.assertEqual(row["latest_event_seq"], 1)
         self.assertIn("recorded_window_blur", row["alerts"])
+
+    def test_zip_submission_eligibility_is_release_scoped_and_drives_practice_lock(self):
+        now = datetime.now(timezone.utc)
+        assignment = {
+            **self.assignment, "exam_file": "exam.zip", "status": "submitted",
+            "started_at": (now - timedelta(minutes=1)).isoformat(),
+            "ends_at": (now + timedelta(minutes=5)).isoformat(),
+        }
+        settings = {**self.settings, "submission_policy": "configurable", "max_submissions": 3}
+        records = {self.student: [
+            {"release_id": "previous-release", "payload_retained": True},
+            {"release_id": self.release, "payload_retained": False},
+            {"release_id": self.release, "payload_retained": True},
+        ]}
+        state = submissions.zip_submission_eligibility(self.student, assignment, settings, records, now)
+        self.assertTrue(state["eligible"])
+        self.assertEqual((state["count"], state["limit"]), (2, 3))
+
+        storage.write_json("settings.json", settings)
+        storage.write_json("assignments.json", {self.student: assignment})
+        storage.write_json("submissions.json", records)
+        self.assertTrue(practice.is_practice_locked(self.student))
+
+        records[self.student].append({"release_id": self.release, "payload_retained": False})
+        storage.write_json("submissions.json", records)
+        exhausted = submissions.zip_submission_eligibility(self.student, assignment, settings, records, now)
+        self.assertFalse(exhausted["eligible"])
+        self.assertEqual(exhausted["reason"], "quota_exhausted")
+        self.assertFalse(practice.is_practice_locked(self.student))
+        once = submissions.zip_submission_eligibility(
+            self.student, assignment, {**settings, "submission_policy": "once"}, records, now,
+        )
+        self.assertFalse(once["eligible"])
+        self.assertEqual(once["limit"], 1)
+        expired = submissions.zip_submission_eligibility(
+            self.student, {**assignment, "ends_at": (now - timedelta(seconds=1)).isoformat()}, settings, records, now,
+        )
+        self.assertEqual(expired["reason"], "deadline")
+
+    def test_zip_monitoring_reports_release_count_lifecycle_and_suppresses_behavior_alerts(self):
+        now = datetime.now(timezone.utc)
+        assignment = {
+            **self.assignment, "exam_file": "exam.zip", "status": "submitted",
+            "started_at": (now - timedelta(minutes=1)).isoformat(),
+            "ends_at": (now + timedelta(minutes=5)).isoformat(),
+        }
+        storage.write_json("students.json", {self.student: {"full_name": "Test Student"}})
+        storage.write_json("sessions.json", {"session": {
+            "user_id": self.student, "role": "student", "last_seen": storage.utc_now(),
+            "telemetry": {"visibility": "hidden", "focused": False, "tab_count": 3, "release_id": self.release},
+        }})
+        storage.write_json("settings.json", {**self.settings, "submission_policy": "configurable", "max_submissions": 3})
+        storage.write_json("assignments.json", {self.student: assignment})
+        storage.write_json("submissions.json", {self.student: [
+            {"release_id": "old-release", "filename": "old.zip"},
+            {"release_id": self.release, "filename": "current-1.zip"},
+            {"release_id": self.release, "filename": "current-2.zip"},
+        ]})
+        storage.write_json("code_submissions.json", {})
+        storage.write_json("exams.json", {"exam-1": {"status": "started", "release": {
+            "release_id": self.release, "official_deadline": (now + timedelta(minutes=20)).isoformat(),
+        }}})
+        exam_monitoring.record_event(self.student, self.release, "old-zip-blur-1", "window_blur")
+
+        row = main.monitoring_snapshot()["students"][0]
+        self.assertEqual(row["attempt_state"], "active")
+        self.assertEqual(row["submission_count"], 2)
+        self.assertTrue(row["practice_locked"])
+        expected_remaining = submissions.zip_submission_eligibility(
+            self.student, assignment, {**self.settings, "submission_policy": "configurable", "max_submissions": 3},
+            storage.read_json("submissions.json"), now,
+        )["remaining_seconds"]
+        self.assertLessEqual(abs(row["remaining_seconds"] - expected_remaining), 1)
+        self.assertEqual(row["alerts"], [])
+        self.assertEqual(row["event_counters"]["window_blur"], 1)
+
+    def test_zip_telemetry_event_is_ignored_server_side(self):
+        storage.write_json("assignments.json", {self.student: {**self.assignment, "exam_file": "exam.zip"}})
+        handler = self._handler("/api/student/telemetry/event", {
+            "event_id": "zip-event-001", "event_type": "window_blur", "release_id": self.release,
+        })
+        response = handler.do_POST()
+        self.assertEqual(response["reason"], "zip_exam")
+        self.assertEqual(exam_monitoring.attempt_summary(self.student, self.release)["latest_event_seq"], 0)
+
+        token_key = "zip-session"
+        old_snapshot = {"visibility": "hidden", "focused": False, "tab_count": 2, "release_id": self.release}
+        storage.write_json("sessions.json", {token_key: {"user_id": self.student, "telemetry": old_snapshot}})
+        snapshot_handler = self._handler("/api/student/telemetry")
+        snapshot_handler._request = lambda: SimpleNamespace(path="/api/student/telemetry", form={"visibility": "visible", "focused": "true", "tab_count": "1"}, cookies={})
+        snapshot_handler._parse_body = lambda: (b"", snapshot_handler._request())
+        snapshot_handler._auth = lambda *_args: {"user_id": self.student, "token_key": token_key}
+        snapshot_response = snapshot_handler.do_POST()
+        self.assertEqual(snapshot_response["reason"], "zip_exam")
+        self.assertEqual(storage.read_json("sessions.json")[token_key]["telemetry"], old_snapshot)
+
+    def test_zip_start_precheck_outbox_does_not_create_behavioral_event(self):
+        storage.write_json("assignments.json", {self.student: {
+            **self.assignment, "exam_file": "exam.zip", "monitoring_precheck_pending": True,
+        }})
+        exam_monitoring.flush_start_precheck(self.student)
+        assignment = storage.read_json("assignments.json")[self.student]
+        self.assertNotIn("monitoring_precheck_pending", assignment)
+        self.assertEqual(exam_monitoring.attempt_summary(self.student, self.release)["latest_event_seq"], 0)
+
+    def test_monitor_returns_zero_for_completed_code_and_marks_absentees(self):
+        now = datetime.now(timezone.utc)
+        storage.write_json("students.json", {"started": {"full_name": "Started"}, "absent": {"full_name": "Absent"}})
+        storage.write_json("sessions.json", {})
+        storage.write_json("settings.json", self.settings)
+        storage.write_json("assignments.json", {
+            "started": {"release_id": self.release, "code_exam_id": "code-1", "status": "in_progress",
+                        "started_at": (now - timedelta(minutes=1)).isoformat(), "ends_at": (now + timedelta(minutes=4)).isoformat()},
+            "absent": {"release_id": self.release, "status": "assigned", "started_at": None, "ends_at": None},
+        })
+        storage.write_json("submissions.json", {})
+        storage.write_json("code_submissions.json", {})
+        storage.write_json("exam_monitoring.json", {"attempts": {}})
+        storage.write_json("exams.json", {"exam-1": {"status": "started", "release": {
+            "release_id": self.release, "official_deadline": (now + timedelta(minutes=20)).isoformat(),
+        }}})
+        with patch.object(main.exam_completion, "completion_state", return_value={"finalized": True}):
+            snapshot = main.monitoring_snapshot()
+        rows = {row["student_id"]: row for row in snapshot["students"]}
+        self.assertEqual(rows["started"]["attempt_state"], "completed")
+        self.assertEqual(rows["started"]["remaining_seconds"], 0)
+        self.assertEqual(rows["absent"]["attempt_state"], "not_started")
+
+        forced_state, forced_remaining, _, _ = main._monitor_attempt_state(
+            "started", {"release_id": self.release, "code_exam_id": "code-1", "status": "in_progress",
+                        "started_at": storage.utc_now(), "ends_at": (now + timedelta(minutes=5)).isoformat(), "forced_submit": True},
+            self.settings, now, {"status": "started", "release_id": self.release}, {},
+        )
+        self.assertEqual((forced_state, forced_remaining), ("completed", 0))
+
+    def test_monitor_marks_never_started_student_no_show_after_release_deadline(self):
+        now = datetime.now(timezone.utc)
+        assignment = {"release_id": self.release, "status": "assigned", "started_at": None, "ends_at": None}
+        release = {"status": "started", "release": {
+            "release_id": self.release, "official_deadline": (now - timedelta(seconds=1)).isoformat(),
+        }}
+        state, remaining, _, _ = main._monitor_attempt_state(
+            self.student, assignment, self.settings, now, {**release["release"], "status": "started"}, {},
+        )
+        self.assertEqual(state, "no_show")
+        self.assertIsNone(remaining)
 
     def test_event_payload_limits_and_auth_errors_do_not_write_history(self):
         oversized = self._handler("/api/student/telemetry/event", {

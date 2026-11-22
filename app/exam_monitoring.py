@@ -31,6 +31,10 @@ def flush_start_precheck(student_id: str) -> None:
         item = assignments.get(student_id, {})
         if not item.get("monitoring_precheck_pending") or not item.get("release_id"):
             return
+        if item.get("exam_file"):
+            item.pop("monitoring_precheck_pending", None)
+            write_json("assignments.json", assignments)
+            return
         record_event(student_id, item["release_id"], "start.multiple_tabs", "multiple_tabs_detected")
         item.pop("monitoring_precheck_pending", None)
         write_json("assignments.json", assignments)
