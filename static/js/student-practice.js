@@ -1110,9 +1110,9 @@
     if (q.grading_mode === "reflection" && (q.target_class || q.target_package || q.target_file)) {
       wsTargetSection.classList.remove("hidden");
       wsTargetInfo.innerHTML = `
-        ${q.target_package ? `<div>Package: <code>${escape(q.target_package)}</code></div>` : ""}
-        ${q.target_class ? `<div>Class: <code>${escape(q.target_class)}</code></div>` : ""}
-        ${q.target_file ? `<div>File: <code>${escape(q.target_file)}</code></div>` : ""}
+        ${q.target_package ? `<div><span class="practice-target-label">Package</span><code>${escape(q.target_package)}</code></div>` : ""}
+        ${q.target_class ? `<div><span class="practice-target-label">Class</span><code>${escape(q.target_class)}</code></div>` : ""}
+        ${q.target_file ? `<div><span class="practice-target-label">File</span><code>${escape(q.target_file)}</code></div>` : ""}
       `;
     } else {
       wsTargetSection.classList.add("hidden");

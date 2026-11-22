@@ -96,6 +96,19 @@ async function main() {
   assert(script.includes('request("/api/student/practice/run"'));
   console.log('PASS CP3 Run starts disabled and uses the real Practice API path');
 
+  const targetTab = createTab({request:async (url) => {
+    if (url.endsWith('/questions/qTarget')) return {question:{...question('qTarget'),grading_mode:'reflection',
+      target_package:'model',target_class:'model.Book',target_file:'Book.java'}};
+    if (url.endsWith('/run-status')) return {active:false};
+    return {progress:[]};
+  }});
+  await targetTab.api.openWorkspace('qTarget');
+  const targetInfo = targetTab.elements['practice-ws-target-info'].innerHTML;
+  assert(targetInfo.includes('<span class="practice-target-label">Package</span><code>model</code>'));
+  assert(targetInfo.includes('<span class="practice-target-label">Class</span><code>model.Book</code>'));
+  assert(targetInfo.includes('<span class="practice-target-label">File</span><code>Book.java</code>'));
+  console.log('PASS Java target details render as compact labeled rows');
+
   // Previously attempted questions keep opening their existing local source from the preview.
   const existingStorage = new Storage(), existingSession = new Storage();
   const existingId = 'a'.repeat(32);

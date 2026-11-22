@@ -357,6 +357,41 @@
   white-space: pre-wrap;
 }
 
+.practice-target-box {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  height: fit-content;
+  min-height: 0;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.practice-target-box > div {
+  display: grid;
+  grid-template-columns: 4rem minmax(0, 1fr);
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.practice-target-label {
+  color: var(--practice-muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.practice-target-box code {
+  min-width: 0;
+  padding: 2px 5px;
+  border-radius: 4px;
+  background: #edf2fa;
+  color: var(--practice-ink);
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
 .practice-starter-box,
 .practice-code-editor,
 .practice-editor-heading .code-filename {
