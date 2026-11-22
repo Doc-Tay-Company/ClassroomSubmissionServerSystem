@@ -122,12 +122,12 @@
     questions.forEach((question, index) => {
       const cell = studentRow?.cells.find((item) => item.question_id === question.question_id);
       if (cell?.status === "not_assigned") return;
-      const button = el("button", undefined, "btn btn-secondary");
+      const button = el("button", String(index + 1), "question-nav-button");
       button.type = "button";
-      button.append(
-        el("strong", `Câu ${index + 1}: ${question.title || question.question_id}`),
-        el("small", cell ? cellLabel(cell) : "Chưa có thông tin"),
-      );
+      const status = cell ? cellLabel(cell) : "Chưa có thông tin";
+      const label = `Câu ${index + 1}: ${question.title || question.question_id} · ${status}`;
+      button.title = label;
+      button.setAttribute("aria-label", label);
       if (question.question_id === record.question_id) button.setAttribute("aria-current", "true");
       button.disabled = !cell?.submission_id;
       button.addEventListener("click", async () => {

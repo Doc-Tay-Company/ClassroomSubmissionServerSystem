@@ -566,13 +566,14 @@
     const grid = document.getElementById("practice-question-grid");
     if (!grid) return;
     const escape = getEscape();
-    grid.innerHTML = catalog.map((item, index) => `
-      <button type="button" class="btn btn-secondary" data-question-id="${escape(item.question_id)}"
+    grid.innerHTML = catalog.map((item, index) => {
+      const label = escape(`Câu ${index + 1}: ${item.title || item.question_id}${item.available ? "" : " · Không khả dụng"}`);
+      return `
+      <button type="button" class="question-nav-button" data-question-id="${escape(item.question_id)}"
+        title="${label}" aria-label="${label}"
         ${item.question_id === questionId ? 'aria-current="true"' : ""}
-        ${!item.available ? "disabled" : ""}>
-        <strong>Câu ${index + 1}: ${escape(item.title || item.question_id)}</strong>
-        ${!item.available ? "<small>Không khả dụng</small>" : ""}
-      </button>`).join("");
+        ${!item.available ? "disabled" : ""}>${index + 1}</button>`;
+    }).join("");
     grid.querySelectorAll("button").forEach((button) => {
       button.addEventListener("click", () => {
         if (button.dataset.questionId !== questionId) openWorkspace(button.dataset.questionId);

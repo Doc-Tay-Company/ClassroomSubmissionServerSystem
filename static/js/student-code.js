@@ -378,14 +378,13 @@
     nav.replaceChildren();
     navButtons.clear();
     exam.questions.forEach((q, index) => {
-      const button = node("button", "code-nav-item");
+      const button = node("button", "question-nav-button", String(index + 1));
       button.type = "button";
       const [statusText, statusClass] = navStatus(progress.get(q.question_id));
-      button.append(
-        node("strong", "", `Câu ${index + 1}: ${q.title || q.question_id}`),
-        node("small", "", `${q.total_points ?? 0} điểm`),
-        node("small", statusClass, statusText),
-      );
+      if (statusClass) button.classList.add(statusClass);
+      const label = `Câu ${index + 1}: ${q.title || q.question_id} · ${q.total_points ?? 0} điểm · ${statusText}`;
+      button.title = label;
+      button.setAttribute("aria-label", label);
       if (question && q.question_id === question.question_id) button.setAttribute("aria-current", "true");
       button.disabled = requestPending;
       button.addEventListener("click", () => switchQuestion(q.question_id));

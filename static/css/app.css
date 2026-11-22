@@ -20,3 +20,40 @@ main.page-wrap:has(.exam-settings-panel){display:flex;flex-direction:column}main
 .monitor-history-dialog-content{flex:1 1 auto;min-height:0}
 .result-source{white-space:pre;overflow:auto;max-height:420px;background:#f7f9fc;padding:14px;border-radius:8px;font:13px/1.6 ui-monospace,monospace}
 .exam-entry-dialog{width:min(620px,calc(100vw - 32px));max-height:85vh;overflow:auto;border:1px solid #dbe2ed;border-radius:18px;padding:32px;box-shadow:0 24px 80px #14294a50;color:#172033;background:#fff}.exam-entry-dialog::backdrop{background:#0f172ad9}.exam-entry-dialog h2{font-size:24px;margin:0 0 18px}.exam-entry-dialog p{line-height:1.7;margin:0 0 24px}.exam-entry-dialog [hidden]{display:none!important}html:fullscreen{overflow:auto;background:#f4f7fb}
+
+/* Question shortcuts inside the exam, practice and submission workspaces. */
+.code-question-nav,
+#practice-question-grid,
+.submission-question-grid {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+  width: fit-content;
+  max-width: min(100%, 298px);
+  margin: 0 0 12px auto;
+}
+
+.question-nav-button {
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 32px;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid #d5deea;
+  border-radius: 50%;
+  background: #fff;
+  color: #253752;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.question-nav-button.code-nav-submitted { border-color: #85b79b; color: #177245; }
+.question-nav-button:hover:not(:disabled) { border-color: #2563eb; }
+.question-nav-button[aria-current="true"] { border-color: #2563eb; background: #2563eb; color: #fff; }
+.question-nav-button:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
+.question-nav-button:disabled:not([aria-current="true"]) { opacity: .55; cursor: default; }
