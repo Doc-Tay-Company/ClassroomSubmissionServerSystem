@@ -15,35 +15,27 @@
           {% if completion.result_available %}<a class="btn btn-primary" href="/student/results?exam_id={{ completion.exam_id|urlencode }}">Xem kết quả chi tiết</a>{% endif %}
         </div>
       {% endif %}
-      <div class="empty-state"><i class="fa fa-home"></i><h3>Bài thi của bạn</h3>
-      {% if assignment and assignment.status == 'submitted' %}
-        <p>Bạn đã hoàn thành và nộp bài thi{% if current_exam %} <strong>{{ current_exam.title }}</strong>{% endif %}{% if assignment.submitted_at %} lúc {{ assignment.submitted_at }}{% endif %}.</p>
-        <a class="btn btn-primary ui-action" href="/"><i class="fa fa-eye"></i> Xem lại bài thi</a>
-      {% elif assignment and assignment.status in ('ended', 'expired') %}
-        <p>Bài thi{% if current_exam %} <strong>{{ current_exam.title }}</strong>{% endif %} đã kết thúc.</p>
-        <a class="btn btn-secondary ui-action" href="/"><i class="fa fa-eye"></i> Xem lại bài thi</a>
-      {% elif assignment and assignment.started_at %}
-        <p>Bài thi{% if current_exam %} <strong>{{ current_exam.title }}</strong>{% endif %} đang diễn ra. Quay lại để tiếp tục làm bài hoặc nộp bài.</p>
-        <a class="btn btn-primary ui-action" href="/"><i class="fa fa-pencil"></i> Quay lại bài thi</a>
-      {% elif assignment %}
-        {% if settings.exam_state == 'started' %}
-          <p>Bài thi{% if current_exam %} <strong>{{ current_exam.title }}</strong>{% endif %} đã bắt đầu và đang chờ bạn làm bài.</p>
-          <a class="btn btn-primary ui-action" href="/"><i class="fa fa-play"></i> Vào làm bài</a>
+      {% if assignment %}
+      <article class="student-exam-card">
+        <h3>{{ current_exam.title if current_exam else 'Bài thi của bạn' }}</h3>
+        {% if assignment.status in ('submitted', 'ended', 'expired') %}
+          <span class="status-pill status-blue">{{ {'submitted':'Đã nộp','ended':'Đã kết thúc','expired':'Hết giờ'}[assignment.status] }}</span>
+          {% if assignment.submitted_at %}<p class="muted">Đã nộp lúc {{ assignment.submitted_at }}</p>{% endif %}
+          <a class="btn btn-secondary" href="/">Xem lại bài thi</a>
+        {% elif settings.exam_state == 'started' %}
+          <span class="status-pill status-blue">Đang diễn ra</span>
+          <a class="btn btn-primary" href="/">{{ 'Tiếp tục làm bài' if assignment.started_at else 'Vào làm bài' }}</a>
         {% else %}
-          <p>Bài thi{% if current_exam %} <strong>{{ current_exam.title }}</strong>{% endif %} đã được phát cho tài khoản của bạn. Giảng viên chưa bắt đầu kỳ thi.</p>
-          <a class="btn btn-secondary ui-action" href="/"><i class="fa fa-info-circle"></i> Xem thông tin bài thi</a>
+          <span class="status-pill status-blue">{{ 'Đã kết thúc' if settings.exam_state == 'ended' else 'Chưa bắt đầu' }}</span>
         {% endif %}
-      {% else %}
-        <p>Hiện tại bạn chưa có bài thi đang làm.</p>
-        <p style="margin-top:1rem;"><a href="/practice" class="btn btn-secondary ui-action"><i class="fa fa-code"></i> Vào thư viện luyện tập</a></p>
+      </article>
+      {% elif not published_exams %}
+        <p class="muted">Hiện tại bạn chưa có bài thi đang làm.</p>
       {% endif %}
-      {% if published_exams %}
-        <div class="alert alert-info"><strong>Kỳ thi đã được phát đề:</strong><ul>{% for item in published_exams %}<li>{{ item.title }}</li>{% endfor %}</ul></div>
-      {% endif %}
-      </div>
+      {% include "student-exam-cards.html" %}
     {% elif settings.exam_state == 'idle' or (settings.exam_state == 'ended' and not (assignment and assignment.code_exam_id and assignment.started_at)) %}
       <div class="empty-state"><i class="fa fa-clock-o"></i><h3>Chưa phát đề</h3><p>Vui lòng chờ giảng viên bắt đầu kỳ thi.</p>
-      {% if published_exams %}<div class="alert alert-info"><strong>Kỳ thi đã được phát đề:</strong><ul>{% for item in published_exams %}<li>{{ item.title }}</li>{% endfor %}</ul></div>{% endif %}</div>
+      </div>{% include "student-exam-cards.html" %}
     {% elif settings.exam_state == 'distributed' %}
       <div class="empty-state"><i class="fa fa-hourglass-half"></i><h3>Đã được phân phối đề</h3><p>Giảng viên chưa bắt đầu kỳ thi. Vui lòng chờ thông báo.</p></div>
     {% elif not assignment %}
@@ -71,7 +63,7 @@
             <div class="code-layout">
               <nav id="code-question-nav" class="code-question-nav" aria-label="Danh sách câu hỏi"></nav>
               <div class="code-question-pane">
-            <div id="code-question-information"></div>
+            <div class="code-workspace"><section class="code-workspace-pane" id="code-question-information"></section><section class="code-workspace-pane">
             <div class="code-editor-heading"><label for="student-code-editor" id="code-editor-label">Mã nguồn</label><span id="code-filename" class="code-filename"></span></div>
             <textarea id="student-code-editor" class="student-code-editor" spellcheck="false" autocapitalize="off" autocomplete="off" aria-describedby="code-editor-hint"></textarea>
             <p id="code-editor-hint" class="fine-print">Nhấn Tab để thụt lề. Bản nháp từng câu được lưu trên trình duyệt và đồng bộ định kỳ lên máy chủ. Khi hết giờ hoặc mất kết nối, chỉ phần máy chủ đã tiếp nhận đúng hạn có thể tự nộp; phần chưa đồng bộ vẫn được giữ trên trình duyệt.</p>
@@ -82,7 +74,7 @@
             </div>
             <p class="fine-print">Nộp cả bài sẽ nộp tất cả câu chưa nộp; các câu đã nộp trước đó được giữ nguyên.</p>
             <div id="code-draft-notice" class="notice hidden" role="status"></div>
-            <div id="code-run-result" class="code-result-panel hidden" aria-live="polite"></div>
+            </section></div><div id="code-run-result" class="code-result-panel hidden" aria-live="polite"></div>
             <div id="code-submission-result" class="code-result-panel hidden" aria-live="polite"></div>
               </div>
             </div>

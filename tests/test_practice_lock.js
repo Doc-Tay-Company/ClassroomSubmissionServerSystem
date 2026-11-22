@@ -15,7 +15,7 @@ const lock = window.createPracticeLock({root,dialog,request:(url) => {
 }});
 const deferred = () => {let resolve,reject; const promise=new Promise((yes,no)=>{resolve=yes;reject=no;});return {promise,resolve,reject};};
 (async () => {
-  assert(root.inert && dialog.open, 'initial unknown state is blocked');
+  assert(root.inert && root.hidden && !dialog.open, 'initial unknown state is blocked without opening the dialog');
   statusHandler=async()=>{throw new Error('initial status offline');};
   await lock.check();
   assert(root.inert && nodes['practice-lock-message'].textContent.includes('Chưa thể xác minh'),'initial network error is not an unlocked response');

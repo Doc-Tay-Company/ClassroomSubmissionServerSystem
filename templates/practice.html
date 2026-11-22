@@ -11,7 +11,8 @@
     <form action="/logout" method="post"><button class="btn btn-ghost ui-action" type="submit"><i class="fa fa-sign-out" aria-hidden="true"></i> Đăng xuất</button></form>
   </div>
 </header>
-<main class="page-wrap ui-page" id="practice-root" inert data-student-id="{{ session.user_id }}">
+<div id="practice-access-status" class="page-wrap" role="status">Đang xác minh quyền luyện tập…</div>
+<main hidden inert class="page-wrap ui-page" id="practice-root" inert data-student-id="{{ session.user_id }}">
   <div id="practice-notice" class="hidden" role="status" aria-live="polite"></div>
   <section id="practice-library-view" aria-labelledby="practice-library-title">
     <div class="practice-library-header">

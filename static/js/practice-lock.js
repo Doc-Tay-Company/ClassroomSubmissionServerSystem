@@ -4,11 +4,15 @@
     let inFlight = null;
     let recovered = false;
     let decisionEpoch = 0;
+    const accessStatus = document.getElementById("practice-access-status");
     const message = document.getElementById("practice-lock-message");
     const heading = document.getElementById("practice-lock-title");
     const render = () => {
       const blocked = state !== "allowed";
       root.inert = blocked;
+      root.hidden = blocked;
+      if (accessStatus) accessStatus.hidden = state !== "checking";
+      if (state === "checking") return;
       if (!blocked) { if (dialog.open) dialog.close(); return; }
       heading.textContent = state === "locked" ? "Practice tạm thời bị khóa" : "Đang xác minh quyền luyện tập";
       message.textContent = state === "locked"

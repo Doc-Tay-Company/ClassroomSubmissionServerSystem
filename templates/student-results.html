@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Kết quả bài thi · Classroom Submission Server{% endblock %}
+{% block extra_styles %}<link rel="stylesheet" href="/static/css/student-code.css">{% endblock %}
 {% block body %}
 <main class="page-wrap narrow" id="student-result-review" data-pending="{{ 'true' if result.grading_pending else 'false' }}">
   <a href="/?view=home" class="btn btn-secondary">Về màn hình chính</a>
@@ -14,18 +15,23 @@
   <section class="panel"><h2>Câu {{ loop.index }}: {{ q.title }}</h2>
     <p>Điểm tối đa: {{ q.total_points }} · Điểm đạt: {{ q.submission.score if q.submission and q.submission.score is defined else 'Chưa có' }}</p>
     <p>{{ {'grading':'Đang chấm','graded':'Đã chấm','error':'Lỗi chấm — cần giảng viên kiểm tra','unanswered':'Không có bài nộp'}.get(q.grading_status, q.grading_status) }}</p>
-    <h3>Mã nguồn đã nộp</h3><pre class="result-source">{{ q.source_code }}</pre>
+    {% if q.source_code %}<details class="student-result-details"><summary>Mã nguồn đã nộp</summary><pre class="result-source">{{ q.source_code }}</pre></details>{% endif %}
     {% if q.submission %}
       {% if q.submission.error %}<pre class="result-source">{{ q.submission.error }}</pre>{% endif %}
       {% if q.submission.compile_result %}<h3>Phản hồi biên dịch</h3><pre class="result-source">{{ q.submission.compile_result.stderr or q.submission.compile_result.stdout or q.submission.compile_result.error or '' }}</pre>{% endif %}
-      {% for row in q.submission.results or [] %}
-      <article class="notice"><strong>{{ row.id }} — {{ 'Đạt' if row.passed else 'Chưa đạt' }}</strong>
-        <p>Điểm: {{ row.points_earned }} · Kết quả: {{ row.verdict }}</p>
-        <p>Đầu ra mong đợi</p><pre class="result-source">{{ row.expected if row.expected is string else row.expected|tojson(indent=2) }}</pre>
-        <p>Đầu ra thực tế</p><pre class="result-source">{{ row.actual if row.actual is string else row.actual|tojson(indent=2) }}</pre>
-        {% if row.error or row.stderr %}<pre class="result-source">{{ row.error or row.stderr }}</pre>{% endif %}
-      </article>
-      {% endfor %}
+      {% if q.submission.results %}
+      <div class="table-scroll"><table class="data-table">
+        <thead><tr><th scope="col">Test case</th><th scope="col">Kết quả</th><th scope="col">Điểm</th><th scope="col">Kỳ vọng</th><th scope="col">Thực tế</th><th scope="col">Lỗi</th></tr></thead>
+        <tbody>
+        {% for row in q.submission.results %}
+        <tr><td>{{ row.id }}</td><td><span class="status-pill {{ 'status-green' if row.passed else 'status-red' }}">{{ 'Đạt' if row.passed else 'Chưa đạt' }}</span> {{ row.verdict }}</td><td>{{ row.points_earned }}</td>
+          <td class="code-result-value">{{ row.expected if row.expected is string else row.expected|tojson }}</td>
+          <td class="code-result-value">{{ row.actual if row.actual is string else row.actual|tojson }}</td>
+          <td class="code-result-value">{{ row.error or row.stderr or '—' }}</td></tr>
+        {% endfor %}
+        </tbody>
+      </table></div>
+      {% endif %}
     {% endif %}
   </section>
   {% endfor %}

@@ -1,0 +1,11 @@
+{% if published_exams %}
+<div class="student-exam-cards">
+  {% for item in published_exams if not current_exam or item.id != current_exam.id %}
+  <article class="student-exam-card">
+    <h3>{{ item.title }}</h3>
+    {% if item.tag %}<p class="muted">{{ item.tag }}</p>{% endif %}
+    <span class="status-pill status-blue">Đã phát đề</span>
+  </article>
+  {% endfor %}
+</div>
+{% endif %}
