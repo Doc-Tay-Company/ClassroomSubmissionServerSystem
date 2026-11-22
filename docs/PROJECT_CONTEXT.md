@@ -1,6 +1,6 @@
 ﻿# Bối cảnh dự án
 
-> Baseline viết lại từ source hiện tại trên nhánh `integration/practice-exam`. Đây là mô tả sản phẩm, không phải xác nhận deployment hoặc nghiệm thu vận hành.
+> Reconciled against the current source tree on 2026-11-22. This is a product/context summary, not a deployment or operational acceptance claim. See [documentation index](README.md) for project footprint and document ownership.
 
 ## Mục đích và môi trường
 
@@ -46,8 +46,13 @@ Code Exam có Pretest và Submit chính thức; file Exam có luồng access/sub
 ### Grading
 Runner hỗ trợ Java Reflection, Java STDIO, Python STDIO. Practice chỉ chạy visible checks; Official Exam chạy grading đầy đủ theo snapshot, gồm hidden checks nếu cấu hình. `app/grading.py` chuẩn hóa/tổng hợp điểm; execution nằm ở `app/code_exams.py`, `app/code_runner.py`, `app/java_runner.py`, `app/windows_job.py`.
 
+### Official Exam completion and results
+Code Exam drafts accepted by the server are checkpointed separately from browser-local drafts. Manual submit or the server deadline/finalization path creates official submissions from eligible saved work; detailed Student results are available only when the Exam's score-visibility setting allows it. ZIP/file Exam submissions remain a separate upload flow and cannot be recovered if the file was never uploaded.
+
 ### Teacher Monitoring
-Monitoring ghép session presence, assignment/submission summary và telemetry snapshot. Trang Student chính gửi focus, visibility, `tab_count`, browser info; Teacher UI poll backend. Snapshot hiện không gắn Exam/Release và không phải event history. Chi tiết tại [Telemetry Architecture Audit](TELEMETRY_ARCHITECTURE_AUDIT.md).
+Presence and monitoring are separate. Authenticated Student status requests refresh session presence. The current Student page sends telemetry snapshots only for an active attempt and submits events scoped to the Student/release; event history and counters persist in `exam_monitoring.json`. Teacher Monitoring polls the current snapshot and fetches event history incrementally. The tab signal is an approximate same-origin page count, not a complete browser-tab inventory.
+
+The Student entry flow includes a multi-page precheck and a fullscreen gate. Practice endpoints and UI are locked for that Student while an Official Exam attempt is active; this does not change another Student's Practice access. These UI signals and stored technical events are not independent proof of misconduct.
 
 ## Practice và Official Exam
 
@@ -58,9 +63,9 @@ Monitoring ghép session presence, assignment/submission summary và telemetry s
 | Run | Visible-only, lưu Practice progress | Pretest tùy cấu hình; Submit chính thức chạy đầy đủ checks |
 | Tách biệt | Không cần Paper, release, official assignment/submit | Không phụ thuộc `practice_enabled` |
 
-## Đề xuất đang thảo luận — chưa triển khai
+## Scope boundaries and remaining proposals
 
-Owner đang xem xét Exam-only behavioral telemetry, giữ heartbeat ngoài Exam, tab precheck/dialog trước Student Start, fullscreen và monitoring events. Đây chưa phải tính năng hiện có hoặc quyết định đã duyệt. Xem [audit telemetry](TELEMETRY_ARCHITECTURE_AUDIT.md).
+Exam-scoped telemetry, event history, tab precheck/fullscreen entry, Practice lock, and server-side code-exam completion are implemented in the current source. Their existence does not by itself establish browser acceptance or deployment readiness. Other roadmap ideas such as public hosting, multi-process storage, or a database migration remain outside this project description unless separately approved. The [monitoring plan](EXAM_MONITORING_IMPLEMENTATION_PLAN.md) records the approved scope and implementation status; the [Telemetry Audit](TELEMETRY_ARCHITECTURE_AUDIT.md) is historical.
 
 ## Tài liệu liên quan
 - [Architecture](ARCHITECTURE.md), [Decisions](DECISIONS.md), [Known Issues](KNOWN_ISSUES.md), [Engineering Lessons](ENGINEERING_LESSONS.md).

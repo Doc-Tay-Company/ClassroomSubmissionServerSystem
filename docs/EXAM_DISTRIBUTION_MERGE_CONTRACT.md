@@ -1,6 +1,8 @@
 # Exam Distribution Merge Contract
 
-This is the Exam-side contract for integration with Practice Mode. It is not a merge procedure. All Exam statements below are verified against the current `feature/JudgeEngine` working tree. Practice-specific behavior must be rechecked on `minghere`.
+> **Historical report:** this contract describes the Exam/Practice integration review at the time it was written. Its branch names, source status, test directions, and TODO checklist are not current work instructions. Use [current Architecture](ARCHITECTURE.md), [Project Context](PROJECT_CONTEXT.md), [Code Exam API](CODE_EXAM_API.md), and [Known Issues](KNOWN_ISSUES.md) for present behavior.
+
+This is an Exam-side contract for a past Practice integration. It is not a current merge procedure. The exact historical source references and verification limitations are retained below for provenance.
 
 ## A. Critical invariants
 

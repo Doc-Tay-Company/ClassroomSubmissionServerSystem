@@ -1,7 +1,17 @@
-﻿# Kiểm toán kiến trúc Telemetry và giám sát theo Exam
+# Historical Telemetry Architecture Audit — Pre-Implementation Baseline
 
-> **Phạm vi:** đọc source hiện tại trên nhánh `integration/practice-exam`; không triển khai đề xuất Exam Monitoring.  
-> **Phân biệt bằng chứng:**  
+> **Historical snapshot:** the detailed audit below describes the pre-implementation source and its branch at the time. Claims that monitoring, event history, precheck, fullscreen, or Practice locking were absent are no longer current. See [current Architecture](ARCHITECTURE.md), [Exam Monitoring plan](EXAM_MONITORING_IMPLEMENTATION_PLAN.md), and [Known Issues](KNOWN_ISSUES.md).
+
+## Current implementation status (2026-11-22)
+
+The current source has active-attempt telemetry snapshots, persistent per-Student/release event history with counters and sequence paging, a multi-page Student Start precheck, a fullscreen gate, and a Practice lock while that Student has an active Official Exam attempt. These paths are implemented in `app/exam_monitoring.py`, `app/exams.py`, `app/main.py`, and the frontend scripts under `static/js/`. This documentation pass inspected source and test files but did not execute tests or browser checks. The remainder of this document is retained as a historical baseline, not a current implementation report.
+
+## Historical audit: pre-implementation findings
+
+> **Evidence labels below apply only to the historical source snapshot audited in this report.** They must not be read as present-day assertions without checking current source.
+>
+> **Historical scope:** source on branch `integration/practice-exam`; Exam Monitoring proposals were not implemented at that time.
+> **Historical evidence labels:**
 > - **VERIFIED CURRENT BEHAVIOR**: xác nhận trực tiếp từ source đang có.  
 > - **PROPOSED DESIGN**: quy trình Exam-scoped do Owner đề xuất, chưa được triển khai.  
 > - **UNVERIFIED / REQUIRES CONFIRMATION**: source không đủ để khẳng định hoặc cần kiểm thử trên trình duyệt/môi trường chạy thực tế.

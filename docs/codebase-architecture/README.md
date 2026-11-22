@@ -1,10 +1,12 @@
 # Codebase architecture guide
 
+> Reconciled against the source tree on 2026-11-22. The repository currently has 22 Python files under `app/` (including `__init__.py`), 14 frontend JavaScript files, 6 templates, and 27 checked-in test files. These are checkout counts, not capacity or coverage guarantees. See the [documentation index](../README.md).
+
 ## Project overview
 
-Classroom Submission Server is a Python application for administering classroom exams, distributing exam files, collecting ZIP submissions, and running code-exam grading. The implementation is a single-process standard-library HTTP server, with Jinja2 for HTML templates and JSON/JSONL files plus directories for persistence. The repository also contains a Java reflection judge and Java/Python STDIO runners.
+Classroom Submission Server is a Python application for managing accounts, questions, Practice, Papers, ZIP/file exams, code exams, releases/assignments, grading and regrading, results, exam monitoring, and code-exam completion. The implementation is a threaded standard-library HTTP server, with Jinja2 templates, local browser assets, and JSON/JSONL/file persistence. The repository also contains a Java reflection judge and Java/Python STDIO runners.
 
-This guide is reconstructed from the checked-out source and configuration, not from claims in the root README. Detailed module paths and diagrams are indexed below. Claims are labeled **Verified**, **Inferred**, or **Unknown** where that distinction matters.
+This guide is reconstructed from the checked-out source and configuration, not from claims in the root README. Detailed module paths and runtime maps are indexed below; separate diagram files referenced by older drafts are not present in this checkout. Claims are labeled **Verified**, **Inferred**, or **Unknown** where that distinction matters.
 
 ## Technology and architecture summary
 
@@ -14,6 +16,7 @@ This guide is reconstructed from the checked-out source and configuration, not f
 - **Persistence:** JSON files under `data/`, uploads under `submissions/`, exam assets under `de-thi/`, and JSONL audit log under `logs/`. There is no relational database.
 - **Network:** One HTTP(S) listener, default `0.0.0.0:8080`; browser requests and API calls use HTTP/1.1. The admin/student pages use HTTP polling, not WebSockets.
 - **Execution:** Code-exam requests invoke process runners. Windows Job Objects are used for process resource limits; current documentation and startup checks identify code grading as Windows/JDK-specific.
+- **Monitoring/completion:** Active-attempt telemetry snapshots and per-Student/release monitoring events are persisted separately from session presence; code-exam draft checkpoints and finalization are also server-side.
 
 ## Main components and entry points
 
@@ -24,17 +27,18 @@ This guide is reconstructed from the checked-out source and configuration, not f
 | [`app/storage.py`](../../app/storage.py) | JSON/JSONL persistence, atomic file replacement, one-process `RLock`, audit records. |
 | [`app/exams.py`](../../app/exams.py) | Exam distribution and student start/deadline state. |
 | [`app/submissions.py`](../../app/submissions.py) | ZIP validation, upload storage, attempt metadata and audit. |
-| [`app/questions.py`](../../app/questions.py), [`app/code_exams.py`](../../app/code_exams.py) | Question bank, immutable exam question snapshots, code-exam lifecycle, execution orchestration and result persistence. |
+| [`app/questions.py`](../../app/questions.py), [`app/papers.py`](../../app/papers.py), [`app/general_exams.py`](../../app/general_exams.py), [`app/code_exams.py`](../../app/code_exams.py) | Question bank, independent and legacy Paper records, releases, assignments, code-exam snapshots, execution orchestration and result persistence. |
+| [`app/practice.py`](../../app/practice.py), [`app/exam_completion.py`](../../app/exam_completion.py), [`app/exam_monitoring.py`](../../app/exam_monitoring.py) | Practice access/run, server-side code-exam completion, and attempt-scoped monitoring events. |
 | [`app/code_runner.py`](../../app/code_runner.py), [`app/java_runner.py`](../../app/java_runner.py), [`app/windows_job.py`](../../app/windows_job.py) | STDIO and reflection evaluation, process management, and Windows process limits. |
 | [`app/grading.py`](../../app/grading.py) | Result validation and point aggregation; does not execute programs. |
 
-`run_server.py` imports `app.main.main`; `submission_server.py` is a compatibility entry point that delegates to `run_server.py`. On Windows, `start_windows.bat` invokes `app.configure_admin` before starting `run_server.py`; `start_unix.sh` invokes the project virtualenv directly. See [runtime details](07-runtime-and-resource-management.md).
+`run_server.py` imports `app.main.main`; `submission_server.py` is a compatibility entry point that delegates to `run_server.py`. On Windows, `start_windows.bat` invokes `app.configure_admin` before starting `run_server.py`; `start_unix.sh` invokes the project virtualenv directly. See section 7 in [the consolidated architecture guide](codebase-architecture.md#7-runtime-and-resource-management).
 
 ## Network architecture (verified)
 
 The browser is the client and the Python process is the server. `Handler` subclasses `BaseHTTPRequestHandler`; `do_GET`/`do_POST` perform in-function path matching and call domain modules directly. Request bodies accepted by the parser are URL-encoded forms, multipart forms, or JSON objects, subject to the 50 MiB request cap. Responses are HTML, JSON, files, or redirects. Optional TLS is enabled only when both `CSS_TLS_CERT` and `CSS_TLS_KEY` are provided.
 
-There is no custom TCP protocol, separate client/server application, WebSocket endpoint, connection pool, heartbeat protocol, or reconnect logic. Browser status and dashboard updates are HTTP polling. The listener creates a thread per request; the code-runner subsystem separately limits concurrent code executions.
+There is no custom TCP protocol, separate client/server application, WebSocket endpoint, or connection pool. The Student client polls status over HTTP and sends telemetry snapshots/events over ordinary HTTP while an attempt is active; admin dashboards poll for updates. The listener creates a thread per request; the code-runner subsystem separately limits concurrent code executions.
 
 ## Important state and data structures
 
@@ -42,30 +46,25 @@ There is no custom TCP protocol, separate client/server application, WebSocket e
 - `settings.json`, `assignments.json`, `notifications.json`: exam settings/lifecycle, student assignments and notifications.
 - `submissions.json` plus files in `submissions/`: ZIP attempt metadata and retained payloads.
 - `questions.json`, `code_exams.json`, `code_submissions.json`, `code_runs.json`: coding question definitions/snapshots, exam data, final submissions and pretest history.
+- `papers.json`, `exams.json`, `practice_progress.json`, `code_attempts.json`, `exam_monitoring.json`: Paper/Exam state, Practice progress, server-side code drafts/finalization, and per-attempt monitoring event history.
 - `audit.jsonl`: append-only event records.
 
-These are application-managed JSON structures, not database tables or cross-process transactions. See [data architecture](06-data-architecture.md).
+These are application-managed JSON structures, not database tables or cross-process transactions. See section 6 in [the consolidated architecture guide](codebase-architecture.md#6-data-architecture).
 
 ## Documentation map
 
-- [Project structure and stack](01-project-structure-and-tech-stack.md)
-- [System architecture](02-system-architecture.md)
-- [Module and dependency analysis](03-module-and-dependency-analysis.md)
-- [Execution paths](04-code-logic-and-execution-paths.md)
-- [Network architecture](05-network-architecture.md)
-- [Data architecture](06-data-architecture.md)
-- [Runtime and resources](07-runtime-and-resource-management.md)
-- [Technical observations and unknowns](08-code-quality-and-technical-observations.md)
-- [Source-code index](09-source-code-index.md)
-- [Mermaid diagrams](diagrams/)
+- [Detailed codebase architecture](codebase-architecture.md) — consolidated sections 1–9; separate chapter and diagram files linked by older drafts are not present in this checkout.
+- [Project context](../PROJECT_CONTEXT.md), [current architecture](../ARCHITECTURE.md), and [Code Exam API](../CODE_EXAM_API.md) — current product and API references.
+- [Known Issues](../KNOWN_ISSUES.md) — implementation limits and verification gaps.
+- [Documentation index](../README.md) — all documents and historical-report status.
 
 ## Caveats for future code analysis
 
-1. The root README and specification are supplementary; verify current route and feature behavior against `app/main.py` and the domain modules. The code-grading backend is present even though older documents describe it as not yet integrated into the UI.
+1. The root README and specification are supplementary; verify current route and feature behavior against `app/main.py` and the domain modules. Code grading, Practice, Paper distribution, monitoring, and server-side completion are present in this checkout.
 2. HTTP handlers and business/domain operations are concentrated in `app/main.py`; routes are not registered through a separate router abstraction.
 3. JSON locking is process-local. Do not assume safe multi-process or multi-instance concurrent writes.
 4. `ThreadingHTTPServer` allows concurrent HTTP requests, but its threads are daemon threads. Code-run concurrency is separately limited by `CSS_MAX_CONCURRENT_CODE_RUNS` (default 2, bounded 1..16).
-5. In this checkout, `data/admins.json` and `data/sessions.json` are modified and `investigation task.md` is untracked. This investigation did not read or edit those data files.
+5. Runtime JSON files may contain live classroom state; document data shapes and behavior without copying records or credentials.
 
 ## Unknowns / questions for a runtime owner
 

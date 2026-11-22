@@ -1,6 +1,8 @@
 # Exam Distribution Technical Handoff
 
-This handoff is for an Agent starting without the prior conversation. It describes the current `feature/JudgeEngine` working tree, not an imagined clean commit. The worktree was already dirty before this documentation task: application files, tests, and `data/code_exams.json` / `data/code_submissions.json` had modifications. This task does not alter those files. Recheck `git status` before any integration work.
+> **Historical handoff:** this document records a point-in-time integration state. It contains old branch/worktree observations, source line numbers, and test reports; do not use these as current instructions. For current state, use [Architecture](ARCHITECTURE.md), [Code Exam API](CODE_EXAM_API.md), [Exam Monitoring plan](EXAM_MONITORING_IMPLEMENTATION_PLAN.md), and [Known Issues](KNOWN_ISSUES.md).
+
+This handoff was written for an Agent starting without the prior conversation. Its original working-tree and branch claims are intentionally preserved as historical provenance. Recheck the actual working tree before any future integration work.
 
 ## A. Current architecture
 
@@ -129,7 +131,7 @@ Current caveats: snapshots are persisted JSON records and are protected by appli
 - Editing a Draft or `distributed` Exam before Teacher Start is supported. Editing Started/Ended is rejected; actual activity markers also reject a superficially editable release.
 - Published Paper updates are in place. Existing release snapshots use embedded Paper snapshot and remain isolated from current Paper contents.
 - Question Bank and Practice share `questions.json` and current branch `app/practice.py` imports `execute_question` from `app.code_exams`, but Practice has separate API/progress storage (`practice_progress.json`). The `minghere` branch still requires its own pre-merge audit; this document does not claim its current behavior.
-- `docs/EXAM_PAPER_GUIDE.md` is stale for new Paper behavior: it describes nested Paper versions, appending Published versions and older API assumptions. Use the current source and these reports over those sections.
+- At handoff time, `docs/EXAM_PAPER_GUIDE.md` still described nested Paper versions. That guide has since been reconciled; for present behavior use the current [Paper guide](EXAM_PAPER_GUIDE.md) and [Code Exam API](CODE_EXAM_API.md), not this historical handoff.
 - Current source has Common/Random select UI in `static/js/exams.js:542-544`; the source does not confirm the reported inability to switch. The existing selector test covers Paper selection editing but not a focused Common↔Random toggle. Treat behavior as source-confirmed, browser-test coverage incomplete.
 - One running exam is modeled in global `settings.json` (`exam_state`, `exam_release_id`, `exam_released`). No automatic schedule is present.
 

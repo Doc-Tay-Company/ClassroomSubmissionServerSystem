@@ -1,13 +1,13 @@
 # Hướng dẫn đọc mã Exam Distribution
 
-Tài liệu này mô tả luồng đang có trong working tree hiện tại của `feature/JudgeEngine`. Các tên hàm, endpoint và cấu trúc lưu trữ được giữ nguyên bằng tiếng Anh để có thể tìm trực tiếp trong VS Code. Exam distribution ở đây là luồng cho Exam record mới trong `general_exams.py`; các endpoint distribution cũ trong `app/exams.py` vẫn được giữ để tương thích.
+Tài liệu này mô tả luồng trong source tree được rà soát ngày 2026-11-22; các tên hàm, endpoint và cấu trúc lưu trữ được giữ nguyên bằng tiếng Anh để tìm trong VS Code. Exam distribution ở đây là luồng Exam record trong `general_exams.py`; các endpoint distribution cũ trong `app/exams.py` vẫn được giữ để tương thích. For current API contracts, see [Code Exam API](CODE_EXAM_API.md).
 
 ## A. Tổng quan kiến trúc
 
 | Thành phần | Vai trò trong mã hiện tại | Dữ liệu chính |
 |---|---|---|
 | Question Bank | Nguồn câu hỏi, trạng thái phát hành, grading specification và metadata. | `questions.json`, key là Question ID. |
-| Paper | Danh sách có thứ tự các câu hỏi code, kèm `question_limit` và filters. Paper mới là entity độc lập; Paper cũ có nested `draft` và `versions`. | `papers.json`. |
+| Paper | Danh sách có thứ tự các câu hỏi code, kèm `question_limit` và filters. Schema v2 là entity độc lập, không có nested version history; legacy schema v1 giữ `draft` và `versions`. | `papers.json`. |
 | Exam | Cấu hình vận hành: tiêu đề, participants, thời lượng, chính sách nộp bài và một item loại code hoặc ZIP. | `exams.json`. |
 | Release | Bản Exam được publish. Ghi `release_id`, Paper pool, snapshot code exam và lựa chọn Paper cho từng Student. Publish chưa bắt đầu giờ làm bài. | `exams.json` (`release`). |
 | Assignment | Bản ghi cho Student được gán vào release, gồm file và/hoặc `paper_id`, legacy `paper_version_id`, `code_exam_id`, trạng thái và thời gian. | `assignments.json`, key Student ID. |
@@ -25,7 +25,7 @@ Paper chọn nội dung; Exam cấu hình và phát nội dung; Release cố đ�
 2. `fromExam()` khôi phục cấu hình đang lưu vào form; `toPayload()` biến form thành `items` và `config`.
 3. Item code có `distribution: { mode, paper_versions }`. Paper độc lập được gửi dưới dạng `{paper_id}`; Paper legacy phải gửi `{paper_id, paper_version_id}`.
 4. Tạo mới gửi `POST /api/admin/exam-records`; `main.Handler.do_POST()` gọi `general_exams.create_exam()`, rồi `_normalize()` và `_normalize_items()` xác thực dữ liệu trước khi ghi `exams.json`.
-5. Paper Builder riêng tải `GET /api/admin/questions` và `GET /api/admin/papers`; tạo Paper mới dùng `POST /api/admin/papers/independent`, sửa dùng `PUT /api/admin/papers/{paper_id}`. `app/papers.py` lưu câu hỏi theo ID trong Draft; `publish_paper()` kiểm tra số lượng bằng nhau với `question_limit`, xác thực câu hỏi và tạo snapshots trong Paper độc lập.
+5. Paper Builder riêng tải `GET /api/admin/questions` và `GET /api/admin/papers`; tạo Paper schema-v2 dùng `POST /api/admin/papers/independent` (POST `/api/admin/papers` remains the legacy schema-v1 creation route), sửa dùng `PUT /api/admin/papers/{paper_id}`. `app/papers.py` lưu danh sách câu hỏi theo ID trong current Paper; publishing validates exact `question_limit`. The Exam release stores its immutable question snapshots in release-scoped Code Exam records, not in a nested Paper version list.
 
 Nguồn: `static/js/exams.js:98, 165, 186, 236, 752`; `app/main.py:348-380, 515-549, 631-642`; `app/general_exams.py:166, 217, 249, 716`; `app/papers.py:172, 257, 280, 362, 462, 495, 635`.
 
@@ -42,7 +42,7 @@ Nguồn: `app/general_exams.py:166-215, 812-832, 834-970`; `app/exams.py:36-40, 
 ### 3. Teacher publish, sửa Paper Selection, và Start
 
 - `POST /api/admin/exam-records/{id}/publish` gọi `publish_exam()`. Chỉ Draft được publish. `_build_release()` validate và tạo snapshots; Exam status chuyển thành `distributed`. Student View có thể liệt kê Exam Card nhưng việc này không kích hoạt bài làm.
-- `POST /api/admin/exam-records/{id}/update` gọi `update_exam()`. `expected_revision` là bắt buộc; stale revision trả 409. Status `draft` và `distributed` được sửa. Với Exam distributed, hàm dựng release mới và đồng bộ các assignment chuẩn bị trước Start. Dấu hiệu hoạt động thật của Student sẽ chặn thay đổi; `started` và `ended` không được sửa.
+- `POST /api/admin/exam-records/{id}/update` gọi `update_exam()`. `expected_revision` là bắt buộc; stale revision trả 409. Status `draft` và `distributed` được sửa. Với Exam distributed, hàm dựng release mới và đồng bộ các assignment chuẩn bị trước Start. Student activity chặn thay đổi; `started` và `ended` không được sửa.
 - Nút Start của Teacher gọi `POST /api/admin/exam-records/{id}/start`; `start_exam()` áp dụng release map vào assignments và chuyển Exam sang `started`. Đây là sự kiện bắt đầu do Teacher chủ động, không có lịch tự chạy.
 - `revoke_exam()` đưa một Exam distributed chưa bắt đầu về Draft; release/applied state liên quan được dọn theo helper hiện tại.
 
@@ -68,7 +68,7 @@ Nguồn: `app/main.py:826-846`; `static/js/student-code.js:394, 595, 654, 691, 7
 
 ### 6. Teacher results và regrade
 
-Teacher xem results qua `GET /api/admin/code-results?exam_id=...` và giao diện `static/js/code-results.js`. Regrade đơn lẻ dùng `POST /api/admin/code-results/{exam_id}/regrade`; theo Student dùng `/regrade-student`. `regrade_submission()` chỉ chạy với code exam đã ended và submission khớp `exam_id`/`release_id`, rồi lấy đề qua `_question_snapshot()`. Với Paper release, `use_latest_spec=true` bị từ chối; bản snapshot phát hành là nguồn specification. Với exam code không gắn Paper, tùy chọn latest Question có thể dùng phiên bản hiện hành. Regrade được lưu kèm history bởi `_complete_submission(..., preserve_history=True)`.
+Teacher xem main Exam results qua `GET /api/admin/exam-results` and detail at `/api/admin/exam-results/{exam_id}`. Single and per-Student regrade use the matching `/regrade` routes. Legacy standalone code results remain at `/api/admin/code-results`. Paper-release regrade uses its frozen release snapshot; `use_latest_spec=true` is rejected for Paper releases. ZIP uploads do not pass through the code grader.
 
 Các ZIP upload được xử lý qua `POST /api/student/submit` và `accept_submission()`; chúng không đi qua code grader này. Admin list general submissions dùng `/api/admin/submissions`. Không mô tả ZIP như có auto-grading.
 

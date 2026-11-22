@@ -21,14 +21,15 @@
 | JSON/JSONL là persistence chính; atomic replacement và process-local RLock. | `app/storage.py` | Không suy ra multi-file atomicity hoặc multi-process safety. |
 | Question modes là Java Reflection, Java STDIO, Python STDIO; backend validates config. | `app/questions.py::_validate_question()` | Giữ execution schema và import compatibility. |
 | Runner interface hỗ trợ `visible_only`, `workspace_parent`. | `app/code_runner.py::run_stdio()`, `app/code_exams.py::execute_question()` | Caller Practice/Official Exam phải cùng tương thích. |
-| Student heartbeat hiện gọi telemetry; Monitor trả session snapshot. | `static/js/student.js`, `app/main.py::monitoring_snapshot()` | Presence khác behavioral monitoring; snapshot khác event history. |
+| Student status polling preserves session presence; telemetry snapshots and durable events are scoped to an active Student/release attempt. | `static/js/student.js`, `app/exam_monitoring.py`, `app/main.py::monitoring_snapshot()` | Presence remains distinct from behavioral monitoring; event signals are technical observations, not proof of misconduct. |
+| Official code-exam drafts/finalization have a separate server-side store and deadline processing path. | `app/exam_completion.py`, `app/main.py` | Only server-accepted pre-deadline source can be auto-submitted; ZIP uploads remain separate. |
 | Server bind default `0.0.0.0:8080`, dùng ThreadingHTTPServer; Runner dùng Windows Job Objects. | `app/config.py`, `app/main.py`, `app/windows_job.py` | Implementation profile, không tự chứng minh dài hạn là architecture đã được duyệt. |
 
-## 3. Đề xuất chưa được duyệt
+## 3. Implemented features and remaining proposals
 
-Exam-only monitoring, multiple-tab precheck/dialog, fullscreen khi vào Exam và persistent monitoring events đang được xem xét. Chúng không phải quyết định được duyệt và chưa triển khai. Xem [Telemetry Audit](TELEMETRY_ARCHITECTURE_AUDIT.md).
+Attempt-scoped monitoring, persistent event history, the multi-page precheck, fullscreen gate, per-Student Practice lock, and server-side code-exam completion are present in the current source. Their presence is a source observation and does not create additional Owner-approved policy or establish browser/deployment acceptance. The [Exam Monitoring plan](EXAM_MONITORING_IMPLEMENTATION_PLAN.md) records scope and status; the [Telemetry Audit](TELEMETRY_ARCHITECTURE_AUDIT.md) is historical.
 
-Không coi public hosting, nhiều server process, Docker, SQLite migration hoặc lifecycle mới là scope được duyệt chỉ vì có thể xuất hiện trong tài liệu cũ/roadmap.
+Không coi public hosting, nhiều server process, Docker, SQLite migration, retention policy hoặc lifecycle mới là scope được duyệt chỉ vì có thể xuất hiện trong tài liệu cũ/roadmap.
 
 ## 4. Khi có xung đột
 

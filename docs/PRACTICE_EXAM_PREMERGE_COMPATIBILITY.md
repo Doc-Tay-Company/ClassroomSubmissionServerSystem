@@ -1,6 +1,8 @@
 # Practice Mode and Exam Distribution Pre-Merge Compatibility Audit
 
-**Compared source snapshots**
+> **Historical pre-merge report:** this file compares only the exact source snapshots listed below. Its branch/workspace state, missing-feature descriptions, merge steps, and acceptance checklist are not current project instructions. Use [current Project Context](PROJECT_CONTEXT.md), [Architecture](ARCHITECTURE.md), and [Code Exam API](CODE_EXAM_API.md) for present behavior.
+
+**Compared source snapshots at the time of the audit**
 
 - Practice Mode: `minghere` at `789d18320d4deadeffa2aca89baf60cc4fe8ffa1`.
 - Exam Distribution: committed tree `4c6f5945277d477dd1300b6f286c6b91cda2c68d` (short hash `4c6f594`) in `D:\New_JSD\project_test`.

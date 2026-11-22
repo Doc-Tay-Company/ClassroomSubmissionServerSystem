@@ -1,4 +1,6 @@
-# Known issues, risks and limitations
+# Known issues, risks and limitations — archived baseline
+
+> Historical snapshot. The findings below are not the current issue tracker and include status/links that may be stale. Use [current Known Issues](../KNOWN_ISSUES.md) and [documentation index](../README.md).
 
 Initial evidence baseline: 2026-11-10. These risks came from the Phase 1 documentation audit; the Runner/Judge findings below were added from a later targeted audit. Not every item has been re-verified after subsequent changes. Check `ai-workflow/CURRENT.md` for active phase status. Source-supported risks are not claims of reproduced exploits, data loss, or operational incidents unless an entry explicitly says otherwise.
 
@@ -7,7 +9,7 @@ Priority indicates investigation urgency: **High** for plausible host/data-integ
 ## KI-001 — Student execution lacks filesystem/network isolation
 
 - **Description:** Job Objects enforce resource/process limits but do not restrict the student's filesystem/network access under the server identity.
-- **Sources:** [windows_job.py](../app/windows_job.py), `create_job_process`; [judge handover §16](JUDGE_EXECUTION_TECHNICAL_HANDOVER.md#16-bảo-mật-privacy-và-giới-hạn-sandbox); [java_runner.py](../app/java_runner.py).
+- **Sources:** [windows_job.py](../../app/windows_job.py), `create_job_process`; historical judge handover (not retained in this checkout); [java_runner.py](../../app/java_runner.py).
 - **Potential impact:** Submitted programs may access host resources available to the execution identity. Actual exposure depends on host privileges and policy.
 - **Evidence status:** Verified implementation limitation, corroborated by technical handover; no exploit reproduced.
 - **Priority:** High, because execution involves student-controlled programs and host data.
@@ -18,7 +20,7 @@ Priority indicates investigation urgency: **High** for plausible host/data-integ
 ## KI-002 — Potential lost updates across concurrent read/modify/write operations
 
 - **Description:** Individual storage calls lock, but session updates and file-submission workflows separately read and write whole JSON collections. An intervening request may be overwritten. `transaction()` protects only participating sequences.
-- **Sources:** [storage.py](../app/storage.py), `read_json`, `write_json`, `update_json`, `transaction`; [security.py](../app/security.py), `new_session`/`get_session`; [submissions.py](../app/submissions.py), `accept_submission`.
+- **Sources:** [storage.py](../../app/storage.py), `read_json`, `write_json`, `update_json`, `transaction`; [security.py](../../app/security.py), `new_session`/`get_session`; [submissions.py](../../app/submissions.py), `accept_submission`.
 - **Potential impact:** Missing session changes, submission metadata, or assignment updates under concurrent requests.
 - **Evidence status:** Source-supported race possibility; no lost-update reproduction performed.
 - **Priority:** High, because the server uses concurrent request threads and affected state includes submissions.
@@ -29,7 +31,7 @@ Priority indicates investigation urgency: **High** for plausible host/data-integ
 ## KI-003 — Related files lack crash atomicity
 
 - **Description:** Atomic replacement protects individual JSON files. Payload, metadata, assignments, settings and audit can be persisted separately. The process lock has no rollback or inter-process coordination.
-- **Sources:** storage.py `atomic_write`/`transaction`; submissions.py `accept_submission`; [general_exams.py](../app/general_exams.py), release/start operations; supplied Architecture §6.
+- **Sources:** storage.py `atomic_write`/`transaction`; submissions.py `accept_submission`; [general_exams.py](../../app/general_exams.py), release/start operations; supplied Architecture §6.
 - **Potential impact:** Abrupt interruption may leave orphan payloads or inconsistent linked state; simultaneous server instances may overwrite changes.
 - **Evidence status:** Verified persistence boundary; crash/power-loss/multi-instance outcomes untested.
 - **Priority:** High, because exam/submission integrity and recovery depend on related records.
@@ -40,7 +42,7 @@ Priority indicates investigation urgency: **High** for plausible host/data-integ
 ## KI-004 — Synchronous bounded grading and shutdown behavior
 
 - **Description:** Grading occupies request work; the run semaphore defaults to two slots and can reject busy requests with 429. HTTP threads are daemon threads; shutdown does not establish completion of in-flight work.
-- **Sources:** [code_exams.py](../app/code_exams.py), `_RUN_SLOTS`, `run_pretest`, `submit_code`; [main.py](../app/main.py), `main` and grading routes; supplied Architecture §§7–8.
+- **Sources:** [code_exams.py](../../app/code_exams.py), `_RUN_SLOTS`, `run_pretest`, `submit_code`; [main.py](../../app/main.py), `main` and grading routes; supplied Architecture §§7–8.
 - **Potential impact:** Contention and retries during synchronized submission; interrupted work during shutdown. Supported class size is unknown.
 - **Evidence status:** Verified mechanism; capacity and shutdown failures not reproduced.
 - **Priority:** Medium; operational impact depends on workload and stop procedure.
@@ -51,7 +53,7 @@ Priority indicates investigation urgency: **High** for plausible host/data-integ
 ## KI-005 — Platform/toolchain constraints and uncertain Python support
 
 - **Description:** Windows startup requires working JDK 17+ even for file-only use. Non-Windows startup reports grading unavailable. Python 3.10+ is claimed by the secondary README but lacks established compatibility results/package metadata.
-- **Sources:** main.py `main`; java_runner.py `verify_jdk_configuration`; windows_job.py `create_job_process`; [root README §6](../README.md#6-requirements); supplied Overall “Unknowns.”
+- **Sources:** main.py `main`; java_runner.py `verify_jdk_configuration`; windows_job.py `create_job_process`; [root README §6](../../README.md#6-requirements); supplied Overall “Unknowns.”
 - **Potential impact:** Missing/mismatched tools block startup; unsupported environments cannot provide grading; deployment compatibility may be overstated.
 - **Evidence status:** Verified platform/startup checks; installed toolchains and Python compatibility uncertain.
 - **Priority:** Medium; directly affects deployability and pre-exam readiness.
@@ -62,7 +64,7 @@ Priority indicates investigation urgency: **High** for plausible host/data-integ
 ## KI-006 — Public deployment security/readiness unverified
 
 - **Description:** HTTP/all-interface binding is the default. `check_origin` exists but main.py does not call it; helper tests do not establish endpoint protection. No upload-specific rate limiter was identified. TLS/proxy trust and firewall configuration are unknown.
-- **Sources:** [config.py](../app/config.py); main.py request handling/TLS; security.py `check_origin`; [test_core.py](../tests/test_core.py); root README §§2/12/17.
+- **Sources:** [config.py](../../app/config.py); main.py request handling/TLS; security.py `check_origin`; [test_core.py](../../tests/test_core.py); root README §§2/12/17.
 - **Potential impact:** Credentials/submissions may be exposed on untrusted networks; request abuse or cross-origin behavior requires assessment. No exploit is asserted.
 - **Evidence status:** Verified inspected defaults/helper wiring; deployment protection and exploitability uncertain.
 - **Priority:** High before any exposure beyond the trusted deployment baseline; public hosting itself remains unapproved.
@@ -95,9 +97,9 @@ Priority indicates investigation urgency: **High** for plausible host/data-integ
 ## KI-008 — Runtime verification and operational requirements incomplete
 
 - **Description:** Automated test evidence has been recorded for selected phases, but full browser acceptance, representative capacity results, backup/restore exercise and deployment inspection remain incomplete. Supported class size, latency/recovery targets, retention policy and active purpose of machines.json are unspecified/unverified.
-- **Sources:** [PROJECT_CONTEXT verification limits](PROJECT_CONTEXT.md#verification-limits-and-unresolved-requirements); [tests](../tests/) (mocked API execution and platform guards); storage.py defaults; supplied Architecture §8 unknowns.
+- **Sources:** [PROJECT_CONTEXT](../PROJECT_CONTEXT.md); [tests](../../tests/) (mocked API execution and platform guards); storage.py defaults; supplied Architecture §8 unknowns.
 - **Potential impact:** Source-level feature presence may be mistaken for operational readiness or guaranteed behavior.
-- **Evidence status:** Automated test runs and a Checkpoint 2 Node harness are recorded in `ai-workflow/IMPLEMENTATION.md`; real-browser behavior, representative capacity, backup/restore, and deployment remain unverified.
+- **Evidence status:** Automated test runs and a Checkpoint 2 Node harness were recorded in historical `ai-workflow/IMPLEMENTATION.md` (not retained here); real-browser behavior, representative capacity, backup/restore, and deployment remained unverified at that time.
 - **Priority:** Medium; verification should be selected for the next approved task or intended deployment.
 - **Current status:** Phase 2 Checkpoint 2 Owner browser acceptance remains pending. Operational targets and deployment evidence remain pending.
 - **Future investigation:** Obtain owner targets, execute relevant existing tests in a suitable environment, trace complete browser workflows, and record environment/results without overstating coverage.
@@ -116,7 +118,7 @@ Priority indicates investigation urgency: **High** for plausible host/data-integ
 
 ## Execution and Judge audit — RUN-01 through RUN-05
 
-The findings below are summarized from the source-based and targeted test investigation in [REVIEW.md](../ai-workflow/REVIEW.md), “Comprehensive Code Runner and Judge Architecture & Reliability Audit.” The audit is historical evidence; verify current source and intended-host behavior before relying on a status. No finding here authorizes a fix by itself.
+The findings below are summarized from a historical source-based and targeted test investigation in `ai-workflow/REVIEW.md` (not retained in this checkout), “Comprehensive Code Runner and Judge Architecture & Reliability Audit.” The audit is historical evidence; verify current source and intended-host behavior before relying on a status. No finding here authorizes a fix by itself.
 
 | ID | Current finding | Evidence status and impact | Closure / next verification |
 |---|---|---|---|

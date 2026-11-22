@@ -1,15 +1,15 @@
 # Question Bank, Papers and Exams — Current Behavior
 
-This guide records behavior present in the current source at branch `feature/JudgeEngine`, commit `f00a5835c16518f5c1c1d976a4fad3264619d0ba`. It is an implementation guide, not a product roadmap. The API details are backed by `app/main.py`, `app/questions.py`, `app/papers.py`, `app/general_exams.py`, and the focused tests listed at the end.
+This guide records behavior present in the source tree reviewed on 2026-11-22; branch names and historical commit hashes are intentionally omitted because they are not durable project facts. It is an implementation guide, not a product roadmap. The current API reference is [Code Exam API](CODE_EXAM_API.md).
 
 ## Terminology
 
 - **Question**: a versioned source item in the Question Bank (`questions.json`), with lifecycle status and grading metadata.
-- **Paper**: an independently identified ordered set of Code Exam questions. It has one current mutable draft and zero or more immutable published versions.
+- **Paper**: an independently identified ordered set of Code Exam questions. New schema-v2 Papers have a stable ID, mutable current record, revision, and status; they do not have nested version history. Legacy schema-v1 Papers retain their old `draft` and `versions` structure and are supported by explicit references.
 - **Exam**: an operational exam record with participants, timing, lifecycle and exactly one supported item type: Code or ZIP.
 - **Release**: one published/distributed instance of an Exam.
-- **Assignment**: a persisted student-to-release mapping. A Code assignment refers to one Paper version; a ZIP assignment refers to an exam filename.
-- **Snapshot**: saved question/content data or a reference to an immutable Paper version used by a release/submission/regrade.
+- **Assignment**: a persisted student-to-release mapping. A Code assignment refers to a new Paper ID or an explicit legacy `(paper_id, paper_version_id)` pair; a ZIP assignment refers to an exam file.
+- **Snapshot**: release-scoped question/content data used by a student assignment, submission, and regrade. It is distinct from the current editable Paper record.
 
 Do not use “Exam” for a Paper. The Exam's Code/ZIP distribution selects the item delivered to students; Random question selection inside the Paper Builder is a separate action.
 
@@ -41,18 +41,18 @@ Different filter dimensions combine with AND. Empty filter values impose no cond
 
 ## Paper draft, preview and publication
 
-Each Paper has a stable ID and a current concurrency `revision`. Save/update requests carry `expected_revision`; stale updates are rejected with `409 PAPER_CHANGED`. Under the approved Model A, each Paper has one current mutable draft. Older saved draft states cannot be browsed or restored. Archiving and restoring a Paper card changes its lifecycle status; it does not restore an earlier draft.
+Each new schema-v2 Paper has a stable ID and a current concurrency `revision`. Save/update requests carry `expected_revision`; stale updates are rejected with `409 PAPER_CHANGED`. The Paper is one mutable current record; older draft revisions are not browsable or restorable. Archiving/restoring changes lifecycle status, not content. Legacy schema-v1 Papers continue to use explicit stored version IDs; they are not converted implicitly.
 
 An incomplete Paper draft can be created and saved. The UI shows Saved/Unsaved state, Paper ID/revision and latest published version. A new Paper must be saved to receive a server ID before the UI enables Draft Preview. Preview is read-only and does not publish. The editor uses `?draft=1` to preview the saved current draft even when the Paper has an older published version.
 
-Publishing does not require a prior Preview action. If the editor is dirty, it saves first and publishes only after save succeeds. If publication then fails, the UI reports that the draft was saved and publication failed. Successful publication appends a version such as `{paper_id}:v1`; re-publication appends the next version and does not rewrite old versions. Editing after publication changes the current draft; it does not mutate a published snapshot.
+Publishing does not require a prior Preview action. If the editor is dirty, it saves first and publishes only after save succeeds. If publication then fails, the UI reports that the draft was saved and publication failed. Publishing validates and saves the current schema-v2 Paper; it does not append a nested Paper version. Exam release construction snapshots the selected Paper's questions into release-scoped Code Exam records. Later Paper edits do not rewrite those release snapshots. Legacy Paper version records remain unchanged and resolvable by exact reference.
 
 ### Verified Paper API examples
 
 Create a draft (the example deliberately shows a partially configured draft):
 
 ```http
-POST /api/admin/papers
+POST /api/admin/papers/independent
 Content-Type: application/json
 ```
 
@@ -111,21 +111,21 @@ The Exam editor presents a persistent Code/ZIP radio selector. Selecting one cle
 
 Code Exam distribution is separate from question selection within a Paper:
 
-- `common` requires exactly one published Paper version and assigns that same reference to every eligible participant.
-- `random` chooses one reference from the configured published-version pool per participant while building the release.
+- `common` requires exactly one published Paper reference and assigns it to every eligible participant.
+- `random` chooses one reference from the configured published-Paper pool per participant while building the release.
 - The release persists the mapping; starting the release writes the exact Paper/version/code-exam IDs to `assignments.json`. Student retrieval, submission and default regrade resolve that saved reference. Refresh or repeat retrieval does not choose again.
-- Published Paper versions hold ordered question snapshots. Later Question Bank changes, Paper edits or Paper archive do not rewrite those snapshots. Explicit `use_latest_spec=true` regrade behavior is a separate opt-in and can use the latest published Question Bank specification.
+- Exam releases hold ordered question snapshots. Later Question Bank changes, Paper edits, or Paper archive do not rewrite those snapshots. `use_latest_spec=true` is rejected for Paper releases; only supported non-Paper paths may opt into current Question Bank specifications.
 
 ZIP Exam distribution remains a separate algorithm with `random`, `selected`, `parity`, and `custom` modes. The release and student assignment persist the chosen filename, but student retrieval reads bytes from the current file at that path. Exact historical ZIP byte snapshots are **not implemented**. A replaced or removed file can change or prevent retrieval for an old assignment.
 
 ## Compatibility, migration and rollback
 
 - No data migration or bulk rewrite was introduced. Paper IDs, current `draft`, published `versions`, release IDs, assignments and submissions keep their existing storage locations and identifiers.
-- Older Paper drafts without `question_limit` or `question_filters` remain readable. On edit/save, compatible defaults are derived from the saved Question IDs; no migration occurs merely by reading.
+- The legacy `POST /api/admin/papers` route remains available; the Paper Builder creates new independent records through `POST /api/admin/papers/independent`. Older Paper drafts without `question_limit` or `question_filters` remain readable; no migration occurs merely by reading.
 - Existing question-based standalone Code Exams continue through their legacy API/storage path; they are not converted to Paper records.
 - The API adds optional draft fields and the `draft=1` preview query. No dependency or database schema change was introduced.
 - Downgrade compatibility has not been tested. Before deploying any source rollback, make a normal backup of the JSON data directory and verify it can be restored; do not edit historical release or snapshot records as a rollback mechanism. No live data migration or migration rollback procedure is needed for these changes because no migration runs.
 
 ## Evidence and test limits
 
-Focused executed tests are recorded in [`ai/ACCEPTANCE_REPORT.md`](ai/ACCEPTANCE_REPORT.md) and [`ai/DISTRIBUTION_SNAPSHOT_VERIFICATION.md`](ai/DISTRIBUTION_SNAPSHOT_VERIFICATION.md). They include simulated-DOM UI harnesses and isolated Python API/distribution tests. No real browser/LAN run, full-suite run, or separate-process restart test is claimed here.
+Relevant checked-in suites include `tests/test_papers.py`, `tests/test_paper_distribution.py`, `tests/test_code_api.py`, and the Paper/Exam JavaScript UI tests. The documentation update did not run tests, browser automation, a LAN workflow, or a restart test; file presence alone is not a pass result.

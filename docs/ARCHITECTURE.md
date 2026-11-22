@@ -1,6 +1,6 @@
 ﻿# Kiến trúc hiện tại
 
-> Tài liệu được viết lại từ working tree hiện tại. References giúp điều hướng; kiểm tra source trước mọi thay đổi. Không phải chứng nhận chạy test/deployment.
+> Reconciled against the source tree on 2026-11-22. This is an implementation map, not a test, capacity, security, or deployment certification. See [documentation index](README.md) for the current project footprint and historical reports.
 
 ## 1. Thành phần
 
@@ -9,12 +9,15 @@
 | `run_server.py` → `app.main.main()` | Entry point; `Handler` dispatch HTTP routes, auth, templates và responses. |
 | `app/config.py`, `app/storage.py` | Paths/host/port; JSON/JSONL, atomic file replacement, process-local lock. |
 | `app/security.py` | Session cookie, token hashing, role checks, last_seen, logout. |
+| `app/accounts.py`, `app/setup_admin.py`, `app/configure_admin.py` | Account import and administrator setup flows. |
 | `app/questions.py`, `static/js/questions.js` | Question schema/lifecycle/revisions; Teacher editor/import/export/validation. |
 | `app/practice.py`, `static/js/student-practice.js` | Eligibility, safe Student projection, catalog/progress, visible-only Practice Run. |
 | `app/papers.py`, `static/js/code-papers.js` | Independent Paper schema v2, legacy reference resolution, Paper CRUD/preview. |
 | `app/general_exams.py`, `static/js/exams.js` | Exam configuration, Common/Random paper selection, release, assignment, lifecycle. |
 | `app/exams.py` | File Exam distribution/assignment and legacy/global exam session behavior. |
 | `app/code_exams.py` | Release-scoped Code Exam snapshots, Student access, Pretest, Submit, grading/regrade. |
+| `app/exam_completion.py` | Server-side code draft checkpoints, manual/automatic attempt finalization, results summary. |
+| `app/exam_monitoring.py`, `static/js/exam-telemetry.js`, `static/js/exam-entry.js`, `static/js/practice-lock.js` | Active-attempt telemetry snapshots/events, Student entry/fullscreen gates, Practice lock. |
 | `app/code_runner.py`, `app/java_runner.py`, `app/grading.py`, `app/windows_job.py` | STDIO/Reflection execution, result validation/aggregation and Windows process controls. |
 | Templates/static JS | Jinja-rendered pages and browser requests/polling/editor state. |
 
@@ -27,9 +30,11 @@
 | `papers.json` | Independent schema v2 Papers plus retained legacy versioned records. |
 | `exams.json` | Exam configuration and release data, including persisted selection/assignment information. |
 | `code_exams.json` | Code Exam records and release-scoped question snapshots. |
+| `code_attempts.json` | Server-received code drafts and code-exam finalization state. |
 | `assignments.json` | Student release/Paper assignment, start/deadline/status. |
 | `code_submissions.json`, `submissions.json` | Code result/submission records and uploaded file metadata/payload relationship. |
-| `sessions.json` | Session entries keyed by token hash, presence fields and current telemetry snapshot. |
+| `sessions.json` | Session entries keyed by token hash, presence fields and current active-attempt telemetry snapshot. |
+| `exam_monitoring.json` | Per-Student/per-release event history, counters, and sequence numbers. |
 
 Optional fields differ across legacy and current shapes. Never reinterpret historical content from current Question/Paper state or flatten legacy records.
 
@@ -96,13 +101,13 @@ flowchart LR
 5. Regrade verifies ended/completed state and uses Paper release snapshot; ZIP/file Exam has separate `/api/student/exam` and `/api/student/submit` routes.
 
 ### 4.5 Student heartbeat → telemetry → Teacher Monitoring
-- `student.js::heartbeat()` runs immediately and every 15s, calls telemetry then `GET /api/student/status`; focus/blur/visibility/storage events also send telemetry.
+- `student.js::heartbeat()` runs immediately and every 10s, polls `GET /api/student/status`, and sends telemetry snapshots only while the server reports an active attempt. Focus/blur/visibility events may submit attempt events through `exam-telemetry.js`.
 - `updateTabs()` tracks recent page IDs in origin-scoped `localStorage["css-exam-tabs"]`; it cannot inventory every browser tab.
-- `POST /api/student/telemetry` replaces a session-level snapshot in `sessions.json`. `security.get_session()` updates `last_seen` on authenticated requests independently.
-- `monitoring_snapshot()` combines latest session, assignment and submission data; alerts are derived from current visibility/focus/tab_count. `admin.js::loadMonitor()` polls `GET /api/admin/monitor` every 5s.
-- No Exam/Release/Assignment association or persistent telemetry event history exists in current snapshot contract. Practice page loads `student-practice.js`, not main `student.js`.
+- Student telemetry is accepted only for an active attempt and carries a release identity. `POST /api/student/telemetry/event` records supported event types in `exam_monitoring.json`, deduplicated by event ID and sequenced per Student/release.
+- `monitoring_snapshot()` combines current session, assignment and submission data with active-attempt event counters/history cursor. `admin.js` polls `GET /api/admin/monitor` every 5s and retrieves event pages when the sequence advances.
+- Student entry supports the tab precheck and fullscreen gate; Practice pages enforce a per-Student active-exam lock. Presence/session freshness remains distinct from attempt-scoped monitoring.
 
-Chi tiết telemetry fields, stale snapshot và tab-count limitations: [Telemetry Audit](TELEMETRY_ARCHITECTURE_AUDIT.md).
+Implementation details and remaining limitations are in [Known Issues](KNOWN_ISSUES.md). The [Telemetry Audit](TELEMETRY_ARCHITECTURE_AUDIT.md) is a historical pre-implementation report.
 
 ## 5. Authentication and persistence
 
@@ -124,4 +129,4 @@ Key tests: `test_practice.py`, `test_practice_workspace.js`, `test_question_conc
 
 ## 8. Proposed / under discussion
 
-Exam-only behavioral telemetry, tab precheck/dialog, fullscreen entry and persistent monitoring events are proposals, not current implementation. Student Start handler has no Fullscreen API call. No proposal here changes lifecycle or API.
+Attempt-scoped telemetry, persistent event history, tab precheck, fullscreen entry gate, Practice lock and server-side code-exam completion are present in the current source. Their presence does not certify browser acceptance, production readiness, or a particular deployment. Proposals not implemented remain out of scope unless separately authorized; see [Exam Monitoring implementation plan](EXAM_MONITORING_IMPLEMENTATION_PLAN.md) and [Known Issues](KNOWN_ISSUES.md).

@@ -1,5 +1,7 @@
 # 1. Project structure and technology stack
 
+> Reconciled against the source tree on 2026-11-22. Current checkout footprint: 22 Python files under `app/` (including `__init__.py`), 14 frontend JavaScript files, 6 templates, and 27 test files (16 Python, 11 JavaScript). Counts are a snapshot, not a capacity/coverage guarantee. The [documentation index](../README.md) identifies current references and historical reports.
+
 ## Repository map
 
 ```text
@@ -47,10 +49,10 @@ The repo has no Python dependency lockfile or declared `requires-python` floor/c
 
 ## Assets and test scope
 
-- Templates: `base.html`, `login.html`, `student.html`, `admin.html`.
-- Frontend scripts: `app.js`, `admin.js`, `student.js`.
-- Tests: `test_core.py`, `test_code_api.py`, `test_code_runner.py`, `test_java_runner.py`, `test_reflection_judge.py`, `test_grading.py`, and `test_windows_job.py`.
-- Existing handover and planning docs under `docs/` provide background, but source code is the authority for current behavior.
+- Templates: 6 HTML files, including base/login/admin/student/practice/results views.
+- Frontend scripts: 14 files under `static/js/`, including Question/Paper/Exam editors, Student Practice/code/results, monitoring, entry/fullscreen, and Practice lock modules.
+- Tests: 27 files under `tests/` (16 Python and 11 JavaScript), spanning routes, Paper/Exam distribution, Practice, completion, monitoring, runners, grading, and browser-script harnesses.
+- These are inventory counts only. Existing handoff/planning docs provide background; source code is the authority for current behavior.
 
 ## Source anchors
 
@@ -77,7 +79,8 @@ The repo has no Python dependency lockfile or declared `requires-python` floor/c
 | Security (`app/security.py`) | Password hash verification, session issuance/lookups, role checks, login attempt lockout, IP extraction. | `sessions.json`, `login_attempts.json`, user/admin JSON. |
 | Exam domain (`app/exams.py`) | Exam-file listing/distribution and student start/deadline handling. | `settings.json`, `assignments.json`, users and exam files; calls security/storage. |
 | ZIP submissions (`app/submissions.py`) | Validates ZIP boundaries/CRC/paths and stores upload bytes and metadata. | `submissions/`, `submissions.json`, `assignments.json`, `settings.json`, audit log. |
-| Question, Paper and code-exam domain (`questions.py`, `papers.py`, `code_exams.py`, `general_exams.py`) | Validates question schemas; manages reusable Paper drafts/immutable versions, release assignment, student code exam retrieval and grading flows. | `questions.json`, `papers.json`, `exams.json`, `assignments.json`, code submission/run JSON; runners, grading, storage, Job limits. |
+| Question, Paper and code-exam domain (`questions.py`, `papers.py`, `general_exams.py`, `code_exams.py`) | Validates Question schemas; manages schema-v2 independent Papers plus legacy versioned Papers, Exam releases/assignments, release snapshots, Student access, grading and regrading. | `questions.json`, `papers.json`, `exams.json`, `assignments.json`, code submission/run JSON; runners, grading, storage, Job limits. |
+| Practice/completion/monitoring (`practice.py`, `exam_completion.py`, `exam_monitoring.py`) | Practice eligibility/progress/visible-only runs; server-side code drafts and finalization; active-attempt monitoring events and history. | `practice_progress.json`, `code_attempts.json`, `exam_monitoring.json`, `sessions.json`, shared runner and storage. |
 | Execution (`code_runner.py`, `java_runner.py`, `windows_job.py`, `judge/ReflectionJudge.java`) | Compiles/runs student code, captures bounded output, classifies execution results. | Temporary workspaces, child processes, Java/Python toolchains; Windows Job Object APIs. |
 | Scoring (`app/grading.py`) | Validates judge results and calculates question/exam points. | Pure transformations over configured cases/checks and execution results. |
 | Persistence (`app/storage.py`) | JSON read/write/update, atomic replacement, JSONL audit. | Files under `data/` and `logs/`; process-global `threading.RLock`. |
@@ -97,7 +100,7 @@ The repo has no Python dependency lockfile or declared `requires-python` floor/c
 
 For code grading: `Handler → code_exams → questions/grading/runners → java_runner/windows_job → javac/java/python child process`. `code_exams` also persists results and audit entries. The direction is direct imports, not a dependency-injection container.
 
-See [module analysis](03-module-and-dependency-analysis.md) and [system diagram](diagrams/system-architecture.mmd).
+See section 3 below for the module analysis and the Mermaid diagrams embedded in this document.
 
 ## Shared state
 
@@ -114,14 +117,15 @@ No separate database, cache, distributed lock, queue, or multi-instance coordina
 
 ## Direct dependency map
 
-The diagram captures important runtime imports/interactions rather than every standard-library import. See [`diagrams/module-dependencies.mmd`](diagrams/module-dependencies.mmd).
+The dependency table captures important runtime imports/interactions rather than every standard-library import; no separate module diagram file is present in this checkout.
 
 | Caller | Direct dependency | Why / functionality |
 |---|---|---|
 | `app.main` | `config`, `storage` | Paths/limits, initialization, persistence and audit. |
 | `app.main` | `security` | Session extraction, role authorization, password verification, login lockout. |
 | `app.main` | `exams`, `submissions`, `accounts` | Exam lifecycle, upload, account import parsing. |
-| `app.main` | `questions`, `code_exams` | Admin question/code-exam and student code-run APIs. |
+| `app.main` | `questions`, `papers`, `general_exams`, `code_exams` | Question/Paper/Exam APIs, student code access and grading. |
+| `app.main` | `practice`, `exam_completion`, `exam_monitoring` | Practice routes, code-exam finalization, telemetry and event history. |
 | `app.main` | `java_runner` | Startup JDK readiness check on Windows. |
 | `questions` | `grading`, `storage`, `windows_job` | Validate configured score totals, persist question bank, validate Java memory minimum. |
 | `code_exams` | `questions`, `grading`, `code_runner`, `java_runner`, `windows_job`, `storage` | Snapshot validation, dispatch runner, result normalization/scoring, persistence and bounded execution. |
@@ -133,13 +137,13 @@ The diagram captures important runtime imports/interactions rather than every st
 ## Static dependencies vs runtime interactions
 
 - **Static/import dependencies:** the direct Python imports above. Importing `app.main` also imports `code_exams` and `java_runner` and calls storage initialization.
-- **Runtime interactions:** a matching HTTP route invokes a specific domain function; code-exam execution can start `javac`, `java`, and/or Python subprocesses; requests share the same in-process storage lock and runner semaphore.
+- **Runtime interactions:** a matching HTTP route invokes a specific domain function; code-exam execution can start `javac`, `java`, and/or Python subprocesses; requests share the same in-process storage lock and runner semaphore. A background deadline thread periodically invokes code-exam finalization.
 - **Filesystem interaction:** templates/static files and exam assets are read by HTTP routes; uploads and data/audit are written directly.
 
 ## Coupling and boundaries
 
 - **Verified coupling:** HTTP route definitions and route-level validation are colocated in `Handler`; changes to API behavior therefore commonly involve `app/main.py` and one or more domain modules.
-- **Verified coupling:** `code_exams` coordinates storage and execution runners, while `grading` is separately reusable and does not launch processes.
+- **Verified coupling:** `code_exams` coordinates storage and execution runners, while `grading` is separately reusable and does not launch processes. Practice calls the shared execution helper with visible-only checks; Official Exam uses its release snapshot and separate submission/completion policy.
 - **Potential limitation:** storage state is file-oriented and its lock is module-process-local. Multiple server processes would not coordinate their read-modify-write cycles.
 - **Circular imports:** no circular import was observed in the primary module import graph. This is an inspection result, not a static import-graph proof over every optional execution branch.
 - **Unused/isolation:** no module was conclusively identified as unused. `submission_server.py` is a compatibility entry point; execution/legacy files are referenced by active imports and tests.
@@ -178,15 +182,15 @@ The diagram uses `Handler` as the composition point and shows the code-grading r
 
 ### Code question and grading
 
-1. Admin routes create/publish questions and manage reusable Papers. `papers.publish_paper` captures ordered question snapshots in an immutable Paper version; source status is serialized as teacher-side warnings.
-2. The admin exam builder stores either a Paper `distribution` (`common`/`random` plus `paper_versions`) or a legacy `question_ids` item. `general_exams._build_release` creates Paper-referencing Code Exams and persists the server-selected Paper/version per student in the release.
+1. Admin routes create/publish questions and manage Papers. Schema-v2 Papers have a mutable current record/revision; legacy schema-v1 records retain explicit versions. Exam release construction stores immutable question snapshots with release-scoped Code Exam records.
+2. The admin exam builder stores either a Paper `distribution` (`common`/`random` plus Paper refs) or a legacy `question_ids` item. `general_exams._build_release` creates release-scoped Code Exams and persists the selected Paper ref per Student in the release.
 3. Starting the release copies `paper_id`, `paper_version_id`, and `code_exam_id` into student assignments. Student code endpoints check those references and return only the assigned ordered public questions; hidden checks remain server-side. Existing question-based records retain their legacy path.
 4. `/api/student/code/run` invokes `run_pretest`: source size/hash, run budget/cooldown and semaphore are checked; visible tests/checks are executed; pretest history and audit are updated. It does not create a final scored submission.
 5. `/api/student/code/submit` invokes `submit_code`: reserves submission state, executes question mode, validates/grades results, then persists final submission and exam score.
 6. `execute_question()` dispatches Java reflection to `run_reflection_judge`, otherwise STDIO to `run_stdio`. The runners start bounded child processes. `grading.py` validates result shapes/verdicts and aggregates points.
-6. Admin code-results and regrade routes read saved results or explicitly re-run grading.
+6. Server-received code drafts and finalization state are stored through `exam_completion.py`; deadline processing can finalize eligible code attempts from drafts already accepted by the server. Admin result/regrade routes read saved results or explicitly re-run grading.
 
-See [execution-path diagram](diagrams/execution-paths.mmd) and existing [`docs/JUDGE_EXECUTION_TECHNICAL_HANDOVER.md`](../JUDGE_EXECUTION_TECHNICAL_HANDOVER.md) for additional runner protocol and platform notes.
+Attempt-scoped monitoring and Practice locking are separate from the grading path: current attempt status gates telemetry events and Practice operations; persistent event history is stored in `exam_monitoring.json`. See [current monitoring architecture](../ARCHITECTURE.md#4-detailed-execution-paths).
 
 ## Important side effects and errors
 
@@ -228,7 +232,7 @@ No independent client executable, peer-to-peer link, separate grading listener, 
 
 The browser opens a normal TCP connection, sends an HTTP request with cookie/body, and receives one response. Session state is represented by a random cookie token; server-side JSON is keyed by a SHA-256 digest. The code sets HttpOnly and SameSite=Strict, Max-Age 43200, and adds Secure only if TLS certificate and key env vars are configured. TLS wraps the listener socket when both `CSS_TLS_CERT` and `CSS_TLS_KEY` are present.
 
-There is no app-level connection registry or reconnect/heartbeat protocol. The student frontend sends telemetry/updates over ordinary HTTP; monitoring and notification refresh use polling. There is no WebSocket or server-push transport.
+There is no custom connection registry, WebSocket, or server-push transport. The Student frontend polls status over HTTP and sends attempt-scoped telemetry snapshots/events over ordinary HTTP; monitoring and notification refresh also use polling.
 
 ## Concurrency and resource lifecycle
 
@@ -236,14 +240,12 @@ There is no app-level connection registry or reconnect/heartbeat protocol. The s
 - JSON read-modify-write locking is via a process-global `threading.RLock`; this does not coordinate across processes.
 - Code execution has a distinct `threading.BoundedSemaphore`; `CSS_MAX_CONCURRENT_CODE_RUNS` defaults to 2 and is clamped to 1..16.
 - Runner processes are launched from request-handling work and have time/output/memory bounds depending on runner and platform. Windows Job Object assignment is part of the Windows process path.
-- No HTTP client heartbeat, server-side idle timeout policy, or reconnect mechanism was found. Socket/server shutdown is handled in `main()`'s `finally` by `server.server_close()` after `serve_forever` ends.
+- The Student client has an HTTP status heartbeat; there is no separate socket-level heartbeat or reconnect protocol. Socket/server shutdown is handled in `main()`'s `finally` by `server.server_close()` after `serve_forever` ends.
 - There is no distributed synchronization or queue when work exceeds the code-run semaphore; pretest path returns a busy response.
 
 ## Diagrams
 
-- [Topology](diagrams/network-topology.mmd)
-- [Connection/request lifecycle](diagrams/connection-lifecycle.mmd)
-- [Message transmission](diagrams/message-transmission.mmd)
+The transport is HTTP polling and request/response; separate diagram files are not present in this checkout.
 
 ## Unknown / environment-dependent
 
@@ -280,11 +282,13 @@ The lock is local to one Python process. Atomic replacement protects an individu
 | `assignments.json` | Mapping from student ID to exam file, release, state and timestamps. | Student account; ties submission and release. |
 | `submissions.json` | Mapping from student ID to array of submission metadata. | Metadata points to a file in `submissions/`; each attempt associates to release ID. |
 | `questions.json` | Mutable Question Bank records. | Source records and published status for new Paper composition. |
-| `papers.json` | Paper metadata, draft question references, and published versions with ordered question snapshots/source references. | Release, assignment, and Paper Code Exam references resolve immutable versions here. |
+| `papers.json` | Schema-v2 Paper metadata/current ordered question content and retained legacy versioned Paper records. | New releases snapshot questions in `code_exams.json`; legacy references resolve exact stored Paper version IDs. |
 | `exams.json` | Exam records and release configuration, Paper pool and per-student Paper assignment map (plus ZIP assignment map). | Assignments and release-scoped Code Exams. |
 | `assignments.json` | Student exam assignment and lifecycle; Paper exams include `paper_id`, `paper_version_id`, `code_exam_id`. | Exact release/Paper version assigned to student. |
 | `code_exams.json` | Legacy question snapshots or Paper reference (`paper_ref`) and exam settings. | Release ID, Paper version, student results. |
 | `code_submissions.json` | Per-student final code submissions and grade/result details; Paper submissions retain Paper/version/question snapshot references. | Code exam, release, question, student identity. |
+| `code_attempts.json` | Server-received code drafts and finalization state by Student/code exam. | Assignment, release and code-exam snapshot. |
+| `exam_monitoring.json` | Attempt-keyed event history, counters and latest sequence by Student/release. | Active Official Exam attempt; separate from session presence. |
 | `code_runs.json` | Bounded pretest run records and outcomes. | Student, exam/release/question identifiers. |
 | `notifications.json` | Notification records with optional student target. | Admin author and optionally student recipient. |
 | `audit.jsonl` | Append-only events with timestamp/event/actor/IP/details. | Cross-cutting event trail; not a relational foreign-key system. |
@@ -304,7 +308,7 @@ This describes code-level keys and relationships. Runtime data files may be user
 
 ### Browser monitoring
 
-`student JS telemetry form → `/api/student/telemetry` → session record telemetry + last_seen → `monitoring_snapshot()` joins students/sessions/assignments/submissions → admin HTML/API JSON`
+`Student status heartbeat → active-attempt check → telemetry snapshot in session + event POST → exam_monitoring.json (Student/release keyed) → monitoring_snapshot() + paged event history → admin polling/history UI`
 
 ## Network vs internal representation
 
@@ -314,7 +318,7 @@ This describes code-level keys and relationships. Runtime data files may be user
 - Uploaded file bytes are stored as files; only metadata is kept in JSON.
 - Child-process result channels are not the HTTP schema. Runner details are normalized before API output; `ProcessResult.to_dict()` deliberately excludes internal protocol pipe data.
 
-No SQL ERD applies. See the [JSON relationship diagram](diagrams/data-model.mmd).
+No SQL ERD applies. The JSON collections and relationships are summarized in the table above; separate diagram files are not present in this checkout.
 
 ## Source anchors
 
@@ -354,7 +358,7 @@ No SQL ERD applies. See the [JSON relationship diagram](diagrams/data-model.mmd)
 
 ## Background work and concurrency
 
-No standalone scheduler, worker process, durable queue, async event loop, or daemon maintenance service was found. HTTP routes perform domain work synchronously in their request thread. A code-grading route therefore waits for compilation/execution and response construction. Background execution exists only within runner internals (for example output-capture threads) and is per invocation.
+There is no separate worker process, durable queue, or async event loop. HTTP routes perform domain work synchronously in their request thread, and code-grading requests wait for execution. `app.main` starts a daemon deadline thread that periodically calls the code-exam finalization sweep; it is not a durable queue and work is still bounded by the shared runner capacity. Runner-internal output capture is per invocation.
 
 Multiple requests can race over shared files. The storage lock prevents simultaneous operations that use the same in-process storage API lock, but multi-file workflows and other filesystem actions are not transactional. A second server process would have a different lock.
 
@@ -420,19 +424,21 @@ Paths are relative to the repository root. Line references point to current chec
 | `distribute_exams`, `start_exam`, `remaining_seconds` | Functions | `app/exams.py:36`, `:149`, `:187` | Allocate exam files, begin student exam and calculate remaining time. | Handler routes, `assignments.json`, settings. |
 | `validate_zip`, `accept_submission` | Functions | `app/submissions.py:11`, `:39` | Validate and persist ZIP submission. | Handler upload route and JSON assignment state. |
 | `_validate_question`, `create_question`, `update_question` | Functions | `app/questions.py` | Validate/code-question schema and mutate bank. | `storage`, grading limits, code exams. |
-| `create_paper`, `update_paper`, `publish_paper`, `preview_paper` | Functions | `app/papers.py` | Manage Paper lifecycle and immutable ordered snapshots; serialize source warnings. | `questions.json`, `papers.json`, `code_exams`, `general_exams`. |
+| `create_independent_paper`, `update_paper`, `publish_paper`, `preview_paper` | Functions | `app/papers.py` | Manage schema-v2 current Paper records and previews; legacy Paper/version resolution remains supported. | `questions.json`, `papers.json`, `code_exams`, `general_exams`. |
 | `create_code_exam` | Function | `app/code_exams.py:65` | Validate exam request and snapshot published questions. | Question bank, code exam persistence. |
-| `create_paper_code_exam`, `get_code_exam`, `get_student_code_exam` | Functions | `app/code_exams.py` | Store Paper version reference, hydrate exact snapshot, serve assigned public question payload. | `papers.json`, `assignments.json`, `code_exams.json`. |
+| `create_paper_code_exam`, `get_code_exam`, `get_student_code_exam` | Functions | `app/code_exams.py` | Store a canonical Paper reference, hydrate its release snapshot, serve assigned public question payload. | `papers.json`, `assignments.json`, `code_exams.json`. |
 | `prepare_code_exam_distribution`, `transition_code_exam` | Functions | `app/code_exams.py:165`, `:184` | Attach code exam to release and transition lifecycle. | Admin distribution/end-exam routes. |
 | `execute_question` | Function | `app/code_exams.py:325` | Dispatch reflection versus STDIO execution. | `java_runner`, `code_runner`, scoring. |
 | `run_pretest` | Function | `app/code_exams.py:473` | Enforce pretest rules/capacity, run visible checks, store run history. | `code_runs.json`, runner, semaphore. |
 | `submit_code` | Function | `app/code_exams.py:800` | Reserve, execute, grade and persist final coding submission. | `code_submissions.json`, runners and grading. |
 | `get_admin_code_results`, `regrade_submission` | Functions | `app/code_exams.py:854`, `:881` | Admin result query and explicit regrading. | Code-exam snapshots/submission records. |
 | `QuestionScore`, `ExamScore`, `grade_reflection`, `grade_stdio`, `grade_exam` | Types/functions | `app/grading.py` | Validate outcomes and aggregate score. | Called from code-exam orchestration/runners. |
-| `run_stdio` | Function | `app/code_runner.py:598` | Compile/run Java or Python STDIO test cases and compare outputs. | Uses workspace/process helpers from `java_runner`. |
+| `run_stdio` | Function | `app/code_runner.py` | Compile/run Java or Python STDIO test cases and compare outputs. | Uses workspace/process helpers from `java_runner`. |
 | `run_process`, `compile_java_in_workspace`, `run_reflection_judge` | Functions | `app/java_runner.py:800`, `:1240`, `:1581` | Bounded process capture, Java compilation, reflection judge execution. | Windows Job Object process helper; `ReflectionJudge.java`. |
 | `ProcessResult`, `ProcessStatus` | Types | `app/java_runner.py` | Normalized child-process outcome. | Consumed by runners and result classification. |
 | `JobLimits`, `create_job_process` | Types/functions | `app/windows_job.py:27`, `:724` | Windows Job Object limits and suspended-child assignment/resume. | `java_runner`, `code_runner`, question validation. |
+| `record_event`, `events_after`, `attempt_summary` | Functions | `app/exam_monitoring.py` | Persist deduplicated attempt events, page history, and return counters/sequence. | `exam_monitoring.json`, `main.py` Monitor routes. |
+| `save_code_drafts`, `finalize_code_attempt`, `finalize_due_attempts` | Functions | `app/exam_completion.py` | Persist server-accepted code drafts and finalize manual/deadline submissions. | `code_attempts.json`, assignments and code submissions. |
 | `ReflectionJudge.main` | Java entry point | `judge/ReflectionJudge.java` | Reads protocol request, loads student class and emits bounded judge response. | Launched by `java_runner.run_reflection_judge`. |
 | `TEMPLATES` | Module state | `app/main.py` | Jinja `Environment` rooted at `templates/`. | `Handler._render`. |
 | `_RUN_SLOTS` | Module state | `app/code_exams.py` | Process-local bounded code-run semaphore. | Pretest/submission execution. |
@@ -444,10 +450,14 @@ Paths are relative to the repository root. Line references point to current chec
 |---|---|
 | `tests/test_core.py` | Core account/exam/submission behavior. |
 | `tests/test_code_api.py` | HTTP routes, authorization, exam lifecycle and code API persistence. |
+| `tests/test_papers.py`, `tests/test_paper_distribution.py` | Independent/legacy Papers, release allocation and snapshot preservation. |
+| `tests/test_practice.py`, `tests/test_practice_lock.py` | Practice eligibility/run/progress and active-exam lock. |
+| `tests/test_exam_completion.py`, `tests/test_exam_monitoring.py`, `tests/test_exam_start_monitoring.py` | Server-side completion, persistent monitoring events and Start precheck event delivery. |
+| `tests/test_exam_entry.js`, `tests/test_practice_lock.js`, `tests/test_monitor_history_modal.js` | Browser-script harnesses for entry/fullscreen, Practice lock and event history UI. |
 | `tests/test_code_runner.py` | STDIO execution and output comparison. |
 | `tests/test_java_runner.py` | Java compile/process/reflection runner behavior. |
 | `tests/test_reflection_judge.py` | Java judge protocol and reflection checks. |
 | `tests/test_grading.py` | Result validation and point aggregation. |
 | `tests/test_windows_job.py` | Windows Job Object/process lifecycle. |
 
-Current declared test style is Python `unittest`; no test runner dependency is listed in `requirements.txt`.
+Python tests use `unittest`; JavaScript tests are standalone Node scripts. `package.json` defines a CSS build, not a test command. Test inventory is not evidence that a suite passed in this checkout.
