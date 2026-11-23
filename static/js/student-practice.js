@@ -720,10 +720,17 @@
             scoreBadgeHtml = `<span class="practice-badge practice-pill-neutral">Not scored</span>`;
           } else {
             const colorCls = getScoreColorClass(pct);
-            scoreBadgeHtml = `<span class="practice-badge ${colorCls}"><i class="fa fa-check-circle"></i> ${pct}%</span>`;
+            const barCls = getProgressBarColorClass(pct);
+            const visualPct = Math.min(100, Math.max(0, pct));
+            scoreBadgeHtml = `
+              <div class="practice-card-score">
+                <span class="practice-badge ${colorCls}"><i class="fa fa-check-circle"></i> ${pct}%</span>
+                <div class="practice-progress-bar" role="progressbar" aria-label="Practice score" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${visualPct}">
+                  <div class="practice-progress-fill ${barCls}" style="width: ${visualPct}%"></div>
+                </div>
+              </div>`;
           }
         }
-
         let actionButtonsHtml = "";
         if (isUnavailable) {
           actionButtonsHtml = `
@@ -753,16 +760,16 @@
                 ${isUnavailable ? `<span class="practice-badge badge-unavailable ml-2"><i class="fa fa-ban"></i> Câu hỏi không khả dụng</span>` : ""}
                 ${isStaleRevision ? `<span class="practice-badge badge-updated ml-2"><i class="fa fa-exclamation-circle"></i> Đề đã cập nhật</span>` : ""}
               </div>
-              <div class="practice-card-actions">
-                ${scoreBadgeHtml}
-                ${actionButtonsHtml}
-              </div>
             </div>
             <div class="practice-meta">
               <span class="practice-badge ${langBadge}">${escape(item.language || "code").toUpperCase()}</span>
               ${item.difficulty ? `<span class="practice-badge badge-diff">${escape(item.difficulty)}</span>` : ""}
               ${item.category ? `<span class="practice-badge badge-diff"><i class="fa fa-folder-o"></i> ${escape(item.category)}</span>` : ""}
               <small class="muted">Phiên bản: ${escape(item.version || 1)}</small>
+            </div>
+            <div class="practice-card-footer">
+              ${scoreBadgeHtml}
+              <div class="practice-card-actions">${actionButtonsHtml}</div>
             </div>
           </div>
         `;

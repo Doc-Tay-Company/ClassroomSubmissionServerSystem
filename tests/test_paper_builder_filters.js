@@ -33,7 +33,8 @@ class Element {
   append(...items) { this.children.push(...items.filter((item) => item != null)); }
   replaceChildren(...items) { this.children = items.map((item) => item instanceof Element ? item : String(item)); }
   addEventListener(type, callback) { this.listeners[type] = callback; }
-  async dispatch(type) { if (this.listeners[type]) await this.listeners[type]({ type, target: this, stopPropagation() {} }); }
+  async dispatch(type, extra = {}) { if (this.listeners[type]) await this.listeners[type]({ type, target: this, currentTarget: this,
+    preventDefault() {}, stopPropagation() {}, ...extra }); }
   get textContent() { return this._text + this.children.map((child) => child instanceof Element ? child.textContent : String(child)).join(''); }
   set textContent(value) { this._text = String(value); this.children = []; }
   querySelectorAll(selector) {
@@ -90,7 +91,10 @@ async function main() {
   let failNextPublish = false;
   let createSaveGate = null;
   let failNextUpdate = false;
+  let conflictNextUpdate = false;
   const windowListeners = new Map();
+  const localValues = new Map();
+  const localStorage = { getItem: (key) => localValues.get(key) ?? null, setItem: (key, value) => localValues.set(key, value), removeItem: (key) => localValues.delete(key) };
   const clone = (value) => JSON.parse(JSON.stringify(value));
   const apiRequest = async (url, options = {}) => {
     requests.push({ url, method: options.method || 'GET', body: options.body });
@@ -100,8 +104,10 @@ async function main() {
     const paperId = detail?.[1];
     if (paperId && (options.method || 'GET') === 'GET') return { paper: clone(storedPaper?.id === paperId ? storedPaper : storedCopies.get(paperId)) };
     if (paperId && options.method === 'PUT') {
+      if (conflictNextUpdate) { conflictNextUpdate = false; const error = new Error('Paper changed elsewhere'); error.status = 409; error.code = 'PAPER_CHANGED'; throw error; }
       if (failNextUpdate) { failNextUpdate = false; const error = new Error('temporary network failure'); error.status = 503; throw error; }
       const payload = JSON.parse(options.body);
+      if (payload.expected_revision !== storedPaper.revision) { const error = new Error('Paper changed'); error.status = 409; error.code = 'PAPER_CHANGED'; throw error; }
       storedPaper = { ...storedPaper, title: payload.title, metadata: payload.metadata, question_ids: payload.question_ids,
         question_limit: payload.question_limit, question_filters: payload.question_filters, revision: storedPaper.revision + 1,
         questions: storedPaper.status === 'published' ? payload.question_ids.map((question_id, order) => ({ question_id, order })) : [] };
@@ -116,6 +122,15 @@ async function main() {
         question_ids: payload.question_ids, question_limit: payload.question_limit, question_filters: payload.question_filters, questions: [] };
       if (isIndependentCopy) storedCopies.set(paper.id, paper);
       else storedPaper = paper;
+      return { paper: clone(paper) };
+    }
+    const revoke = url.match(/^\/api\/admin\/papers\/([^/?]+)\/revoke$/);
+    if (revoke) {
+      const paper = storedPaper?.id === revoke[1] ? storedPaper : storedCopies.get(revoke[1]);
+      if (!paper || paper.schema_version < 2 || paper.status !== 'published') { const error = new Error('Revoke unavailable'); error.status = 409; throw error; }
+      const payload = JSON.parse(options.body);
+      if (payload.expected_revision !== paper.revision) { const error = new Error('Paper changed'); error.status = 409; throw error; }
+      Object.assign(paper, { status: 'draft', revision: paper.revision + 1 });
       return { paper: clone(paper) };
     }
     const preview = url.match(/^\/api\/admin\/papers\/([^/?]+)\/preview(?:\?.*)?$/);
@@ -139,7 +154,7 @@ async function main() {
     addEventListener: (type, callback) => windowListeners.set(type, callback),
     removeEventListener: (type) => windowListeners.delete(type),
   };
-  const context = { window, document, URLSearchParams, encodeURIComponent, Set, Map, Promise, console };
+  const context = { window, document, localStorage, URLSearchParams, encodeURIComponent, Set, Map, Promise, console };
   const timers = new Map();
   let nextTimerId = 0;
   context.setTimeout = (callback) => { const id = ++nextTimerId; timers.set(id, callback); return id; };
@@ -152,9 +167,9 @@ async function main() {
 
   assert(!editor.querySelectorAll('button').some((button) => button.textContent.includes('Preview Draft')),
     'Draft Preview is not rendered for a new Paper');
-  assert(editor.querySelectorAll('button').some((button) => button.textContent.includes('Save Draft')),
-    `new Paper can be saved as a Draft to create its ID; buttons=${editor.querySelectorAll('button').map((button) => button.textContent).join('|')}; editor=${editor.textContent}`);
-  assert(editor.textContent.includes('Lưu thành bản nháp để tạo Paper ID'), 'new Paper explains the Draft creation step');
+  assert(editor.querySelectorAll('button').some((button) => button.textContent.includes('Quay l')),
+    'new Paper has a Draft list navigation control while autosave creates its ID');
+  assert(!/\b(null|undefined)\b/i.test(editor.textContent), 'new Draft editor does not show literal null or undefined');
   assert.strictEqual(editor.querySelector('[data-role="paper-lifecycle"]').textContent,
     'Ch\u01b0a l\u01b0uCh\u01b0a c\u00f3 phi\u00ean b\u1ea3n xu\u1ea5t b\u1ea3n',
     'new Paper status renders only the save and publication messages, without null placeholders');
@@ -372,47 +387,54 @@ async function main() {
 
   const status = editor.querySelector('[data-role="paper-lifecycle"]');
   assert.strictEqual(status.querySelector('.paper-save-status-primary').dataset.status, 'unsaved', 'new Paper shows an unsaved primary status');
-  assert(status.textContent.includes('Ch\u01b0a c\u00f3 phi\u00ean b\u1ea3n xu\u1ea5t b\u1ea3n'), 'new Paper explains that no Published Version exists');
-  assert(!/\b(null|undefined)\b/i.test(status.textContent), 'new Paper status omits null and undefined values');
+  assert(!/\b(null|undefined)\b/i.test(editor.textContent), 'empty optional editor content does not render literal null or undefined');
   const title = editor.querySelector('#cp-title');
   title.value = 'Lifecycle Paper'; await title.dispatch('input');
-  assert.strictEqual(status.querySelector('.paper-save-status-primary').dataset.status, 'unsaved', 'new Paper remains explicitly unsaved before first Save');
+  assert.strictEqual(status.querySelector('.paper-save-status-primary').dataset.status, 'unsaved', 'new Draft remains unsaved until backend confirmation');
   const createCallsBeforeSave = requests.filter((request) => request.url === '/api/admin/papers/independent' && request.method === 'POST').length;
-  assert.strictEqual(createCallsBeforeSave, 0, 'typing and selecting questions do not create a Paper before explicit Save');
-  assert.strictEqual(timers.size, 0, 'editing does not schedule a delayed Paper save');
-  await new Promise((resolve) => setTimeout(resolve, 650));
-  assert.strictEqual(requests.filter((request) => request.url === '/api/admin/papers/independent' && request.method === 'POST').length, 0,
-    'waiting after edits does not persist a new Paper');
-  const saveButton = () => editor.querySelectorAll('button').find((button) => button.textContent.includes('Save Draft'));
+  assert.strictEqual(createCallsBeforeSave, 0, 'typing is debounced before the first server create');
+  assert.strictEqual(timers.size, 1, 'Draft edit schedules one debounced save');
   const saveCallsBefore = requests.filter((request) => request.url === '/api/admin/papers/independent' && request.method === 'POST').length;
   const saveGate = deferred();
   createSaveGate = saveGate;
-  const firstSave = saveButton().dispatch('click');
+  const [createTimerId, createTimer] = timers.entries().next().value;
+  timers.delete(createTimerId);
+  createTimer();
   await new Promise((resolve) => setImmediate(resolve));
   assert.strictEqual(status.querySelector('.paper-save-status-primary').dataset.status, 'saving', 'pending API save is shown as Saving');
-  await saveButton().dispatch('click');
   saveGate.resolve();
-  await firstSave;
-  assert.strictEqual(requests.filter((request) => request.url === '/api/admin/papers/independent' && request.method === 'POST').length - saveCallsBefore, 1, 'duplicate save clicks create only one Paper');
+  await new Promise((resolve) => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.strictEqual(requests.filter((request) => request.url === '/api/admin/papers/independent' && request.method === 'POST').length - saveCallsBefore, 1, 'one autosave creates exactly one Paper');
   const savePayload = JSON.parse(requests.find((request) => request.url === '/api/admin/papers/independent' && request.method === 'POST').body);
-  assert.deepStrictEqual(savePayload.question_ids, ['q1', 'q2'], 'Save serializes the ordered selected state, not the active filtered pool');
-  assert.strictEqual(storedPaper.id, 'paper-lifecycle', 'saving a new Paper retains its server ID');
-  assert(editor.classList.contains('hidden'), 'saving a new Paper returns to the Paper list');
-  assert(list.textContent.includes('Lifecycle Paper'), 'saved Draft appears in the Paper list');
-  await list.querySelectorAll('button').find((button) => button.textContent.includes('Chỉnh sửa')).dispatch('click');
+  assert.deepStrictEqual(savePayload.question_ids, ['q1', 'q2'], 'autosave serializes the ordered selected state');
+  assert.strictEqual(storedPaper.id, 'paper-lifecycle', 'first autosave establishes one stable Paper ID');
+  assert(!editor.classList.contains('hidden'), 'first autosave keeps the Draft editor open');
+  assert.strictEqual(status.querySelector('.paper-save-status-primary').dataset.status, 'saved', 'backend confirmation changes status to Saved');
+  assert(!/\b(null|undefined)\b/i.test(status.textContent), 'save status omits null and undefined values');
+  await editor.querySelectorAll('button').find((button) => button.textContent.includes('Quay l')).dispatch('click');
+  await new Promise((resolve) => setImmediate(resolve));
+  const draftRowAfterCreate = list.querySelectorAll('tr').find((row) => row.textContent.includes('Lifecycle Paper'));
+  assert(draftRowAfterCreate, 'saved Draft appears in the list when navigating back');
+  await draftRowAfterCreate.dispatch('click');
   await new Promise((resolve) => setImmediate(resolve));
   const savedStatus = editor.querySelector('[data-role="paper-lifecycle"]');
-  assert.strictEqual(savedStatus.querySelector('.paper-save-status-primary').dataset.status, 'saved', 'backend confirmation changes status to Saved');
+  assert.strictEqual(savedStatus.querySelector('.paper-save-status-primary').dataset.status, 'saved', 'Draft row opens the saved Paper editor');
   assert(savedStatus.textContent.includes('L\u1ea7n ch\u1ec9nh s\u1eeda 1'), 'saved status shows the valid revision');
-  assert(savedStatus.textContent.includes('Ch\u01b0a c\u00f3 phi\u00ean b\u1ea3n xu\u1ea5t b\u1ea3n'), 'Draft without publication shows a clear message');
   assert(!/\b(null|undefined)\b/i.test(savedStatus.textContent), 'saved Draft status omits invalid optional values');
   const restoredSelection = editor.querySelectorAll('.qb-selected').map((row) => row.textContent).join('|');
   assert(restoredSelection.indexOf('Loops Intro') < restoredSelection.indexOf('Loops Advanced'), 'Edit Mode restores saved question IDs in their original order');
 
   storedPaper.question_ids = ['q2', 'q1', 'q2'];
-  await editor.querySelectorAll('button').find((button) => button.textContent === 'Cancel').dispatch('click');
-  await new Promise((resolve) => setTimeout(resolve, 10));
-  await list.querySelectorAll('button').find((button) => button.textContent.includes('Chỉnh sửa')).dispatch('click');
+  const navigateBack = editor.querySelectorAll('button').find((button) => button.textContent.includes('Quay l'));
+  await navigateBack.dispatch('click');
+  await new Promise((resolve) => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
+  if (!editor.classList.contains('hidden')) await navigateBack.dispatch('click');
+  await new Promise((resolve) => setImmediate(resolve));
+  const reopenedDraftRow = list.querySelectorAll('tr').find((row) => row.textContent.includes('Lifecycle Paper'));
+  assert(reopenedDraftRow, 'back navigation refreshes the Draft list after saving');
+  await reopenedDraftRow.dispatch('click');
   await new Promise((resolve) => setImmediate(resolve));
   assert.deepStrictEqual(editor.querySelectorAll('.qb-selected').map((row) => row.textContent.match(/(?:Loops Intro|Loops Advanced)/)?.[0]),
     ['Loops Advanced', 'Loops Intro'], 'Editor initialization removes duplicate stored IDs while preserving first-seen order');
@@ -420,47 +442,45 @@ async function main() {
   storedPaper.question_ids = ['q1', 'q2'];
 
   const titleForDraftSave = editor.querySelector('#cp-title');
-  titleForDraftSave.value = 'Explicit Draft Save'; await titleForDraftSave.dispatch('input');
+  titleForDraftSave.value = 'Autosaved Draft'; await titleForDraftSave.dispatch('input');
   assert.strictEqual(editor.querySelector('[data-role="paper-lifecycle"]').querySelector('.paper-save-status-primary').dataset.status, 'dirty', 'editing a saved Draft shows unsaved changes');
   const searchForDraftSave = editor.querySelector('[data-filter="search"]');
   searchForDraftSave.value = 'Loops Intro'; await searchForDraftSave.dispatch('input');
   const filteredSelectionForDraftSave = editor.querySelector('[data-role="filtered-selection"]');
   filteredSelectionForDraftSave.checked = false; await filteredSelectionForDraftSave.dispatch('change');
   filteredSelectionForDraftSave.checked = true; await filteredSelectionForDraftSave.dispatch('change');
-  assert.strictEqual(timers.size, 0, 'typing, selecting a question, and changing filters do not schedule persistence');
-  const draftUpdateCalls = () => requests.filter((request) => request.url === `/api/admin/papers/${storedPaper.id}` && request.method === 'PUT');
-  const updatesBeforeExplicitSave = draftUpdateCalls().length;
+  assert.strictEqual(timers.size, 1, 'rapid edits and filter changes collapse to one debounce timer');
+  const draftUpdateCalls = () => requests.filter((request) => request.url === '/api/admin/papers/' + storedPaper.id && request.method === 'PUT');
+  const updatesBeforeAutoSave = draftUpdateCalls().length;
   const selectionBeforeFailedSave = editor.querySelectorAll('.qb-selected').map((row) => row.textContent);
-  await new Promise((resolve) => setTimeout(resolve, 650));
-  assert.strictEqual(draftUpdateCalls().length, updatesBeforeExplicitSave, 'waiting after Draft edits sends no update request');
-  assert.strictEqual(storedPaper.title, 'Lifecycle Paper', 'server Draft remains unchanged before explicit Save');
+  failNextUpdate = true;
+  const [updateTimerId, updateTimer] = timers.entries().next().value;
+  timers.delete(updateTimerId);
+  updateTimer();
+  await new Promise((resolve) => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.strictEqual(editor.querySelector('#cp-title').value, 'Autosaved Draft', 'failed auto-save retains title input');
+  assert.strictEqual(editor.querySelector('[data-filter="search"]').value, 'Loops Intro', 'failed auto-save retains filter state');
+  assert.deepStrictEqual(editor.querySelectorAll('.qb-selected').map((row) => row.textContent), selectionBeforeFailedSave,
+    'failed auto-save retains selected question state and order');
+  assert.strictEqual(storedPaper.title, 'Lifecycle Paper', 'failed auto-save does not mutate server content');
+  assert.strictEqual(editor.querySelector('[data-role="paper-lifecycle"]').querySelector('.paper-save-status-primary').dataset.status, 'error', 'failed auto-save shows an error status');
+  assert(editor.querySelector('[data-role="paper-lifecycle"]').textContent.includes('temporary network failure'), 'failed auto-save displays failure feedback');
+  assert.strictEqual(timers.size, 0, 'a failed request is not retried in an uncontrolled loop');
 
   let beforeUnloadPrevented = false;
   const beforeUnloadEvent = { preventDefault() { beforeUnloadPrevented = true; } };
   windowListeners.get('beforeunload')(beforeUnloadEvent);
   assert(beforeUnloadPrevented && beforeUnloadEvent.returnValue === '', 'unsaved editor changes trigger the browser leave warning');
-  confirmNext = false;
-  await editor.querySelectorAll('button').find((button) => button.textContent === 'Cancel').dispatch('click');
-  assert(!editor.classList.contains('hidden'), 'declining the leave warning keeps the editor open');
-  assert.strictEqual(draftUpdateCalls().length, updatesBeforeExplicitSave, 'navigation warning never saves automatically');
-  confirmNext = true;
-
-  failNextUpdate = true;
-  await saveButton().dispatch('click');
-  assert.strictEqual(editor.querySelector('#cp-title').value, 'Explicit Draft Save', 'failed Save retains title input');
-  assert.strictEqual(editor.querySelector('[data-filter="search"]').value, 'Loops Intro', 'failed Save retains filter state');
-  assert.deepStrictEqual(editor.querySelectorAll('.qb-selected').map((row) => row.textContent), selectionBeforeFailedSave,
-    'failed Save retains the selected question state and order');
-  assert.strictEqual(storedPaper.title, 'Lifecycle Paper', 'failed Save does not change server content');
-  assert.strictEqual(editor.querySelector('[data-role="paper-lifecycle"]').querySelector('.paper-save-status-primary').dataset.status, 'error', 'failed Save shows an error status');
-  assert(editor.querySelector('[data-role="paper-lifecycle"]').textContent.includes('temporary network failure'), 'failed Save displays failure feedback');
-  await saveButton().dispatch('click');
-  assert.strictEqual(storedPaper.id, 'paper-lifecycle', 'saving an existing Draft updates the same Paper ID');
-  assert.strictEqual(storedPaper.title, 'Explicit Draft Save', 'explicit Save persists the retained title');
-  assert.deepStrictEqual(storedPaper.question_ids, ['q2', 'q1'], 'explicit Save persists the current selected question order');
-  assert.strictEqual(storedPaper.status, 'draft', 'saving a Draft does not publish it');
-  assert.strictEqual(draftUpdateCalls().length, updatesBeforeExplicitSave + 2, 'only the failed and successful explicit Save attempts issue Draft updates');
-  assert(!requests.some((request) => request.url.endsWith('/publish')), 'Save does not call the Publish endpoint');
+  const backButton = editor.querySelectorAll('button').find((button) => button.textContent.includes('Quay l'));
+  await backButton.dispatch('click');
+  await new Promise((resolve) => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
+  assert(!editor.classList.contains('hidden'), 'navigation stays in the editor until the pending Draft save succeeds');
+  assert.strictEqual(storedPaper.title, 'Autosaved Draft', 'back navigation flushes the pending Draft update');
+  assert.strictEqual(storedPaper.status, 'draft', 'auto-saving does not publish a Draft');
+  assert.strictEqual(draftUpdateCalls().length, updatesBeforeAutoSave + 2, 'one failed save and one navigation retry update the same Paper');
+  assert(!requests.some((request) => request.url.endsWith('/publish')), 'Draft autosave never calls Publish');
 
   const publishButton = () => editor.querySelectorAll('button').find((button) => button.textContent.includes('Publish Paper'));
   const titleForPublish = editor.querySelector('#cp-title');
@@ -479,24 +499,35 @@ async function main() {
   assert.strictEqual(storedPaper.id, 'paper-lifecycle', 'publishing preserves the Paper ID');
   assert(!('versions' in storedPaper) && !('current_version_id' in storedPaper), 'independent Paper has no nested version history');
 
-  const sourceBeforeCopy = JSON.stringify(storedPaper);
-  const sourcePutCallsBeforeCopy = requests.filter((request) => request.url === `/api/admin/papers/${storedPaper.id}` && request.method === 'PUT').length;
-  const createNewPaper = editor.querySelectorAll('button').find((button) => button.textContent.includes('\u0043h\u1ec9nh s\u1eeda b\u1ea3n m\u1edbi'));
-  assert(createNewPaper, 'Published Paper offers the explicit independent-copy action');
-  await createNewPaper.dispatch('click');
+  const samePaperId = storedPaper.id;
+  const revisionBeforePublishedEdit = storedPaper.revision;
+  const detailEdit = editor.querySelectorAll('button').find((button) => button.textContent.includes('Ch'));
+  assert(detailEdit, 'Published detail provides a direct Edit action');
+  await detailEdit.dispatch('click');
   await new Promise((resolve) => setImmediate(resolve));
-  assert(editor.querySelector('#cp-title'), 'copy action opens the Paper editor');
-  editor.querySelector('#cp-title').value = 'Independent version 2';
-  await editor.querySelector('#cp-title').dispatch('input');
-  await editor.querySelectorAll('button').find((button) => button.textContent.includes('Save Draft')).dispatch('click');
-  const copy = [...storedCopies.values()][0];
-  assert(copy && copy.id !== storedPaper.id, 'editing a published Paper creates a new Paper ID');
-  assert.strictEqual(copy.status, 'draft', 'independent copy starts as Draft');
-  assert.strictEqual(JSON.stringify(storedPaper), sourceBeforeCopy, 'published source content and revision remain unchanged');
-  assert.strictEqual(requests.filter((request) => request.url === `/api/admin/papers/${storedPaper.id}` && request.method === 'PUT').length,
-    sourcePutCallsBeforeCopy, 'saving a Published Paper copy never updates its source Paper');
-  assert(!('versions' in copy) && !('current_version_id' in copy), 'independent Draft copy has no inherited version history');
-  await new Promise((resolve) => setImmediate(resolve));
+  const publishedTitle = editor.querySelector('#cp-title');
+  publishedTitle.value = 'Published updated'; await publishedTitle.dispatch('input');
+  assert.strictEqual(timers.size, 0, 'Published edits are never auto-saved');
+  const publishedSave = editor.querySelectorAll('button').find((button) => button.textContent.includes('thay'));
+  assert(publishedSave, 'Published editor exposes L?u thay ??i');
+  conflictNextUpdate = true;
+  await publishedSave.dispatch('click');
+  assert(!editor.classList.contains('hidden'), 'Published revision conflict keeps the editor open');
+  assert.strictEqual(editor.querySelector('#cp-title').value, 'Published updated', 'Published revision conflict retains unsaved content');
+  assert(editor.textContent.includes('Paper changed elsewhere'), 'Published revision conflict remains visible');
+  failNextUpdate = true;
+  await publishedSave.dispatch('click');
+  assert(!editor.classList.contains('hidden'), 'failed Published save keeps the editor open');
+  assert.strictEqual(editor.querySelector('#cp-title').value, 'Published updated', 'failed Published save retains unsaved editor content');
+  assert(editor.textContent.includes('temporary network failure'), 'failed Published save reports the API error');
+  await publishedSave.dispatch('click');
+  assert(editor.classList.contains('hidden'), 'confirmed Published save navigates back to the Paper list');
+  assert(!list.classList.contains('hidden'), 'confirmed Published save restores the Paper list');
+  assert.strictEqual(storedPaper.id, samePaperId, 'Published update preserves the existing Paper ID');
+  assert.strictEqual(storedPaper.status, 'published', 'Published update preserves Published status');
+  assert.strictEqual(storedPaper.title, 'Published updated', 'explicit save updates the current Paper');
+  assert.strictEqual(storedPaper.revision, revisionBeforePublishedEdit + 1, 'Published save increments revision');
+  assert(![...storedCopies.values()].length, 'Published update does not create a separate Paper copy');
 
   storedPaper.warnings = [{ question_id: 'q1', warning: 'unavailable' }];
   onVisibilityChange();
@@ -517,7 +548,7 @@ async function main() {
   assert(editor.querySelector('[data-role="question-limit-status"]').textContent.includes('Question Bank is empty'), 'empty Question Bank explains why publishing is blocked');
   bank.splice(0, bank.length, ...savedBank);
 
-  console.log('PASS independent Paper Draft/Published lifecycle, immutable Published source, and independent copy');
+  console.log('PASS Paper Draft autosave, Published edits and revocation, and Paper row navigation');
   await testCardSwitchRace();
 }
 
@@ -526,7 +557,7 @@ async function testCardSwitchRace() {
   const editor = new Element('div');
   const notice = new Element('div');
   const document = { getElementById: (id) => ({ 'code-papers-view': list, 'cp-list': list, 'cp-editor': editor, 'cp-notice': notice })[id] || null };
-  const makePaper = (id, title, revision) => ({ id, title, metadata: {}, status: 'published', revision,
+  const makePaper = (id, title, revision) => ({ id, title, metadata: {}, schema_version: 2, question_ids: ['q1'], status: 'published', revision,
     current_version_id: `${id}:v1`, version_count: 1,
     versions: { [`${id}:v1`]: { id: `${id}:v1`, version: 1, title, questions: [{ question_id: 'q1', order: 0 }] } },
     draft: { title, metadata: {}, question_ids: ['q1'], question_limit: 1, question_filters: {} } });
@@ -617,13 +648,28 @@ async function testCardSwitchRace() {
   vm.runInContext(fs.readFileSync(path.join(__dirname, '../static/js/code-papers.js'), 'utf8'), context);
   const tick = () => new Promise((resolve) => setImmediate(resolve));
   await tick();
-  const clickEdit = async (title) => {
-    const buttonIndex = title === 'Paper A' ? 2 : 6;
-    const target = list.querySelectorAll('button')[buttonIndex];
-    assert(target, `missing edit action for ${title}; list=${list.textContent}`);
-    return target.dispatch('click');
+  const rowFor = (title) => {
+    const row = list.querySelectorAll('tr').find((candidate) => candidate.textContent.includes(title));
+    assert(row, `missing Paper row for ${title}; list=${list.textContent}`);
+    return row;
   };
-  const clickOpen = (title) => list.querySelectorAll('button')[title === 'Paper A' ? 1 : 5].dispatch('click');
+  const clickEdit = (title) => rowFor(title).dispatch('click');
+  const clickOpen = (title) => rowFor(title).dispatch('click');
+  const editPublished = async (title) => {
+    await clickOpen(title);
+    await tick();
+    const editButton = editor.querySelectorAll('button').find((button) => button.classList.contains('btn-primary'));
+    assert(editButton, `missing Published edit action for ${title}`);
+    await editButton.dispatch('click');
+    await tick();
+  };
+  const runAutosaveTimer = async () => {
+    const pending = [...timers.values()];
+    assert(pending.length, 'expected a scheduled Draft autosave');
+    timers.clear();
+    for (const callback of pending) await callback();
+    await tick();
+  };
   const editTitle = () => editor.querySelector('#cp-title');
   const backToList = async () => {
     const button = editor.querySelectorAll('button')[0];
@@ -632,13 +678,14 @@ async function testCardSwitchRace() {
     await tick();
   };
 
-  await clickEdit('Paper A');
+  const pendingInitialA = clickEdit('Paper A');
   await clickEdit('Paper B');
   await tick();
-  assert.strictEqual(editTitle().value, 'Paper B', 'later card becomes the active editor while A is pending');
+  assert(editor.textContent.includes('Paper B'), 'later row becomes the active Paper view while A is pending');
   delayedAOpen.resolve({ paper: clone(papers.get('paper-a')) });
+  await pendingInitialA;
   await tick();
-  assert.strictEqual(editTitle().value, 'Paper B', 'late A editor hydration cannot replace B');
+  assert(editor.textContent.includes('Paper B'), 'late A hydration cannot replace B');
 
   await backToList();
   clickOpen('Paper A');
@@ -659,20 +706,18 @@ async function testCardSwitchRace() {
   assert(editor.textContent.includes('Paper B'), 'late A Published preview cannot replace B detail view');
 
   await backToList();
-  await clickEdit('Paper A');
-  await tick();
+  await editPublished('Paper A');
   editTitle().value = 'Paper A saved in background';
   await editTitle().dispatch('input');
-  const saveButton = editor.querySelectorAll('button')[1];
-  const pendingSave = saveButton.dispatch('click');
+  const pendingSave = editor.querySelectorAll('button')[1].dispatch('click');
   await tick();
   await backToList();
-  await clickEdit('Paper B');
+  await editPublished('Paper B');
   await tick();
   delayedASave.resolve();
   await pendingSave;
   assert.strictEqual(editTitle().value, 'Paper B', 'late A save completion cannot replace B editor');
-  assert.strictEqual(papers.get('paper-a').title, 'Paper A saved in background', 'the request still saves to its captured Paper A ID');
+  assert.strictEqual(papers.get('paper-a').title, 'Paper A saved in background', 'the request remains bound to its captured Paper A ID');
 
   editTitle().value = 'Paper B updated';
   await editTitle().dispatch('input');
@@ -682,16 +727,14 @@ async function testCardSwitchRace() {
   assert.strictEqual(JSON.parse(bUpdate.body).expected_revision, 7, 'Paper B save uses Paper B revision');
   assert.strictEqual(papers.get('paper-b').title, 'Paper B updated', 'updating B leaves the separate A record unchanged');
   assert.strictEqual(papers.get('paper-a').title, 'Paper A saved in background', 'updating B does not mutate A');
+  assert(editor.classList.contains('hidden'), 'confirmed Published save returns from B editor to the list');
 
-  await backToList();
-  await clickEdit('Paper A');
-  await tick();
+  await editPublished('Paper A');
   const publishButton = editor.querySelectorAll('button')[3];
   const pendingPublish = publishButton.dispatch('click');
   await tick();
   await backToList();
-  await clickEdit('Paper B');
-  await tick();
+  await editPublished('Paper B');
   delayedAPublish.resolve();
   await pendingPublish;
   assert.strictEqual(editTitle().value, 'Paper B updated', 'late A publish response cannot replace B editor');
@@ -723,15 +766,18 @@ async function testDraftListOpensEditor() {
   vm.createContext(context);
   vm.runInContext(fs.readFileSync(path.join(__dirname, '../static/js/code-papers.js'), 'utf8'), context);
   await new Promise((resolve) => setImmediate(resolve));
-  const actions = list.querySelectorAll('button').map((button) => button.textContent);
-  assert.deepStrictEqual(actions.slice(1), ['Chỉnh sửa', 'Lưu trữ', 'Xóa'], 'Draft card exposes only Edit, Archive, and Delete');
-  assert(!actions.includes('Mở'), 'Draft row has no Open action');
-  await list.querySelectorAll('button').find((button) => button.textContent.includes('Chỉnh sửa')).dispatch('click');
+  const row = list.querySelectorAll('tr').find((item) => item.textContent.includes(paper.title));
+  assert(row && row.attrs.tabindex === "0", 'Draft row is keyboard focusable');
+  assert.deepStrictEqual(row.querySelectorAll('button').map((button) => button.textContent), ['Xóa'], 'Draft row keeps Delete but removes redundant Edit and Archive buttons');
+  await row.dispatch('click');
   await new Promise((resolve) => setImmediate(resolve));
-  assert(editor.querySelector('#cp-title'), 'clicking a Draft opens its Editor directly');
+  assert(editor.querySelector('#cp-title'), 'clicking a Draft row opens its Editor directly');
   assert(!calls.some((url) => url.includes('/preview')), 'Draft navigation does not open a Preview route');
-  assert(editor.querySelectorAll('button').some((button) => button.textContent.includes('Save Draft')),
-    'persisted Draft editor retains its Save Draft control');
+  assert(editor.querySelectorAll('button').some((button) => button.textContent.includes('Quay l')),
+    'Draft editor provides Quay l?i danh s?ch');
+  assert(!editor.querySelectorAll('button').some((button) => button.textContent.includes('Save Draft')),
+    'Draft editor replaces manual Save Draft with autosave');
+  assert(!/\b(null|undefined)\b/i.test(editor.textContent), 'Draft editor contains no literal null/undefined text');
   console.log('PASS Draft list navigation opens the persisted Draft editor directly');
 }
 
@@ -755,12 +801,12 @@ async function testSchemaTwoPaperListActions() {
     cssRequest: async (url, options = {}) => {
       calls.push(url);
       if (url === '/api/admin/papers') return { papers };
-      const paperAction = url.match(/^\/api\/admin\/papers\/([^/]+)\/(archive|restore|delete)$/);
+      const paperAction = url.match(/^\/api\/admin\/papers\/([^/]+)\/(revoke|restore|delete)$/);
       if (paperAction && options.method === 'POST') {
         const index = papers.findIndex((paper) => paper.id === paperAction[1]);
         if (index < 0) throw new Error('Paper not found');
         if (paperAction[2] === 'delete') { papers.splice(index, 1); return {}; }
-        papers[index] = { ...papers[index], status: paperAction[2] === 'archive' ? 'archived' : 'published', revision: papers[index].revision + 1 };
+        papers[index] = { ...papers[index], status: paperAction[2] === 'revoke' ? 'draft' : paperAction[2] === 'restore' ? 'published' : papers[index].status, revision: papers[index].revision + 1 };
         return { paper: papers[index] };
       }
       if (url === '/api/admin/papers/v2-published') return { paper: papers[1] };
@@ -783,13 +829,14 @@ async function testSchemaTwoPaperListActions() {
     ['Tên Paper', 'Metadata', 'Số câu', 'Versions', 'Trạng thái', 'Thao tác'], 'the table restores the historical six-column header');
   const groups = list.querySelectorAll('.actions-inline').map((group) => group.querySelectorAll('button').map((button) => button.textContent));
   assert.deepStrictEqual(groups, [
-    ['\u0043h\u1ec9nh s\u1eeda', 'L\u01b0u tr\u1eef', 'X\u00f3a'],
-    ['M\u1edf', 'L\u01b0u tr\u1eef', 'X\u00f3a'],
+    ['X\u00f3a'],
+    ['Thu h\u1ed3i', 'X\u00f3a'],
     ['Kh\u00f4i ph\u1ee5c', 'X\u00f3a'],
-    ['\u0043h\u1ec9nh s\u1eeda', 'L\u01b0u tr\u1eef', 'X\u00f3a'],
-    ['M\u1edf', '\u0043h\u1ec9nh s\u1eeda', 'L\u01b0u tr\u1eef', 'X\u00f3a'],
-    ['M\u1edf', 'L\u01b0u tr\u1eef', 'X\u00f3a'],
-  ], 'schema 2 and legacy rows use status based actions');
+    ['X\u00f3a'],
+    ['Ch\u1ec9nh s\u1eeda b\u1ea3n nh\u00e1p', 'X\u00f3a'],
+    ['X\u00f3a'],
+  ], 'Paper rows retain secondary actions without Archive, Open or Draft Edit buttons');
+  assert(!list.querySelectorAll('button').some((button) => button.textContent.includes('L?u tr?')), 'Paper management exposes no Archive buttons');
   const v2DraftRow = list.querySelectorAll('tr').find((row) => row.textContent.includes('V2 Draft'));
   assert(!v2DraftRow.textContent.includes('Paper ID') && !v2DraftRow.textContent.includes('Revision'), 'the restored title cell omits technical identity metadata');
   assert(v2DraftRow.querySelector('.status-pill').textContent.includes('Nháp'), 'schema 2 Draft status remains localized and accurate');
@@ -803,30 +850,35 @@ async function testSchemaTwoPaperListActions() {
     'Draft status is not duplicated in a separate badge');
   const v2ArchivedRow = list.querySelectorAll('tr').find((row) => row.textContent.includes('V2 Archived'));
   assert(v2ArchivedRow.querySelector('.status-pill').textContent.includes('Lưu trữ'), 'schema 2 Archived status remains accurate');
-  await list.querySelectorAll('.actions-inline')[1].querySelectorAll('button')[0].dispatch('click');
+  await v2PublishedRow.dispatch('click');
   await new Promise((resolve) => setImmediate(resolve));
   assert(calls.includes('/api/admin/papers/v2-published/preview') && editor.textContent.includes('V2 Published'),
-    'Published Open loads its detail and preview');
-  assert(editor.querySelectorAll('button').some((button) => button.textContent.includes('Ch\u1ec9nh s\u1eeda b\u1ea3n m\u1edbi')),
-    'schema 2 Published detail offers independent Paper creation');
-  await list.querySelectorAll('.actions-inline')[3].querySelectorAll('button')[0].dispatch('click');
+    'clicking a Published row opens its Preview');
+  const editPublished = editor.querySelectorAll('button').find((button) => button.textContent.includes('Ch\u1ec9nh s\u1eeda'));
+  assert(editPublished, 'schema-v2 Published preview offers direct editing');
+  await editPublished.dispatch('click');
   await new Promise((resolve) => setImmediate(resolve));
-  assert.strictEqual(editor.querySelector('#cp-title').value, 'Legacy Mixed Draft', 'legacy Draft in mixed card mode opens its Editor');
-  assert(!editor.querySelectorAll('button').some((button) => button.textContent.includes('Preview Draft')), 'legacy Draft editor does not render Draft Preview');
+  assert(editor.querySelectorAll('button').some((button) => button.textContent.includes('thay')), 'Published editor exposes explicit L?u thay ??i');
+  assert.strictEqual(editor.querySelectorAll('button').some((button) => button.textContent.includes('Quay l')), false, 'Published editor does not expose Draft back navigation');
+  await editor.querySelectorAll('button')[0].dispatch('click');
+  await new Promise((resolve) => setImmediate(resolve));
+  const revokeRow = list.querySelectorAll('tr').find((row) => row.textContent.includes('V2 Published'));
+  const revokeButton = revokeRow.querySelectorAll('button')[0];
+  assert(revokeButton, 'Published schema-v2 row exposes Revoke');
+  await revokeButton.dispatch('click');
+  await new Promise((resolve) => setImmediate(resolve));
+  const revokedRow = list.querySelectorAll('tr').find((row) => row.textContent.includes('V2 Published'));
+  assert(revokedRow.querySelector('.status-pill').textContent.includes('Nh\u00e1p'), 'revoke changes a Published schema-v2 Paper to Draft');
+  assert.deepStrictEqual(revokedRow.querySelectorAll('button').map((button) => button.textContent), ['X\u00f3a'],
+    'revoked Paper no longer offers Revoke');
+  assert(calls.includes('/api/admin/papers/v2-published/revoke'), 'Revoke calls the dedicated backend action');
 
-  const publishedRowForArchive = list.querySelectorAll('tr').find((row) => row.textContent.includes('V2 Published'));
-  await publishedRowForArchive.querySelector('.actions-inline').querySelectorAll('button')
-    .find((button) => button.className.includes('btn-ghost')).dispatch('click');
+  const legacyDraftRow = list.querySelectorAll('tr').find((row) => row.textContent.includes('Legacy Mixed Draft'));
+  await legacyDraftRow.dispatch('click');
   await new Promise((resolve) => setImmediate(resolve));
-  const archivedPublishedRow = list.querySelectorAll('tr').find((row) => row.textContent.includes('V2 Published'));
-  assert(archivedPublishedRow.querySelector('.status-pill').textContent.includes('Lưu trữ'), 'Archive refreshes the table status');
-  assert.deepStrictEqual(archivedPublishedRow.querySelector('.actions-inline').querySelectorAll('button').map((button) => button.textContent),
-    ['Khôi phục', 'Xóa'], 'archived Paper retains Restore and Delete actions');
-  await archivedPublishedRow.querySelector('.actions-inline').querySelectorAll('button')
-    .find((button) => button.className.includes('btn-danger')).dispatch('click');
-  await new Promise((resolve) => setImmediate(resolve));
-  assert(!list.querySelectorAll('tr').some((row) => row.textContent.includes('V2 Published')), 'Delete removes the Paper row after confirmation');
-  console.log('PASS Paper Management table layout, schema 2 and legacy rows, and Published Open preview');
+  assert.strictEqual(editor.querySelector('#cp-title').value, 'Legacy Mixed Draft', 'legacy Draft row opens its Editor');
+  assert(!editor.querySelectorAll('button').some((button) => button.textContent.includes('Preview Draft')), 'legacy Draft editor does not render Draft Preview');
+  console.log('PASS Paper list navigation, schema-v2 revoke, Published preview/edit, and legacy row behavior');
 }
 
 async function testPaperListLoadingErrorAndEmptyStates() {
@@ -903,16 +955,16 @@ async function testPublishedPaperForkAndStatusRendering() {
   const sourceRow = list.querySelectorAll('tr').find((row) => row.textContent.includes(source.title));
   assert(sourceRow, 'legacy published Paper appears in the list');
   assert.deepStrictEqual(sourceRow.querySelectorAll('button').map((button) => button.textContent),
-    ['Mở', 'Chỉnh sửa', 'Lưu trữ', 'Xóa'], 'legacy Published retains Open, Edit, Archive, and Delete');
+    ['Ch\u1ec9nh s\u1eeda b\u1ea3n nh\u00e1p', 'X\u00f3a'], 'legacy Published retains Draft Edit and Delete only');
   assert(sourceRow.querySelector('.status-pill').textContent.includes('Đã xuất bản · Có bản nháp'),
     'legacy Published with a Draft keeps its combined status label');
   const legacyDraftRow = list.querySelectorAll('tr').find((row) => row.textContent.includes(legacyDraft.title));
   assert.deepStrictEqual(legacyDraftRow.querySelectorAll('button').map((button) => button.textContent),
-    ['Chỉnh sửa', 'Lưu trữ', 'Xóa'], 'legacy Draft exposes exactly Edit, Archive, and Delete');
+    ['X\u00f3a'], 'legacy Draft keeps Delete without redundant Edit or Archive actions');
   const archivedRow = list.querySelectorAll('tr').find((row) => row.textContent.includes(archived.title));
   assert.deepStrictEqual(archivedRow.querySelectorAll('button').map((button) => button.textContent),
     ['Kh\u00f4i ph\u1ee5c', 'X\u00f3a'], 'legacy Archived actions match current Archived actions');
-  await sourceRow.querySelectorAll('button').find((button) => button.textContent.includes('Mở')).dispatch('click');
+  await sourceRow.dispatch('click');
   await new Promise((resolve) => setImmediate(resolve));
   const forkButton = editor.querySelectorAll('button')[1];
   assert(forkButton, 'legacy published Paper offers creating a new editable draft');
@@ -928,15 +980,15 @@ async function testPublishedPaperForkAndStatusRendering() {
   assert(editor.querySelector('.qb-selected-list').textContent.includes('Loops Intro'), 'copy retains published ordered question selection');
   assert(!editor.querySelector('.qb-selected-list').textContent.includes('Array Basics'), 'source mutable Draft selection is excluded');
   editor.querySelector('#cp-title').value = 'Independent copy';
-  const saveButton = editor.querySelectorAll('button').find((button) => button.textContent.includes('Save Draft'));
-  assert(saveButton, 'new copy uses the current Save Draft control');
+  const saveButton = editor.querySelectorAll('button')[1];
+  assert(saveButton, `legacy copy controls: ${editor.querySelectorAll('button').map((button) => button.textContent).join('|')}`);
   await saveButton.dispatch('click');
   assert(created && created.id !== source.id, 'copy is persisted as an independent Paper');
   const post = requests.find((request) => request.url === '/api/admin/papers/independent' && request.method === 'POST');
   assert(post, 'copy uses the implemented independent Paper endpoint');
   assert.deepStrictEqual(JSON.parse(post.body).question_ids, ['q1', 'q2'], 'copy POST contains the published ordered question IDs');
   assert.strictEqual(JSON.stringify(source), sourceBefore, 'creating the copy does not mutate its source Paper');
-  console.log('PASS Published Paper copy uses the published snapshot and preserves its source');
+  console.log('PASS legacy Published Paper retains explicit copy behavior');
 }
 
 function deferred() {

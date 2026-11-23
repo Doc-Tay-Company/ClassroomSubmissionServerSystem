@@ -662,3 +662,70 @@
 #practice-catalog-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:10px;padding:10px}
 #practice-catalog-list .practice-card{border:1px solid var(--practice-line);border-radius:10px;min-width:0}
 #practice-catalog-list .empty-state{grid-column:1/-1}
+
+/* Keep the card content vertical so titles never compete with result actions. */
+#practice-catalog-list .practice-card {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+  min-width: 0;
+}
+
+#practice-catalog-list .practice-card-title {
+  display: block;
+  min-width: 0;
+}
+
+#practice-catalog-list .practice-card-title > div:first-child {
+  align-self: auto;
+  overflow-wrap: break-word;
+  word-break: normal;
+}
+
+#practice-catalog-list .practice-card-title > div:first-child > span:first-child {
+  min-width: 0;
+  overflow-wrap: break-word;
+}
+
+#practice-catalog-list .practice-card > .practice-meta {
+  align-self: stretch;
+}
+
+.practice-card-footer {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  min-width: 0;
+  margin-top: auto;
+}
+
+.practice-card-score {
+  min-width: 0;
+}
+
+.practice-card-score .practice-progress-bar {
+  height: 7px;
+  margin: 6px 0 0;
+}
+
+.practice-progress-fill {
+  transition: width 160ms ease;
+}
+
+.practice-card-actions {
+  justify-content: flex-end;
+}
+
+.practice-card-actions .btn-small {
+  max-width: 100%;
+  white-space: normal;
+  text-align: center;
+}
+
+@media (max-width: 680px) {
+  .practice-card-actions {
+    justify-content: flex-start;
+  }
+}

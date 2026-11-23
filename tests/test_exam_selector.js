@@ -205,6 +205,7 @@ async function main() {
   assert(publishButton, 'missing Publish button'); await publishButton.dispatch('click');
   assert(empty.toasts.some((message) => message.includes('chọn Bài code hoặc Bài nộp file')), 'missing clear validation for empty type');
   await empty.select('code');
+  assert(!empty.root.findAll((node) => node.tagName === 'SELECT' && node.children.some((child) => child.attrs?.value === 'once')).length, 'ZIP submission policy is not rendered for Code Exams');
   assert(empty.panelText().includes('Chế độ phân phối Paper'), 'selecting Code renders Code configuration');
   assert(!empty.panelText().includes('Đề dùng để phân phối'), 'Code selection hides ZIP configuration only');
   assert(!empty.panelText().includes('Khi nộp lại') && !empty.root.querySelector('[data-field="ext"]'),
@@ -215,6 +216,14 @@ async function main() {
   const zipSection = empty.root.findAll((node) => node.tagName === 'SECTION'
     && node.children.some((child) => child.tagName === 'H3' && child.textContent.includes('Bài nộp file')))[0];
   assert(zipSection, 'ZIP configuration section exists');
+  const zipGrid = zipSection.querySelector('.exam-grid');
+  assert(zipGrid && zipGrid.querySelector('[data-field="maxSub"]'), 'maximum submission control is placed in the ZIP exam grid');
+  const policy = zipGrid.findAll((node) => node.tagName === 'SELECT'
+    && node.children.some((child) => child.attrs?.value === 'once'))[0];
+  assert(policy, 'submission policy is placed in the ZIP exam grid');
+  policy.value = 'once'; await policy.dispatch('change');
+  const maxSub = zipGrid.querySelector('[data-field="maxSub"]');
+  maxSub.value = '3'; await maxSub.dispatch('input');
   assert(zipSection.textContent.indexOf('Khi nộp lại') > zipSection.textContent.indexOf('Đề dùng để phân phối'),
     'resubmission setting appears below the distribution controls in the ZIP section');
   assert(zipSection.textContent.includes('Loại file được chấp nhận'), 'accepted file types appear in the ZIP section');
@@ -235,6 +244,8 @@ async function main() {
   const zipPayload = JSON.parse(empty.calls.filter((call) => call.options.method).at(-1).options.body);
   assert.strictEqual(zipPayload.config.overwrite_previous, false, 'moved resubmission control still saves its value');
   assert.strictEqual(zipPayload.config.accepted_submission_extensions, '.pdf .docx', 'moved extensions control still saves its value');
+  assert.strictEqual(zipPayload.config.submission_policy, 'once', 'moved submission policy retains its existing binding');
+  assert.strictEqual(zipPayload.config.max_submissions, 3, 'moved maximum count retains its existing binding');
   await empty.select('code');
   await empty.fillBasics();
   await empty.save();
@@ -331,6 +342,19 @@ async function main() {
   const draftPayload = JSON.parse(draftSelection.calls.filter((call) => call.options.method).at(-1).options.body);
   assert.deepStrictEqual(draftPayload.items[0].distribution.paper_versions, [{ paper_id: 'paper-b' }]);
 
+  const revokedReferenceExam = examRecord([{
+    ...independentCode,
+    distribution: { mode: 'common', paper_versions: [{ paper_id: 'paper-a' }] },
+  }], { status: 'distributed' });
+  const revokedReferenceEditor = await openEditor(revokedReferenceExam, {
+    papers: papers.filter((paper) => paper.id !== 'paper-a'), editMode: true,
+  });
+  assert(revokedReferenceEditor.panelText().includes('Không còn Published/version hiện hành'),
+    'a revoked Paper still referenced by an Exam displays the existing unavailable-Paper warning');
+  await revokedReferenceEditor.saveChanges();
+  const revokedReferencePayload = JSON.parse(revokedReferenceEditor.calls.filter((call) => call.options.method).at(-1).options.body);
+  assert.deepStrictEqual(revokedReferencePayload.items[0].distribution.paper_versions, [{ paper_id: 'paper-a' }],
+    'the warning does not automatically remove the revoked Paper reference');
   const legacySelection = await openEditor(null, { papers });
   await legacySelection.select('code');
   const legacyChoice = legacySelection.paperChoice('Legacy Instructor Paper');

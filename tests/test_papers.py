@@ -144,26 +144,29 @@ class ExamPaperApiTests(unittest.TestCase):
         paper = published["paper"]
         self.assertEqual(paper["status"], "published")
         old_id, old_revision = paper["id"], paper["revision"]
-        source_before = storage.read_json("papers.json")[old_id]
-        status, rejected = self.request("PUT", f"/api/admin/papers/{old_id}", cookie=self.admin_cookie,
+        status, updated = self.request("PUT", f"/api/admin/papers/{old_id}", cookie=self.admin_cookie,
             payload={"expected_revision": old_revision, "title": "Independent edited", "metadata": {},
                 "question_ids": ["q-2"], "question_limit": 1, "question_filters": {}})
-        self.assertEqual(status, 409)
-        self.assertEqual(rejected["code"], "PAPER_PUBLISHED_IMMUTABLE")
-        self.assertEqual(storage.read_json("papers.json")[old_id], source_before)
+        self.assertEqual(status, 200, updated)
+        paper = updated["paper"]
+        self.assertEqual(paper["id"], old_id)
+        self.assertEqual(paper["status"], "published")
+        self.assertEqual(paper["title"], "Independent edited")
+        self.assertEqual(paper["revision"], old_revision + 1)
         stale_status, _ = self.request("PUT", f"/api/admin/papers/{old_id}", cookie=self.admin_cookie,
             payload={"expected_revision": old_revision, "title": "stale", "question_ids": ["q-2"]})
         self.assertEqual(stale_status, 409)
         status, copied = self.request("POST", f"/api/admin/papers/{old_id}/draft-copy", cookie=self.admin_cookie,
-            payload={"expected_revision": old_revision, "title": "Copy", "metadata": {},
+            payload={"expected_revision": paper["revision"], "title": "Copy", "metadata": {},
                 "question_ids": ["q-2"], "question_limit": 1, "question_filters": {}})
         self.assertEqual(status, 201, copied)
         self.assertNotEqual(copied["paper"]["id"], old_id)
         self.assertEqual(copied["paper"]["status"], "draft")
         self.assertEqual(copied["paper"]["question_ids"], ["q-2"])
         self.assertEqual(storage.read_json("papers.json")[old_id]["status"], "published")
+        self.assertEqual(storage.read_json("papers.json")[old_id]["title"], "Independent edited")
 
-    def test_exact_question_limit_is_required_for_publish_and_published_content_is_immutable(self):
+    def test_exact_question_limit_is_required_for_publish_and_published_edits(self):
         bank = {f"q-{index}": _question(f"q-{index}") for index in range(1, 12)}
         storage.write_json("questions.json", bank)
         ten_ids = list(bank)[:10]
@@ -186,8 +189,8 @@ class ExamPaperApiTests(unittest.TestCase):
                 payload={"expected_revision": published["revision"], "title": "Attempted edit",
                     "question_ids": ids, "question_limit": 10, "question_filters": {}},
             )
-            self.assertEqual(status, 409)
-            self.assertEqual(rejected["code"], "PAPER_PUBLISHED_IMMUTABLE")
+            self.assertEqual(status, 422)
+            self.assertEqual(rejected["code"], "QUESTION_LIMIT_MISMATCH")
             self.assertEqual(storage.read_json("papers.json")[published["id"]], before)
 
         too_many = self.create_independent_paper(list(bank), question_limit=10)
@@ -201,6 +204,29 @@ class ExamPaperApiTests(unittest.TestCase):
         status, accepted = self.publish(eleven)
         self.assertEqual(status, 200, accepted)
         self.assertEqual(len(accepted["paper"]["question_ids"]), 11)
+
+    def test_revoke_is_schema_v2_only_and_preserves_paper_snapshot(self):
+        paper = self.create_independent_paper()
+        status, published = self.publish(paper)
+        self.assertEqual(status, 200)
+        published = published["paper"]
+        status, revoked = self.request("POST", f"/api/admin/papers/{paper['id']}/revoke",
+            cookie=self.admin_cookie, payload={"expected_revision": published["revision"]})
+        self.assertEqual(status, 200, revoked)
+        revoked = revoked["paper"]
+        self.assertEqual(revoked["status"], "draft")
+        self.assertEqual(revoked["id"], paper["id"])
+        self.assertEqual(revoked["revision"], published["revision"] + 1)
+        self.assertEqual(storage.read_json("papers.json")[paper["id"]]["questions"], published["questions"])
+
+        legacy = self.create_paper()
+        status, legacy_published = self.publish(legacy)
+        self.assertEqual(status, 200)
+        status, body = self.request("POST", f"/api/admin/papers/{legacy['id']}/revoke",
+            cookie=self.admin_cookie, payload={"expected_revision": legacy_published["paper"]["revision"]})
+        self.assertEqual(status, 409)
+        self.assertEqual(body["code"], "PAPER_REVOKE_UNSUPPORTED")
+        self.assertEqual(storage.read_json("papers.json")[legacy["id"]]["status"], "published")
 
     def test_draft_can_be_saved_with_incomplete_question_selection(self):
         paper = self.create_independent_paper(["q-1"])

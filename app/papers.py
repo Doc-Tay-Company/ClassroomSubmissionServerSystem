@@ -450,11 +450,6 @@ def update_paper(paper_id: str, payload: Mapping, actor: str, ip: str) -> dict:
         _require_revision(paper, payload)
         if paper.get("status") == "archived":
             raise PaperError("Archived papers cannot be edited; restore the paper first", 409)
-        if paper.get("schema_version", 1) >= 2 and paper.get("status") == "published":
-            raise PaperError(
-                "Published Papers are immutable; create an independent Paper to make changes",
-                409, "PAPER_PUBLISHED_IMMUTABLE",
-            )
         if paper.get("schema_version", 1) >= 2:
             title = _validate_title(payload.get("title", paper.get("title")))
             metadata = _validate_metadata(payload.get("metadata", paper.get("metadata", {})))
@@ -691,6 +686,27 @@ def archive_paper(paper_id: str, payload: Mapping, actor: str, ip: str) -> dict:
 
     updated = update_json("papers.json", change)
     audit("paper.archived", actor, ip, {"paper_id": paper_id})
+    return _serialize_paper(updated)
+
+
+def revoke_paper(paper_id: str, payload: Mapping, actor: str, ip: str) -> dict:
+    if not isinstance(payload, Mapping):
+        raise PaperError("Revoke request must be a JSON object", 422)
+    with transaction():
+        papers = read_json("papers.json")
+        paper = papers.get(paper_id)
+        if not paper:
+            raise PaperError("Paper was not found", 404, "PAPER_NOT_FOUND")
+        _require_revision(paper, payload)
+        if paper.get("schema_version", 1) < 2:
+            raise PaperError("Revoke is supported only for schema-v2 Papers", 409, "PAPER_REVOKE_UNSUPPORTED")
+        if paper.get("status") != "published":
+            raise PaperError("Only published Papers can be revoked", 409, "PAPER_NOT_PUBLISHED")
+        updated = {**paper, "status": "draft", "revision": paper.get("revision", 1) + 1,
+            "updated_at": utc_now()}
+        papers[paper_id] = updated
+        write_json("papers.json", papers)
+    audit("paper.revoked", actor, ip, {"paper_id": paper_id, "revision": updated["revision"]})
     return _serialize_paper(updated)
 
 

@@ -65,6 +65,7 @@ from .papers import (
     preview_paper,
     publish_paper,
     restore_paper,
+    revoke_paper,
     update_paper,
 )
 from .code_exams import (
@@ -633,6 +634,8 @@ class Handler(BaseHTTPRequestHandler):
                     return self._json({"ok":True,"paper":create_draft_copy(paper_id,payload,sess["user_id"],client_ip(req))},201)
                 if action=="archive":
                     return self._json({"ok":True,"paper":archive_paper(paper_id,payload,sess["user_id"],client_ip(req))})
+                if action=="revoke":
+                    return self._json({"ok":True,"paper":revoke_paper(paper_id,payload,sess["user_id"],client_ip(req))})
                 if action=="restore":
                     return self._json({"ok":True,"paper":restore_paper(paper_id,payload,sess["user_id"],client_ip(req))})
                 if action=="delete":

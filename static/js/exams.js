@@ -453,10 +453,7 @@
           stackField("Nhãn", h("select", { value: form.tag, on: { change: bind("tag") } },
             ...Object.entries(TAGS).map(([value, label]) => h("option", { value, selected: form.tag === value }, label)))),
           stackField("Thời lượng (phút)", mark("duration", h("input", { type: "number", min: 1, max: 1440, value: form.duration, on: { input: bind("duration") } }))),
-          stackField("Chính sách nộp bài", h("select", { on: { change: bind("policy") } },
-            h("option", { value: "once", selected: form.policy === "once" }, "Một lần duy nhất"),
-            h("option", { value: "configurable", selected: form.policy === "configurable" }, "Theo số lần Admin cấu hình"))),
-          stackField("Số lần nộp tối đa", mark("maxSub", h("input", { type: "number", min: 1, max: 20, value: form.maxSub, on: { input: bind("maxSub") } })))),
+        ),
         h("label", { class: "checkbox-row" }, h("input", { type: "checkbox", checked: form.pwEnabled, on: { change: (e) => { form.pwEnabled = e.target.checked; scheduleAutosave(); render(); } } }), " Yêu cầu mật khẩu đề thi"),
         form.pwEnabled
           ? stackField("Mật khẩu đề thi", mark("password", h("input", { type: "password", autocomplete: "new-password", value: form.pw, placeholder: form.hasPw ? "Đã có mật khẩu — chỉ nhập khi muốn đổi" : "Nhập mật khẩu", on: { input: bind("pw") } })))
@@ -647,6 +644,10 @@
           h("option", { value: "custom", selected: zip.mode === "custom" }, "Quy tắc tùy chỉnh theo chữ số cuối MSSV"))),
         ...extra,
         h("div", { class: "exam-grid" },
+          stackField("Chính sách nộp bài", h("select", { on: { change: bind("policy") } },
+            h("option", { value: "once", selected: form.policy === "once" }, "Một lần duy nhất"),
+            h("option", { value: "configurable", selected: form.policy === "configurable" }, "Theo số lần Admin cấu hình"))),
+          stackField("Số lần nộp tối đa", mark("maxSub", h("input", { type: "number", min: 1, max: 20, value: form.maxSub, on: { input: bind("maxSub") } }))),
           stackField("Khi nộp lại", h("select", { on: { change: bind("overwrite", "yesno") } },
             h("option", { value: "true", selected: form.overwrite }, "Ghi đè file trước"),
             h("option", { value: "false", selected: !form.overwrite }, "Giữ các file trước"))),

@@ -292,12 +292,25 @@
 
   $("import-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
+    const form = event.currentTarget;
+    let data;
     try {
-      const data = await window.cssRequest("/api/admin/accounts/import", { method: "POST", body: new FormData(event.currentTarget) });
-      show("import-result", `Đã tạo ${data.created_count} tài khoản.` + (data.errors?.length ? ` Có ${data.errors.length} dòng lỗi.` : ""));
-      if (!data.errors?.length) event.currentTarget.reset();
+      data = await window.cssRequest("/api/admin/accounts/import", { method: "POST", body: new FormData(form) });
+    } catch (error) {
+      show("import-result", error.message, true);
+      toastError(error);
+      return;
+    }
+    const duplicates = data.duplicates?.length ? ` Bỏ qua ${data.duplicates.length} MSSV đã tồn tại.` : "";
+    const errors = data.errors?.length ? ` Có ${data.errors.length} dòng lỗi.` : "";
+    show("import-result", `Đã tạo ${data.created_count} tài khoản.${duplicates}${errors}`);
+    if (!data.errors?.length) form.reset();
+    try {
       await Promise.all([loadAccounts(), loadMonitor()]);
-    } catch (error) { show("import-result", error.message, true); toastError(error); }
+    } catch (error) {
+      show("import-result", `Yêu cầu đã tạo ${data.created_count} tài khoản, nhưng không thể làm mới danh sách: ${error.message}`, true);
+      toastError(error);
+    }
   });
   $("notification-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();

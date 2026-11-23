@@ -45,9 +45,12 @@
   let listGeneration = 0;
   let leaveEditorGuard = null;
   let beforeUnloadHandler = null;
+  let cancelEditorAutosave = null;
 
   function beginView() {
     if (leaveEditorGuard && !leaveEditorGuard()) return null;
+    if (cancelEditorAutosave) cancelEditorAutosave();
+    cancelEditorAutosave = null;
     leaveEditorGuard = null;
     if (beforeUnloadHandler) window.removeEventListener?.("beforeunload", beforeUnloadHandler);
     beforeUnloadHandler = null;
@@ -88,19 +91,39 @@
         : paper.status === "archived" ? "Lưu trữ" : "Nháp";
       const statusClass = paper.status === "published" ? "status-green" : "status-gray";
       const action = (label, fn, cls = "btn-secondary") => h("button", {
-        type: "button", class: `btn btn-small ${cls}`, on: { click: (event) => { event.stopPropagation(); fn(); } },
+        type: "button", class: "btn btn-small " + cls, on: {
+          click: (event) => { event.stopPropagation(); fn(); },
+          keydown: (event) => event.stopPropagation(),
+        },
       }, label);
+      const isPublished = paper.status === "published";
+      const isDraft = paper.status === "draft";
+      const isOpenable = isPublished || isDraft;
+      const openRow = () => isPublished ? openPaper(paper.id) : isDraft ? openEditor(paper.id) : undefined;
       const actions = [];
-      if (paper.status === "draft") actions.push(action("Chỉnh sửa", () => openEditor(paper.id)));
-      else if (paper.status === "published") actions.push(action("Mở", () => openPaper(paper.id)));
-      if (paper.status === "archived") actions.push(action("Khôi phục", () => restore(paper)));
-      else if (paper.status === "published" && paper.has_draft) actions.push(action("Chỉnh sửa", () => openEditor(paper.id)));
-      if (paper.status !== "archived") actions.push(action("Lưu trữ", () => archive(paper), "btn-ghost"));
-      actions.push(action("Xóa", () => removePaper(paper), "btn-danger"));
+      if (paper.status === "archived") actions.push(action("Kh\u00f4i ph\u1ee5c", () => restore(paper)));
+      if (isPublished && (Number(paper.schema_version) || 1) < 2 && paper.has_draft) {
+        actions.push(action("Ch\u1ec9nh s\u1eeda b\u1ea3n nh\u00e1p", () => openEditor(paper.id)));
+      }
+      if (isPublished && paper.schema_version >= 2) actions.push(action("Thu h\u1ed3i", () => revoke(paper)));
+      actions.push(action("X\u00f3a", () => removePaper(paper), "btn-danger"));
       const metadata = Object.entries(paper.metadata || {})
         .map(([key, value]) => `${key}: ${typeof value === "string" ? value : JSON.stringify(value)}`)
         .join(" · ") || "—";
-      return h("tr", {},
+      return h("tr", {
+        tabindex: isOpenable ? "0" : undefined,
+        "aria-label": isPublished ? "Xem tr\u01b0\u1edbc Paper " + paper.title : isDraft ? "Ch\u1ec9nh s\u1eeda Paper " + paper.title : undefined,
+        on: {
+          click: openRow,
+          keydown: (event) => {
+            if (event.target !== event.currentTarget) return;
+            if (event.key === "Enter" || event.key === " " || event.key === "Spacebar") {
+              event.preventDefault();
+              openRow();
+            }
+          },
+        },
+      },
         h("td", {}, h("strong", {}, paper.title),
           paper.warnings?.length ? h("span", { class: "qb-change-badge", title: `${paper.warnings.length} câu hỏi nguồn cần lưu ý` }, "!") : null),
         h("td", {}, metadata),
@@ -151,7 +174,7 @@
           h("div", { class: "form-actions" },
             h("button", { type: "button", class: "btn btn-secondary", on: { click: backToList } }, "Back to Papers"),
             current.status === "published"
-              ? h("button", { type: "button", class: "btn btn-primary", on: { click: () => openEditor(current.id, { createFromPublished: true }) } }, "\u0043h\u1ec9nh s\u1eeda b\u1ea3n m\u1edbi")
+              ? h("button", { type: "button", class: "btn btn-primary", on: { click: () => openEditor(current.id) } }, "\u0043h\u1ec9nh s\u1eeda")
               : current.status === "draft" ? h("button", { type: "button", class: "btn btn-primary", on: { click: () => openEditor(current.id) } }, "\u0043h\u1ec9nh s\u1eeda") : null)),
         current.preview ? renderPreview(current.preview) : h("p", { class: "muted" }, "No preview available."));
       return;
@@ -247,7 +270,7 @@
     const independent = current?.schema_version >= 2;
     const ownerKey = document.querySelector?.(".sidebar strong")?.textContent.trim() || "unknown";
     const editorContext = current?.id || "new-paper";
-    const cacheKey = `css-paper-editor:${encodeURIComponent(ownerKey)}:${encodeURIComponent(editorContext)}`;
+    let cacheKey = `css-paper-editor:${encodeURIComponent(ownerKey)}:${encodeURIComponent(editorContext)}`;
     activeDraftCacheKey = cacheKey;
     const activeVersion = current?.versions?.[current.current_version_id];
     const draft = createFromPublishedSourceId ? (independent ? current : {
@@ -364,7 +387,10 @@
       on: { click: clearSelection } }, "Bỏ chọn tất cả");
     const selectionNotice = h("p", { class: "fine-print", role: "status", "data-role": "selection-status" });
     const previewHost = current?.preview ? renderPreview(current.preview) : h("div", {});
-    const saveButton = h("button", { type: "button", class: "btn btn-primary", disabled: !canEdit || busy, on: { click: save } }, independent && current?.status === "published" && createFromPublishedSourceId === null ? "Save Changes" : "Save Draft");
+    const saveButton = independent && current?.status === "published" && createFromPublishedSourceId === null
+      ? h("button", { type: "button", class: "btn btn-primary", disabled: !canEdit || busy, on: { click: save } }, "L\u01b0u thay \u0111\u1ed5i")
+      : creatingFromPublished ? h("button", { type: "button", class: "btn btn-primary", disabled: busy, on: { click: save } }, "L\u01b0u b\u1ea3n nh\u00e1p")
+        : null;
     const publishButton = h("button", { type: "button", class: "btn btn-primary", disabled: !canEdit || busy, on: { click: publish } }, independent ? "Publish Paper" : "Publish Version · Xuất bản version");
     const saveDraftCopyButton = h("button", { type: "button", class: "btn btn-secondary", disabled: !canEdit || busy || !independent || current?.status !== "published" || createFromPublishedSourceId !== null, on: { click: saveDraftCopy } }, "Save Draft Copy");
 
@@ -404,6 +430,60 @@
         question_limit: quantityInput.value,
         question_filters: { ...filters, tags: [...filters.tags].sort() },
       });
+    }
+
+    const draftAutoSaveEnabled = createFromPublishedSourceId === null && (!current || current.status === "draft");
+    let autoSaveReady = false;
+    let autoSaveTimer = null;
+    let autoSaveAfterCurrent = false;
+    let autoSaveBlockedFingerprint = null;
+    const cancelAutoSave = () => {
+      if (autoSaveTimer !== null) clearTimeout(autoSaveTimer);
+      autoSaveTimer = null;
+      autoSaveReady = false;
+    };
+    cancelEditorAutosave = cancelAutoSave;
+    function persistLocalDraft() {
+      if (!autoSaveReady || !draftAutoSaveEnabled) return;
+      try {
+        localStorage.setItem(cacheKey, JSON.stringify({
+          base_revision: current?.revision ?? null,
+          title: titleInput.value,
+          metadata: metadataInput.value,
+          selected,
+          quantity: quantityInput.value,
+          filters: { ...filters, tags: [...filters.tags] },
+          tab_id: editorTabId,
+        }));
+      } catch { /* Keep editing available if browser storage is unavailable. */ }
+    }
+    function scheduleDraftAutosave() {
+      if (!autoSaveReady || !draftAutoSaveEnabled) return;
+      const fingerprint = editorFingerprint();
+      if (fingerprint === savedFingerprint) {
+        try { localStorage.removeItem(cacheKey); } catch { /* Ignore unavailable storage. */ }
+        if (autoSaveTimer !== null) clearTimeout(autoSaveTimer);
+        autoSaveTimer = null;
+        return;
+      }
+      if (autoSaveBlockedFingerprint === fingerprint) return;
+      autoSaveBlockedFingerprint = null;
+      persistLocalDraft();
+      if (autoSaveTimer !== null) clearTimeout(autoSaveTimer);
+      autoSaveTimer = setTimeout(() => {
+        autoSaveTimer = null;
+        if (busy) { autoSaveAfterCurrent = true; return; }
+        if (!titleInput.value.trim()) return;
+        void save();
+      }, 600);
+    }
+    async function flushDraftAutosave() {
+      if (!draftAutoSaveEnabled || !hasUnsavedEditorState()) return true;
+      if (autoSaveTimer !== null) clearTimeout(autoSaveTimer);
+      autoSaveTimer = null;
+      if (busy) { autoSaveAfterCurrent = true; return false; }
+      if (!titleInput.value.trim()) return false;
+      return save();
     }
 
     let savedFingerprint = isNew ? null : JSON.stringify({
@@ -448,8 +528,8 @@
         && !editorFeedback.startsWith("B\u1ea3n nh\u00e1p c\u1ea7n");
       const saving = busy && editorOperation === "save";
       const state = saving ? { key: "saving", label: "\u0110ang l\u01b0u", icon: "fa-circle-o-notch fa-spin" }
-        : saveFailed ? { key: "error", label: "Kh\u00f4ng l\u01b0u \u0111\u01b0\u1ee3c", icon: "fa-exclamation-circle" }
-          : creatingPaper ? { key: "unsaved", label: "Ch\u01b0a l\u01b0u", icon: "fa-circle-o" }
+        : saveFailed ? { key: "error", label: "L\u01b0u th\u1ea5t b\u1ea1i", icon: "fa-exclamation-circle" }
+          : (isNew || createFromPublishedSourceId !== null) ? { key: "unsaved", label: "Ch\u01b0a l\u01b0u", icon: "fa-circle-o" }
             : dirty ? { key: "dirty", label: "C\u00f3 thay \u0111\u1ed5i ch\u01b0a l\u01b0u", icon: "fa-exclamation-circle" }
               : { key: "saved", label: "\u0110\u00e3 l\u01b0u", icon: "fa-check-circle" };
       const metadata = [];
@@ -489,7 +569,7 @@
       operationStatus.textContent = editorOperation === "publish" ? "\u0110ang xu\u1ea5t b\u1ea3n phi\u00ean b\u1ea3n\u2026" : "";
       const hasDraftChanges = dirty || isNew;
       const unchangedPublished = independent && current?.status === "published" && !dirty;
-      saveButton.disabled = !canEdit || busy || unchangedPublished || !titleInput.value.trim() || !draftSelectionIsValid(filteredQuestions());
+      if (saveButton) saveButton.disabled = !canEdit || busy || unchangedPublished || !titleInput.value.trim() || !draftSelectionIsValid(filteredQuestions());
       saveDraftCopyButton.disabled = !canEdit || busy || !independent || current?.status !== "published"
         || !titleInput.value.trim() || !draftSelectionIsValid(filteredQuestions());
       publishButton.disabled = !canEdit || busy || !hasDraftChanges && current?.status === "published"
@@ -526,6 +606,7 @@
         ? `${selectedMatchingCount}/${pool.length} câu phù hợp đang được chọn` + (selected.length > selectedMatchingCount ? ` · ${selected.length - selectedMatchingCount} câu nằm ngoài bộ lọc` : "") + ". Random và Chọn tất cả thay toàn bộ danh sách; nhóm checkbox giữ lại câu ngoài bộ lọc."
         : "Không có câu phù hợp; các câu đã chọn ngoài bộ lọc vẫn được giữ.";
       updateLifecycleStatus();
+      scheduleDraftAutosave();
       const selectedMatching = new Set(pool.map((q) => q.id));
       const available = pool.filter((q) => !selected.includes(q.id));
       availableHost.replaceChildren(...(available.length ? available.map((q) => h("div", { class: "qb-item" },
@@ -662,8 +743,15 @@
     titleInput.addEventListener("input", renderQuestions);
     metadataInput.addEventListener("input", renderQuestions);
     const hasUnsavedEditorState = () => isNew || createFromPublishedSourceId !== null || editorFingerprint() !== savedFingerprint;
-    leaveEditorGuard = () => !hasUnsavedEditorState()
-      || window.confirm("Bạn có thay đổi chưa được lưu thành bản nháp. Rời trình chỉnh sửa sẽ làm mất các thay đổi này. Tiếp tục?");
+    leaveEditorGuard = () => {
+      if (!hasUnsavedEditorState()) return true;
+      if (draftAutoSaveEnabled) {
+        if (isNew && !titleInput.value.trim()) return window.confirm("B\u1ecf Draft m\u1edbi ch\u01b0a c\u00f3 t\u00ean?");
+        void flushDraftAutosave();
+        return false;
+      }
+      return window.confirm("B\u1ea3n ch\u1ec9nh s\u1eeda ch\u01b0a l\u01b0u s\u1ebd b\u1ecb b\u1ecf. Ti\u1ebfp t\u1ee5c?");
+    };
     const warnBeforeLeaving = (event) => {
       if (!isCurrentView(editorGeneration) || !hasUnsavedEditorState()) return;
       event.preventDefault();
@@ -672,19 +760,21 @@
     if (beforeUnloadHandler) window.removeEventListener?.("beforeunload", beforeUnloadHandler);
     beforeUnloadHandler = warnBeforeLeaving;
     window.addEventListener("beforeunload", beforeUnloadHandler);
-    savedFingerprint = creatingPaper ? null : editorFingerprint();
     renderQuestions();
+    autoSaveReady = true;
+    if (draftAutoSaveEnabled && hasUnsavedEditorState()) scheduleDraftAutosave();
 
-    editorHost.replaceChildren(
-        h("div", { class: "panel-heading" }, h("div", {}, h("h2", {}, creatingFromPublished ? `Tạo Paper từ ${activeVersion?.id || "Published Version"}` : isNew ? "Tạo Paper" : `Chỉnh sửa Paper: ${current.title}`), h("p", { class: "muted" }, "Danh sách đã chọn giữ nguyên thứ tự. Câu mới chỉ lấy từ câu hỏi Published.")),
+    editorHost.replaceChildren(...[
+        h("div", { class: "panel-heading" }, h("div", {}, h("h2", { "data-role": "paper-editor-heading" }, creatingFromPublished ? `Tạo Paper từ ${activeVersion?.id || "Published Version"}` : isNew ? "Tạo Paper" : `Chỉnh sửa Paper: ${current.title}`), h("p", { class: "muted" }, "Danh sách đã chọn giữ nguyên thứ tự. Câu mới chỉ lấy từ câu hỏi Published.")),
         h("div", { class: "form-actions" },
-          h("button", { type: "button", class: "btn btn-secondary", on: { click: backToList } }, "Cancel"),
+          h("button", { type: "button", class: "btn btn-secondary", on: { click: backToList } },
+            current?.status === "draft" || !current ? "Quay l\u1ea1i danh s\u00e1ch" : "H\u1ee7y b\u1ecf"),
           saveButton, independent && current?.status === "published" && createFromPublishedSourceId === null ? saveDraftCopyButton : null,
           (!independent || current?.status === "draft") ? publishButton : null)),
       lifecycleStatus, operationStatus,
-      creatingPaper ? h("p", { class: "fine-print", role: "status" }, creatingFromPublished
+      creatingPaper ? h("p", { class: "fine-print", role: "status", "data-role": "paper-create-note" }, creatingFromPublished
         ? "Lưu thành bản nháp sẽ tạo Paper độc lập; Published Paper gốc không thay đổi."
-        : "Lưu thành bản nháp để tạo Paper ID; các thay đổi sau đó cần được lưu bằng nút Save.") : null,
+        : "Draft t\u1ef1 \u0111\u1ed9ng l\u01b0u sau khi ch\u1ec9nh s\u1eeda.") : null,
       current?.status === "archived" ? h("div", { class: "alert alert-warning" }, "Paper đang lưu trữ. Khôi phục Paper trước khi chỉnh sửa.") : null,
       ...(!creatingFromPublished ? current?.draft?.warnings || [] : []).map((item) => h("div", { class: "alert alert-warning", role: "status" }, `${item.title || item.question_id}: ${item.warning}`)),
       h("div", { class: "stack-form" }, h("label", { for: "cp-title" }, "Tên Paper"), titleInput, h("label", { for: "cp-metadata" }, "Metadata dạng JSON"), metadataInput),
@@ -707,11 +797,14 @@
         h("label", { class: "checkbox-row" }, filteredSelection, " Chọn/bỏ chọn nhóm câu phù hợp (giữ câu ngoài bộ lọc)"),
         randomButton, selectAllButton, deselectAllButton, selectionNotice),
       previewHost,
-      h("div", { id: "cp-editor-notice", class: "notice hidden" }));
+      h("div", { id: "cp-editor-notice", class: "notice hidden" })].filter((node) => node !== null && node !== undefined && node !== false));
 
     async function save() {
       if (busy) return false;
+      if (autoSaveTimer !== null) clearTimeout(autoSaveTimer);
+      autoSaveTimer = null;
       const sourcePaperId = createFromPublishedSourceId;
+      const wasNew = isNew;
       const targetPaperId = sourcePaperId ? null : current?.id || null;
       const expectedRevision = current?.revision;
       const creating = isNew || sourcePaperId !== null;
@@ -727,6 +820,7 @@
         if (!metadata || Array.isArray(metadata) || typeof metadata !== "object") throw new Error("Metadata phải là JSON object.");
       } catch (error) {
         setNotice(document.getElementById("cp-editor-notice"), `Metadata không hợp lệ: ${error.message}`, true);
+        autoSaveBlockedFingerprint = editorFingerprint();
         return false;
       }
       const filteredPool = filteredQuestions();
@@ -734,6 +828,7 @@
       if (!titleInput.value.trim() || !draftSelectionIsValid(filteredPool)) {
         editorFeedback = "Bản nháp cần tên Paper hợp lệ; số lượng phải nguyên, không nhỏ hơn số câu đã chọn và nằm trong pool hiện tại. Có thể lưu khi chưa chọn đủ N câu.";
         editorFeedbackError = true;
+        autoSaveBlockedFingerprint = editorFingerprint();
         updateLifecycleStatus();
         return false;
       }
@@ -765,14 +860,32 @@
         sessionPaperId = data.paper.id;
         current = data.paper;
         isNew = false;
-        selected = [...(current.draft?.question_ids || selected)];
-        savedFingerprint = editorFingerprint();
-        try { localStorage.removeItem(cacheKey); } catch { /* Ignore unavailable storage. */ }
+        selected = [...(current.draft?.question_ids || current.question_ids || selected)];
+        autoSaveBlockedFingerprint = null;
+        if (wasNew) {
+          const heading = editorHost.querySelector('[data-role="paper-editor-heading"]');
+          if (heading) heading.textContent = "Ch\u1ec9nh s\u1eeda Paper: " + current.title;
+          const createNote = editorHost.querySelector('[data-role="paper-create-note"]');
+          if (createNote) createNote.hidden = true;
+        }
+        savedFingerprint = submittedFingerprint;
+        if (wasNew && current.id) {
+          const nextCacheKey = "css-paper-editor:" + encodeURIComponent(ownerKey) + ":" + encodeURIComponent(current.id);
+          if (nextCacheKey !== cacheKey) {
+            try { localStorage.removeItem(cacheKey); } catch { /* Ignore unavailable storage. */ }
+            cacheKey = nextCacheKey;
+            activeDraftCacheKey = nextCacheKey;
+          }
+        }
+        if (editorFingerprint() === submittedFingerprint) {
+          try { localStorage.removeItem(cacheKey); } catch { /* Ignore unavailable storage. */ }
+        } else {
+          persistLocalDraft();
+          autoSaveAfterCurrent = true;
+        }
         editorFeedback = `Đã lưu bản nháp tại revision ${current.revision}.`;
         editorFeedbackError = false;
         stalePaperId = null;
-        await loadList();
-        if (!ownsEditor()) return false;
         saved = true;
       } catch (error) {
         if (!ownsEditor()) return false;
@@ -783,20 +896,22 @@
           ? `Không lưu được vì Paper đã thay đổi ở nơi khác. Các chỉnh sửa hiện tại vẫn được giữ. ${errorText(error)}`
           : `Lưu bản nháp thất bại: ${errorText(error)}`;
         editorFeedbackError = true;
+        autoSaveBlockedFingerprint = editorFingerprint();
         if (["QUESTION_LIMIT_MISMATCH", "INVALID_QUESTION_LIMIT"].includes(error.code)) editorFeedback = paperErrorText(error);
       } finally {
         if (editorGeneration === viewGeneration) {
           busy = false;
           editorOperation = "";
           updateLifecycleStatus();
+          const pendingEdits = autoSaveAfterCurrent;
+          autoSaveAfterCurrent = false;
+          if (saved && (pendingEdits || hasUnsavedEditorState())) scheduleDraftAutosave();
         }
       }
       if (saved) {
         updateLifecycleStatus();
-        if (creating) {
-          if (!ownsEditor()) return false;
-          backToList({ reload: false });
-        }
+        if (creating && isNew) return false;
+        if (current?.status === "published" && !hasUnsavedEditorState()) backToList();
         return true;
       }
       renderQuestions();
@@ -885,9 +1000,13 @@
 
   }
 
-  async function archive(paper) {
+  async function revoke(paper) {
+    if (!window.confirm("Thu h\u1ed3i Paper? Paper s\u1ebd chuy\u1ec3n v\u1ec1 Nh\u00e1p; c\u00e1c Release \u0111\u00e3 t\u1ea1o v\u1eabn gi\u1eef snapshot.")) return;
     try {
-      await request(`/api/admin/papers/${encodeURIComponent(paper.id)}/archive`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ expected_revision: paper.revision }) });
+      await request("/api/admin/papers/" + encodeURIComponent(paper.id) + "/revoke", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ expected_revision: paper.revision }),
+      });
       await loadList();
     } catch (error) { setNotice(notice, errorText(error), true); }
   }

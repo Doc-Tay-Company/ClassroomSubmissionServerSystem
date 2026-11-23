@@ -201,6 +201,29 @@ class PaperDistributionTests(unittest.TestCase):
         self.assertEqual([q["question_id"] for q in code_exams.get_code_exam(subsequent_snapshot_id)["questions"]], ["q-2"])
 
 
+    def test_published_paper_edit_preserves_existing_release_snapshot(self):
+        paper = self._publish_independent_paper("Published before release", ["q-1"])
+        exam = self._release("common", [{"paper_id": paper["id"]}])
+        self._start(exam["id"])
+        exams.start_exam("student1", "", "127.0.0.1")
+        assignment = storage.read_json("exams.json")[exam["id"]]["items"][0]["paper_code_exam_ids"]
+        snapshot_id = next(iter(assignment.values()))
+        original_snapshot = code_exams.get_code_exam(snapshot_id)
+        self.assertEqual([question["question_id"] for question in original_snapshot["questions"]], ["q-1"])
+
+        current = papers.get_paper(paper["id"])
+        updated = papers.update_paper(paper["id"], {
+            "expected_revision": current["revision"], "title": "Updated after release", "metadata": {},
+            "question_ids": ["q-2"], "question_limit": 1, "question_filters": {},
+        }, "teacher", "127.0.0.1")
+        self.assertEqual(updated["id"], paper["id"])
+        self.assertEqual(updated["status"], "published")
+        self.assertEqual(updated["questions"][0]["question_id"], "q-2")
+        self.assertEqual([question["question_id"] for question in code_exams.get_code_exam(snapshot_id)["questions"]], ["q-1"])
+        self.assertEqual(
+            [question["question_id"] for question in code_exams.get_student_code_exam("student1")["questions"]],
+            ["q-1"], "the released Student assignment keeps the frozen Paper snapshot",
+        )
     def test_existing_exam_keeps_old_published_version_while_new_exam_uses_new_version(self):
         paper = papers.create_paper({"title": "Versioned source", "question_ids": ["q-1"]}, "teacher", "127.0.0.1")
         first = papers.publish_paper(paper["id"], {"expected_revision": paper["revision"]}, "teacher", "127.0.0.1")
